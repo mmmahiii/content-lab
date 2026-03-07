@@ -1,0 +1,12 @@
+{
+  "name": "content-lab",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "lint": "pnpm --filter web lint && pnpm --filter @content-lab/shared-ts lint",
+    "format": "pnpm --filter web format && pnpm --filter @content-lab/shared-ts format",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter @content-lab/shared-ts typecheck",
+    "test": "pnpm --filter web test && pnpm --filter @content-lab/shared-ts test"
+  }
+}

@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "content-lab-shared"
+version = "0.1.0"
+description = "Shared models, settings, and utilities for Content Lab"
+authors = ["Ryan <you@example.com>"]
+packages = [{ include = "content_lab_shared", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.7.0"
+pydantic-settings = "^2.3.0"
+structlog = "^24.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+mypy = "^1.10.0"
+ruff = "^0.4.10"
+black = "^24.4.2"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-select = ["I", "UP", "B", "SIM"]
+ignore = ["B008"]  # FastAPI Depends pattern
+src = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+plugins = []
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

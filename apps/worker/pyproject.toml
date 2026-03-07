@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "content-lab-worker"
+version = "0.1.0"
+description = "Dramatiq workers for Content Lab"
+authors = ["Ryan <you@example.com>"]
+packages = [{ include = "content_lab_worker", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+dramatiq = "^1.17.0"
+redis = "^5.0.4"
+content-lab-shared = {path = "../../packages/shared/py", develop = true}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+mypy = "^1.10.0"
+ruff = "^0.4.10"
+black = "^24.4.2"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-select = ["I", "UP", "B", "SIM"]
+src = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
