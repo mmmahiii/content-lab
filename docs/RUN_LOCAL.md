@@ -5,6 +5,10 @@
 docker compose -f infra/docker-compose.yml up -d
 ```
 
+If you need local env vars:
+- Bash: `cp infra/.env.example .env`
+- PowerShell: `Copy-Item infra/.env.example .env`
+
 Services:
 - Postgres: `localhost:5432`
 - Redis: `localhost:6379`
@@ -37,3 +41,7 @@ poetry run python -m content_lab_orchestrator.cli list
 pnpm install
 pnpm --filter web dev
 ```
+
+## Full Python checks
+- Bash: `./scripts/py_check.sh`
+- PowerShell: `./scripts/py_check.ps1`
