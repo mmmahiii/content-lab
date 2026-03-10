@@ -32,6 +32,7 @@ src = ["src"]
 python_version = "3.11"
 strict = true
 warn_unused_configs = true
+ignore_missing_imports = true
 plugins = []
 
 [build-system]

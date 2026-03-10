@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from content_lab_shared.errors import ErrorDetail, ErrorResponse
@@ -18,7 +18,7 @@ async def health() -> dict[str, str]:
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(_request, exc: Exception):
+async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     # Avoid leaking sensitive details; store full exception in logs only.
     payload = ErrorResponse(error=ErrorDetail(code="internal_error", message="Internal server error"))
     return JSONResponse(status_code=500, content=payload.model_dump())
