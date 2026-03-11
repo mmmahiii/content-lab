@@ -30,7 +30,7 @@ importers:
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.14)
       eslint:
-        specifier: ^8.56.0
+        specifier: ^8.57.0
         version: 8.57.1
       eslint-config-next:
         specifier: 15.0.0
