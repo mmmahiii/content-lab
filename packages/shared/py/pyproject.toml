@@ -24,9 +24,11 @@ target-version = ['py311']
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-select = ["I", "UP", "B", "SIM"]
-ignore = ["B008"]  # FastAPI Depends pattern
 src = ["src"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B", "SIM"]
+ignore = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"
