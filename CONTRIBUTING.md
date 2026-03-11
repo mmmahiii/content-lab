@@ -24,6 +24,10 @@ poetry run mypy .
 poetry run pytest
 ```
 
+Or run the repo-wide checks:
+- Bash: `./scripts/py_check.sh`
+- PowerShell: `./scripts/py_check.ps1`
+
 ### Web (from repo root)
 ```bash
 pnpm lint

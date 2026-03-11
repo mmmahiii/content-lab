@@ -13,10 +13,18 @@ Local-first MVP for **ready-to-post reel packages** (MP4 + cover + captions + po
 
 ## Quickstart (local)
 
+Prereqs: Docker Desktop, Python 3.11, Poetry, Node 20+, and pnpm 9.
+
 ### 1) Infra
 ```bash
 docker compose -f infra/docker-compose.yml up -d
 cp infra/.env.example .env
+```
+
+PowerShell equivalent:
+```powershell
+docker compose -f infra/docker-compose.yml up -d
+Copy-Item infra/.env.example .env
 ```
 
 ### 2) Python (API + worker + orchestrator)
@@ -58,3 +66,7 @@ pnpm --filter web dev
 - Types: `tsc --noEmit` / `mypy`
 - Tests: Jest/Vitest (TS) + Pytest (Py)
 - CI: lint + typecheck + test on PR
+
+Python full checks:
+- Unix shells: `./scripts/py_check.sh`
+- PowerShell: `./scripts/py_check.ps1`
