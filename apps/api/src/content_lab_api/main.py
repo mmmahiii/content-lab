@@ -20,5 +20,7 @@ async def health() -> dict[str, str]:
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     # Avoid leaking sensitive details; store full exception in logs only.
-    payload = ErrorResponse(error=ErrorDetail(code="internal_error", message="Internal server error"))
+    payload = ErrorResponse(
+        error=ErrorDetail(code="internal_error", message="Internal server error")
+    )
     return JSONResponse(status_code=500, content=payload.model_dump())
