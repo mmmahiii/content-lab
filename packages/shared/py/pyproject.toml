@@ -30,6 +30,9 @@ src = ["src"]
 extend-select = ["I", "UP", "B", "SIM"]
 ignore = ["B008"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["content_lab_shared"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
