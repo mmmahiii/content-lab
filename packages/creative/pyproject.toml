@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "content-lab-creative"
+version = "0.1.0"
+description = "Creative brief generation and template management"
+authors = ["Ryan <you@example.com>"]
+packages = [{ include = "content_lab_creative", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+mypy = "^1.10.0"
+ruff = "^0.4.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -37,7 +37,7 @@ See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard comman
 
 ### Quality gates
 
-- **Python** (per-project): `poetry run ruff check .`, `poetry run black --check .`, `poetry run mypy .`, `poetry run pytest -q`
+- **Python** (per-project): `poetry run ruff check .`, `poetry run ruff format --check .`, `poetry run mypy .`, `poetry run pytest -q`
 - **Python repo-wide**: `./scripts/py_check.sh`
 - **TypeScript**: `pnpm lint`, `pnpm typecheck`, `pnpm test`
 
@@ -47,4 +47,5 @@ See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard comman
 - Poetry virtualenvs use Python 3.11 specifically; if Poetry picks up a different Python, run `poetry env use python3.11` in each project directory.
 - The orchestrator test (`apps/orchestrator/tests/test_flow.py`) emits many Pydantic V2 deprecation warnings from Prefect internals — these are harmless.
 - The API's `on_event("startup")` triggers a FastAPI deprecation warning in tests — also harmless.
-- No Alembic migrations exist yet; database schema is not required for the current scaffold to run.
+- Alembic migrations live in `apps/api/migrations/`. Run `cd apps/api && poetry run alembic upgrade head` after infra is up.
+- Docker Compose app services (API, worker, orchestrator) use the `app` profile: `docker compose -f infra/docker-compose.yml --profile app up -d --build`.
