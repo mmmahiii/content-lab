@@ -1,10 +1,13 @@
-.PHONY: infra-up infra-down api worker orch web py-check
+.PHONY: infra-up infra-down infra-app api worker orch web py-check migrate
 
 infra-up:
 	docker compose -f infra/docker-compose.yml up -d
 
 infra-down:
 	docker compose -f infra/docker-compose.yml down
+
+infra-app:
+	docker compose -f infra/docker-compose.yml --profile app up -d --build
 
 api:
 	cd apps/api && poetry install && poetry run uvicorn content_lab_api.main:app --reload --port 8000
@@ -20,3 +23,6 @@ web:
 
 py-check:
 	./scripts/py_check.sh
+
+migrate:
+	cd apps/api && poetry run alembic upgrade head

@@ -14,7 +14,7 @@ foreach ($project in $projects) {
   try {
     poetry install --no-interaction
     poetry run ruff check .
-    poetry run black --check .
+    poetry run ruff format --check .
     poetry run mypy .
     poetry run pytest -q
   }

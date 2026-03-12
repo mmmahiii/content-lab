@@ -13,7 +13,7 @@ for p in "${projects[@]}"; do
   pushd "$p" >/dev/null
   poetry install --no-interaction
   poetry run ruff check .
-  poetry run black --check .
+  poetry run ruff format --check .
   poetry run mypy .
   poetry run pytest -q
   popd >/dev/null

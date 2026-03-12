@@ -1,0 +1,18 @@
+FROM python:3.11-slim AS base
+
+RUN pip install --no-cache-dir poetry && \
+    poetry config virtualenvs.in-project true
+
+WORKDIR /app
+
+COPY packages/shared/py /app/packages/shared/py
+
+COPY apps/api/pyproject.toml apps/api/poetry.lock /app/apps/api/
+WORKDIR /app/apps/api
+RUN poetry install --no-interaction --no-root
+
+COPY apps/api /app/apps/api
+RUN poetry install --no-interaction
+
+EXPOSE 8000
+CMD ["poetry", "run", "uvicorn", "content_lab_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -14,11 +14,6 @@ content-lab-shared = {path = "../../packages/shared/py", develop = true}
 pytest = "^8.2.0"
 mypy = "^1.10.0"
 ruff = "^0.4.10"
-black = "^24.4.2"
-
-[tool.black]
-line-length = 100
-target-version = ['py311']
 
 [tool.ruff]
 line-length = 100

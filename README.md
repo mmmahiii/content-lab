@@ -8,6 +8,7 @@ Local-first MVP for **ready-to-post reel packages** (MP4 + cover + captions + po
 - `apps/orchestrator` — Prefect 2 flows (scheduling + dependency graph)
 - `apps/web` — Admin UI (Next.js)
 - `packages/shared` — Shared code (Python models + TS types)
+- `packages/{core,auth,storage,assets,...}` — Domain packages (see `packages/`)
 - `infra` — Docker Compose (Postgres/Redis/MinIO)
 - `docs` — Operating rules + design notes
 
@@ -61,12 +62,32 @@ pnpm --filter web dev
 ```
 
 ## Quality gates
-- Format: Prettier (TS) / Black (Py)
+- Format: Prettier (TS) / Ruff (Py)
 - Lint: ESLint (TS) / Ruff (Py)
 - Types: `tsc --noEmit` / `mypy`
-- Tests: Jest/Vitest (TS) + Pytest (Py)
+- Tests: Vitest (TS) + Pytest (Py)
 - CI: lint + typecheck + test on PR
 
 Python full checks:
 - Unix shells: `./scripts/py_check.sh`
 - PowerShell: `./scripts/py_check.ps1`
+
+## Database
+
+Run Alembic migrations (from `apps/api`):
+```bash
+cd apps/api
+poetry run alembic upgrade head
+```
+
+## Docker (full stack)
+
+Run infra only (Postgres + Redis + MinIO):
+```bash
+docker compose -f infra/docker-compose.yml up -d
+```
+
+Run everything including app services:
+```bash
+docker compose -f infra/docker-compose.yml --profile app up -d --build
+```
