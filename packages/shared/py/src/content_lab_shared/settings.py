@@ -2,15 +2,27 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_REPO_MARKERS = (".git", "pyproject.toml", "pnpm-workspace.yaml")
 
-def _find_dotenv() -> str:
-    """Walk up from this file to find the repo root .env (directory containing .git)."""
+
+def _find_dotenv() -> str | None:
+    """Walk up from this file to find the repo-root .env.
+
+    Looks for common repo-root markers (.git, pyproject.toml,
+    pnpm-workspace.yaml) so the lookup works both in a normal checkout
+    (where .git exists) and inside Docker images (where .git is excluded
+    but pyproject.toml / pnpm-workspace.yaml are present).
+    Returns *None* when no .env is found so pydantic-settings still reads
+    real environment variables without error.
+    """
     current = Path(__file__).resolve().parent
     for ancestor in (current, *current.parents):
-        candidate = ancestor / ".env"
-        if (ancestor / ".git").is_dir() and candidate.is_file():
-            return str(candidate)
-    return ".env"
+        if any((ancestor / m).exists() for m in _REPO_MARKERS):
+            candidate = ancestor / ".env"
+            if candidate.is_file():
+                return str(candidate)
+            return None
+    return None
 
 
 class Settings(BaseSettings):
