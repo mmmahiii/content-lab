@@ -37,7 +37,9 @@ class Asset(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    run_assets: Mapped[list[RunAsset]] = relationship(back_populates="asset", default_factory=list)
+    run_assets: Mapped[list[RunAsset]] = relationship(
+        back_populates="asset", init=False, default_factory=list
+    )
 
 
 class Run(Base):
@@ -57,7 +59,9 @@ class Run(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), init=False
     )
 
-    run_assets: Mapped[list[RunAsset]] = relationship(back_populates="run", default_factory=list)
+    run_assets: Mapped[list[RunAsset]] = relationship(
+        back_populates="run", init=False, default_factory=list
+    )
 
 
 class RunAsset(Base):
@@ -70,8 +74,10 @@ class RunAsset(Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id"))
     role: Mapped[str] = mapped_column(String(64))
 
-    run: Mapped[Run] = relationship(back_populates="run_assets", default=None)
-    asset: Mapped[Asset] = relationship(back_populates="run_assets", default=None)
+    run: Mapped[Run | None] = relationship(back_populates="run_assets", init=False, default=None)
+    asset: Mapped[Asset | None] = relationship(
+        back_populates="run_assets", init=False, default=None
+    )
 
 
 class OutboxEvent(Base):
