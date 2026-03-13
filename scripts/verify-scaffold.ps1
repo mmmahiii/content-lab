@@ -59,8 +59,25 @@ foreach ($svc in $services) {
 pnpm install | Out-Host
 
 # 6) Install and verify all Python projects
+# Note: most packages keep their Poetry project at `packages/<name>`,
+# while `packages/shared/py` uses a nested `py` layout.
 $pyProjects = @(
+    # Shared lib (nested layout)
     "packages/shared/py",
+    # Domain packages
+    "packages/core",
+    "packages/auth",
+    "packages/storage",
+    "packages/assets",
+    "packages/creative",
+    "packages/editing",
+    "packages/qa",
+    "packages/runs",
+    "packages/outbox",
+    "packages/ingestion",
+    "packages/features",
+    "packages/intelligence",
+    # App projects
     "apps/api",
     "apps/worker",
     "apps/orchestrator"
