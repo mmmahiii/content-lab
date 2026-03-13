@@ -14,7 +14,7 @@ Local-first MVP for **ready-to-post reel packages** (MP4 + cover + captions + po
 
 ## Quickstart (local)
 
-Prereqs: Docker Desktop, Python 3.11, Poetry, Node 20+, and pnpm 9.
+Prereqs: Docker Desktop, Python 3.11, Poetry, Node 24+, and pnpm 9.
 
 ### 1) Infra
 ```bash

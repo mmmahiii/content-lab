@@ -10,7 +10,7 @@ Content Laboratory is a monorepo for generating ready-to-post social media reel 
 
 - Python 3.11 (from deadsnakes PPA; `python3.11`)
 - Poetry (`~/.local/bin/poetry`)
-- Node 20+ (via nvm)
+- Node 24+ (via nvm)
 - pnpm 9
 - Docker CE with fuse-overlayfs + iptables-legacy (for nested container support)
 
@@ -34,6 +34,20 @@ See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard comman
 | Worker (Dramatiq) | `cd apps/worker && poetry run dramatiq content_lab_worker.worker` | — |
 | Orchestrator | `cd apps/orchestrator && poetry run python -m content_lab_orchestrator.cli run --name world` | — |
 | Web (Next.js) | `pnpm --filter web dev` | 3000 |
+
+### Scaffold verification
+
+To run the full scaffold check (infra, installs, lint, format, typecheck, tests, Docker build, API health, orchestrator smoke):
+
+```bash
+# From repo root
+./scripts/verify-scaffold.ps1   # or: pwsh -File scripts/verify-scaffold.ps1
+```
+
+On Windows PowerShell:
+```powershell
+.\verify.ps1   # or: .\scripts\verify-scaffold.ps1
+```
 
 ### Quality gates
 
