@@ -10,7 +10,7 @@ Content Laboratory is a monorepo for generating ready-to-post social media reel 
 
 - Python 3.11 (from deadsnakes PPA; `python3.11`)
 - Poetry (`~/.local/bin/poetry`)
-- Node 20+ (via nvm)
+- Node 24+ (via nvm)
 - pnpm 9
 - Docker CE with fuse-overlayfs + iptables-legacy (for nested container support)
 
