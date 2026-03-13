@@ -10,7 +10,7 @@ Content Laboratory is a monorepo for generating ready-to-post social media reel 
 
 - Python 3.11 (from deadsnakes PPA; `python3.11`)
 - Poetry (`~/.local/bin/poetry`)
-- Node 20+ (via nvm)
+- Node 24+ (via nvm)
 - pnpm 9
 - Docker CE with fuse-overlayfs + iptables-legacy (for nested container support)
 
@@ -42,9 +42,17 @@ Cursor Cloud's scaffold check expects `minio-create-bucket` and `packages/*/py` 
 - **Docker Compose**: `minio-create-bucket` is an alias for `minio-init` (same behavior).
 - **packages/*/py**: Run `bash ./scripts/ensure-scaffold-compat.sh` (Linux) or `pwsh -File scripts/ensure-scaffold-compat.ps1` (Windows) to create the layout before verification. Cloud agents run this automatically via `.cursor/environment.json` install.
 
-To run full verification from repo root:
-- **PowerShell**: `.\verify.ps1`
-- **Bash**: `pwsh -File scripts/verify-scaffold.ps1` (or `./scripts/ensure-scaffold-compat.sh && pwsh ...`)
+To run the full scaffold check (infra, installs, lint, format, typecheck, tests, Docker build, API health, orchestrator smoke):
+
+```bash
+# From repo root (Linux)
+./scripts/ensure-scaffold-compat.sh && pwsh -File scripts/verify-scaffold.ps1
+```
+
+```powershell
+# Windows PowerShell
+.\verify.ps1   # or: .\scripts\verify-scaffold.ps1
+```
 
 ### Quality gates
 
