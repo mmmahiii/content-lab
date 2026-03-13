@@ -1,0 +1,3 @@
+{
+  "install": "bash scripts/ensure-scaffold-compat.sh && pnpm install"
+}

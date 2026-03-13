@@ -35,6 +35,17 @@ See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard comman
 | Orchestrator | `cd apps/orchestrator && poetry run python -m content_lab_orchestrator.cli run --name world` | — |
 | Web (Next.js) | `pnpm --filter web dev` | 3000 |
 
+### Scaffold verification
+
+Cursor Cloud's scaffold check expects `minio-create-bucket` and `packages/*/py` paths. This repo provides compatibility:
+
+- **Docker Compose**: `minio-create-bucket` is an alias for `minio-init` (same behavior).
+- **packages/*/py**: Run `bash ./scripts/ensure-scaffold-compat.sh` (Linux) or `pwsh -File scripts/ensure-scaffold-compat.ps1` (Windows) to create the layout before verification. Cloud agents run this automatically via `.cursor/environment.json` install.
+
+To run full verification from repo root:
+- **PowerShell**: `.\verify.ps1`
+- **Bash**: `pwsh -File scripts/verify-scaffold.ps1` (or `./scripts/ensure-scaffold-compat.sh && pwsh ...`)
+
 ### Quality gates
 
 - **Python** (per-project): `poetry run ruff check .`, `poetry run ruff format --check .`, `poetry run mypy .`, `poetry run pytest -q`
