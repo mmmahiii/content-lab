@@ -4,8 +4,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from content_lab_api.db import Base
 import content_lab_api.models  # noqa: F401  ensure models registered
+from content_lab_api.db import Base
 
 config = context.config
 

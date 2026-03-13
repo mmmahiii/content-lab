@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass, Session, sessionmaker
 
@@ -13,9 +15,9 @@ class Base(DeclarativeBase, MappedAsDataclass):
     pass
 
 
-def get_db() -> Session:  # type: ignore[misc]
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
-        yield db  # type: ignore[misc]
+        yield db
     finally:
         db.close()
