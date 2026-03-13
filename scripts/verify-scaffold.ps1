@@ -61,10 +61,9 @@ pnpm install | Out-Host
 # 6) Install and verify all Python projects
 # Note: most packages keep their Poetry project at `packages/<name>`,
 # while `packages/shared/py` uses a nested `py` layout.
-$pyProjects = @(
-    # Shared lib (nested layout)
+# Only include paths that exist to avoid Push-Location errors.
+$pyProjectsRaw = @(
     "packages/shared/py",
-    # Domain packages
     "packages/core",
     "packages/auth",
     "packages/storage",
@@ -77,11 +76,15 @@ $pyProjects = @(
     "packages/ingestion",
     "packages/features",
     "packages/intelligence",
-    # App projects
     "apps/api",
     "apps/worker",
     "apps/orchestrator"
 )
+$pyProjects = $pyProjectsRaw | Where-Object { Test-Path $_ }
+$pySkipped = $pyProjectsRaw | Where-Object { -not (Test-Path $_) }
+if ($pySkipped) {
+    Write-Host "Skipping non-existent paths: $($pySkipped -join ', ')" -ForegroundColor Yellow
+}
 
 foreach ($p in $pyProjects) {
     Write-Host "`n==> Checking $p" -ForegroundColor Cyan
