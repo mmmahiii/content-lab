@@ -13,9 +13,9 @@ class Base(DeclarativeBase, MappedAsDataclass):
     pass
 
 
-def get_db() -> Session:  # type: ignore[misc]
+def get_db() -> Session:
     db = SessionLocal()
     try:
-        yield db  # type: ignore[misc]
+        yield db
     finally:
         db.close()

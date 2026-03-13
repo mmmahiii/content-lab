@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -18,7 +19,7 @@ from content_lab_api.db import Base
 try:
     from pgvector.sqlalchemy import Vector
 except ImportError:  # allow import when pgvector wheel is absent (tests, linting)
-    Vector = None  # type: ignore[assignment,misc]
+    Vector = None
 
 
 class Asset(Base):
@@ -29,7 +30,7 @@ class Asset(Base):
     )
     kind: Mapped[str] = mapped_column(String(64))
     storage_key: Mapped[str] = mapped_column(String(512))
-    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default_factory=dict)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default_factory=dict)
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(1536) if Vector else Text, nullable=True, default=None
     )
@@ -50,8 +51,8 @@ class Run(Base):
     )
     name: Mapped[str] = mapped_column(String(256))
     status: Mapped[str] = mapped_column(String(32), default="pending")
-    config: Mapped[dict] = mapped_column(JSONB, default_factory=dict)
-    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), init=False
     )
@@ -89,7 +90,7 @@ class OutboxEvent(Base):
     aggregate_type: Mapped[str] = mapped_column(String(128))
     aggregate_id: Mapped[str] = mapped_column(String(256))
     event_type: Mapped[str] = mapped_column(String(128))
-    payload: Mapped[dict] = mapped_column(JSONB, default_factory=dict)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
     published: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), init=False
