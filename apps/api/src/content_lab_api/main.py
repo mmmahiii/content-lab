@@ -22,7 +22,7 @@ app = FastAPI(title="Content Lab API", version="0.1.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "service": "api"}
 
 
 @app.exception_handler(Exception)
