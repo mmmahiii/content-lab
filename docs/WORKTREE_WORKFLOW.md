@@ -2,6 +2,43 @@
 
 This workflow lets you run multiple AI task chats in parallel with minimal conflicts by giving each task its own Git worktree and branch.
 
+---
+
+## Exact workflow (your daily steps)
+
+**No manual folders—spawn creates everything.**
+
+1. **Spawn** (in terminal)
+   ```powershell
+   cd content-lab
+   .\scripts\worktree-spawn.ps1 -Count 5
+   ```
+   Creates worktree dirs automatically. Output includes a **Copy-paste for merge agent** block—keep terminal open or copy that block now.
+
+2. **Open Cursor windows**
+   - File → Open Folder → pick each `../content-lab-task-N` (one window per worktree).
+
+3. **Task chats (parallel)**
+   - Run `.\scripts\worktree-copy-task.ps1` once.
+   - Window 1: New chat → Ctrl+V (task prompt) → paste backlog item 1 → send.
+   - Window 2: New chat → Ctrl+V (task prompt) → paste backlog item 2 → send.
+   - Repeat for each window. Do not wait for one to finish—start all at once.
+
+4. **Wait** until all task chats report done.
+
+5. **Merge** (after all tasks finish)
+   - Main worktree: open `content-lab` in Cursor.
+   - New chat → run `.\scripts\worktree-copy-merge.ps1` → Ctrl+V (merge prompt).
+   - Paste the branch list from spawn output (the Copy-paste block).
+
+6. **Cleanup** (after merge chat finishes—once per batch, in terminal)
+   ```powershell
+   .\scripts\worktree-cleanup.ps1 -Count 5
+   ```
+   Use same `-Count` or `-Tasks` as spawn.
+
+---
+
 ## Why this works
 
 - Each task has a separate folder (worktree), so edits do not collide on disk.
@@ -83,22 +120,14 @@ The merge agent merges sequentially, resolves conflicts, and runs checks.
 After merges pass:
 
 - push `main`
-- remove merged worktrees
-
-Examples:
+- run cleanup script (use same `-Count` or `-Tasks` as spawn):
 
 ```powershell
-git worktree remove ..\content-lab-task-1
-git worktree remove ..\content-lab-task-2
-git worktree remove ..\content-lab-task-3
-git worktree prune
+.\scripts\worktree-cleanup.ps1 -Count 5
 ```
 
 ```bash
-git worktree remove ../content-lab-task-1
-git worktree remove ../content-lab-task-2
-git worktree remove ../content-lab-task-3
-git worktree prune
+./scripts/worktree-cleanup.sh --count 5
 ```
 
 ## Recommended merge policy
@@ -118,4 +147,8 @@ git worktree prune
 
 - [`scripts/worktree-spawn.ps1`](scripts/worktree-spawn.ps1)
 - [`scripts/worktree-spawn.sh`](scripts/worktree-spawn.sh)
+- [`scripts/worktree-copy-task.ps1`](scripts/worktree-copy-task.ps1)
+- [`scripts/worktree-copy-merge.ps1`](scripts/worktree-copy-merge.ps1)
+- [`scripts/worktree-cleanup.ps1`](scripts/worktree-cleanup.ps1)
+- [`scripts/worktree-cleanup.sh`](scripts/worktree-cleanup.sh)
 - [`docs/worktree-prompts.md`](docs/worktree-prompts.md)

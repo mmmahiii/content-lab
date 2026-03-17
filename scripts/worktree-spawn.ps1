@@ -106,7 +106,15 @@ if ($created.Count -eq 0) {
 Write-Host "\nCreated worktrees:" -ForegroundColor Green
 $created | Format-Table -AutoSize | Out-Host
 
-Write-Host "Next:" -ForegroundColor Cyan
+$branchList = ($created | ForEach-Object { $_.Branch }) -join "`n"
+Write-Host "`n--- Copy-paste for merge agent (after tasks finish) ---" -ForegroundColor Magenta
+Write-Host @"
+Merge these branches in order:
+$branchList
+"@
+Write-Host "---" -ForegroundColor Magenta
+
+Write-Host "`nNext:" -ForegroundColor Cyan
 Write-Host "1) Open each Worktree folder in a separate Cursor window."
-Write-Host "2) Start one task chat per window and paste the task prompt."
-Write-Host "3) After tasks finish, run merge-agent chat from main worktree."
+Write-Host "2) In each window: new chat -> paste task prompt (docs/worktree-prompts.md) -> paste backlog item."
+Write-Host "3) After all tasks finish: main worktree -> new chat -> paste merge prompt -> paste branch list above."

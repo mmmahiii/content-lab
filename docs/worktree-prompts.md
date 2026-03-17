@@ -2,6 +2,36 @@
 
 Use these prompts as copy-paste templates when running multiple Cursor chats in parallel with Git worktrees.
 
+---
+
+## One-liner shortcuts (copy → run → paste)
+
+| What | One-liner to run | Then |
+|------|------------------|------|
+| **Task prompt** | `.\scripts\worktree-copy-task.ps1` | Ctrl+V in each task chat |
+| **Merge prompt** | `.\scripts\worktree-copy-merge.ps1` | Ctrl+V in merge chat |
+| **Branch list** | (from spawn output) | Copy the block under "Copy-paste for merge agent" in terminal → paste in merge chat after tasks finish |
+| **Cleanup** | `.\scripts\worktree-cleanup.ps1 -Count 5` | Run in terminal after merge chat finishes (same -Count or -Tasks as spawn) |
+
+No folders to create—spawn creates worktree dirs automatically.
+
+---
+
+## 0) Master kickoff prompt (coordinator chat, optional)
+
+Paste this in a coordinator chat when starting a batch. It sets context and produces the branch list.
+
+```markdown
+I'm running the worktree multi-agent workflow. I've just run:
+  .\scripts\worktree-spawn.ps1 -Count N
+
+Each worktree is open in its own Cursor window. I'll paste the task prompt + backlog item into each.
+
+When I say "all tasks done", list the branch names in merge order for me to copy-paste into the merge chat.
+```
+
+---
+
 ## 1) Task Agent Initial Prompt (one per worktree)
 
 Paste this into each task chat, then paste the backlog item under `Your task`.

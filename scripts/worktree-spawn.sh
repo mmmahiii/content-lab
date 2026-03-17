@@ -113,7 +113,16 @@ for row in "${created[@]}"; do
 done
 
 echo
+echo "--- Copy-paste for merge agent (after tasks finish) ---"
+echo "Merge these branches in order:"
+for row in "${created[@]}"; do
+  IFS='|' read -r _ branch _ <<< "$row"
+  echo "$branch"
+done
+echo "---"
+
+echo
 echo "Next:"
 echo "1) Open each Worktree folder in a separate Cursor window."
-echo "2) Start one task chat per window and paste the task prompt."
-echo "3) After tasks finish, run merge-agent chat from main worktree."
+echo "2) In each window: new chat -> paste task prompt (docs/worktree-prompts.md) -> paste backlog item."
+echo "3) After all tasks finish: main worktree -> new chat -> paste merge prompt -> paste branch list above."
