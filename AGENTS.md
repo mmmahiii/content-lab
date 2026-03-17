@@ -68,3 +68,11 @@ To run the full scaffold check (infra, installs, lint, format, typecheck, tests,
 - The API's `on_event("startup")` triggers a FastAPI deprecation warning in tests — also harmless.
 - Alembic migrations live in `apps/api/migrations/`. Run `cd apps/api && poetry run alembic upgrade head` after infra is up.
 - Docker Compose app services (API, worker, orchestrator) use the `app` profile: `docker compose -f infra/docker-compose.yml --profile app up -d --build`.
+
+### Multi-agent worktree workflow
+
+For parallel AI task execution, use one Git worktree per task branch and a dedicated merge chat on `main`.
+
+- Workflow guide: `docs/WORKTREE_WORKFLOW.md`
+- Prompt templates (task + merge): `docs/worktree-prompts.md`
+- Worktree creation scripts: `scripts/worktree-spawn.ps1` and `scripts/worktree-spawn.sh`
