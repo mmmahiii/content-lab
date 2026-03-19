@@ -2,8 +2,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 param(
+    [Parameter(Mandatory = $false, Position = -1)]
     [int]$Count,
+    [Parameter(Mandatory = $false, Position = -1)]
     [string[]]$Tasks,
+    [Parameter(Mandatory = $false, Position = 0)]
     [string]$BaseBranch = "main"
 )
 
