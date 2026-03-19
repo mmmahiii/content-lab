@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_MARKERS = (".git", "pyproject.toml", "pnpm-workspace.yaml")
@@ -28,11 +31,29 @@ def _find_dotenv() -> str | None:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_find_dotenv(), extra="ignore")
 
+    # -- Infrastructure --
     database_url: str = "postgresql+psycopg://contentlab:contentlab@localhost:5432/contentlab"
     redis_url: str = "redis://localhost:6379/0"
     minio_endpoint: str = "http://localhost:9000"
     minio_bucket: str = "content-lab"
     minio_root_user: str = "minioadmin"
-    minio_root_password: str = "minioadmin"
+    minio_root_password: SecretStr = SecretStr("minioadmin")
 
-    runway_api_key: str = "changeme"
+    # -- Provider keys --
+    runway_api_key: SecretStr = SecretStr("changeme")
+
+    # -- Security --
+    api_key_salt: SecretStr = SecretStr("changeme-salt")
+    jwt_secret: SecretStr | None = None
+
+    # -- Object-storage prefixes --
+    package_storage_prefix: str = "packages/"
+    asset_storage_prefix: str = "assets/"
+
+    # -- Budget --
+    monthly_budget_usd: float = 100.0
+    budget_alert_threshold_pct: float = 80.0
+
+    # -- Runtime --
+    environment: str = "local"
+    log_level: str = "INFO"
