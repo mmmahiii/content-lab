@@ -5,9 +5,9 @@ param(
     [Parameter(Mandatory = $false, Position = 0)]
     [string]$BaseBranch = "main",
     [Parameter(Mandatory = $false)]
-    [int]$Count,
+    [int]$Count = 0,
     [Parameter(Mandatory = $false)]
-    [string[]]$Tasks
+    [string[]]$Tasks = @()
 )
 
 function New-Slug {
