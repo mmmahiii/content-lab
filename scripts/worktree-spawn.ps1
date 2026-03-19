@@ -1,11 +1,14 @@
+param(
+    [string]$BaseBranch,
+    [int]$Count,
+    [string[]]$Tasks
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-param(
-    [string]$BaseBranch = "main",
-    [int]$Count = 0,
-    [string[]]$Tasks = @()
-)
+if (-not $PSBoundParameters.ContainsKey('BaseBranch')) { $BaseBranch = 'main' }
+if (-not $PSBoundParameters.ContainsKey('Count')) { $Count = 0 }
+if (-not $PSBoundParameters.ContainsKey('Tasks')) { $Tasks = @() }
 
 function New-Slug {
     param([Parameter(Mandatory = $true)][string]$Name)
