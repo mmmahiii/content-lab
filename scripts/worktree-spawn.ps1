@@ -2,12 +2,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 param(
-    [Parameter(Mandatory = $false, Position = -1)]
-    [int]$Count,
-    [Parameter(Mandatory = $false, Position = -1)]
-    [string[]]$Tasks,
     [Parameter(Mandatory = $false, Position = 0)]
-    [string]$BaseBranch = "main"
+    [string]$BaseBranch = "main",
+    [Parameter(Mandatory = $false)]
+    [int]$Count,
+    [Parameter(Mandatory = $false)]
+    [string[]]$Tasks
 )
 
 function New-Slug {
