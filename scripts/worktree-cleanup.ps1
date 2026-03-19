@@ -1,12 +1,12 @@
 # Removes task worktrees. Use same -Count or -Tasks as spawn.
 # Run from main repo after merge chat finishes.
-Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
-
 param(
     [int]$Count,
     [string[]]$Tasks
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
 
 function New-Slug {
     param([Parameter(Mandatory = $true)][string]$Name)
