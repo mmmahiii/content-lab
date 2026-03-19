@@ -5,6 +5,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from content_lab_api.routes import api_router
 from content_lab_shared.errors import ErrorDetail, ErrorResponse
 from content_lab_shared.logging import configure_logging
 
@@ -18,11 +19,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Content Lab API", version="0.1.0", lifespan=lifespan)
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "api"}
+app.include_router(api_router)
 
 
 @app.exception_handler(Exception)
