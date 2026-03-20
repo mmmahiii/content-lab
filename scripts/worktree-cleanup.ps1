@@ -44,19 +44,65 @@ if ($Count -gt 0) {
     }
 }
 
+function Get-NormalizedFullPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    try {
+        return [System.IO.Path]::GetFullPath($Path)
+    } catch {
+        return $null
+    }
+}
+
+function Test-PathIsRegisteredWorktree {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$CandidatePath
+    )
+    $resolved = (Resolve-Path -LiteralPath $CandidatePath -ErrorAction SilentlyContinue).Path
+    if (-not $resolved) { return $false }
+    $resolvedNorm = Get-NormalizedFullPath $resolved
+    if (-not $resolvedNorm) { return $false }
+    $lines = git -C $RepoRoot worktree list 2>$null
+    if (-not $lines) { return $false }
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $wtPath = ($line -split '\s{2,}', 2)[0].Trim()
+        if ([string]::IsNullOrWhiteSpace($wtPath)) { continue }
+        $r = (Resolve-Path -LiteralPath $wtPath -ErrorAction SilentlyContinue).Path
+        if (-not $r) { continue }
+        $rNorm = Get-NormalizedFullPath $r
+        if ($rNorm -and [string]::Equals($rNorm, $resolvedNorm, [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 foreach ($f in $folders) {
     $path = Join-Path $parentDir $f
-    if (Test-Path $path) {
-        git worktree remove $path
-        if ($LASTEXITCODE -ne 0) { git worktree remove --force $path }
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Removed: $path" -ForegroundColor Green
-        } else {
-            Write-Host "Skipped (worktree invalid or already removed): $path" -ForegroundColor Yellow
-        }
-    } else {
+    if (-not (Test-Path -LiteralPath $path)) {
         Write-Host "Skipped (not found): $path" -ForegroundColor Yellow
+        continue
     }
+
+    git worktree remove $path 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        git worktree remove --force $path 2>$null
+    }
+
+    if (-not (Test-Path -LiteralPath $path)) {
+        Write-Host "Removed: $path" -ForegroundColor Green
+        continue
+    }
+
+    # Folder still on disk but Git says it is not a worktree (stale/orphan after prune/manual edits).
+    if (Test-PathIsRegisteredWorktree -RepoRoot $repoRoot -CandidatePath $path) {
+        Write-Host "Skipped (could not remove; still a registered worktree): $path" -ForegroundColor Yellow
+        continue
+    }
+
+    Remove-Item -LiteralPath $path -Recurse -Force
+    Write-Host "Removed orphaned folder: $path" -ForegroundColor Green
 }
 
 git worktree prune

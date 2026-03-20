@@ -141,6 +141,7 @@ After merges pass:
 ## Troubleshooting
 
 - `path already exists`: remove or rename existing folder, then rerun spawn script.
+- **Spawn only creates task-4 and task-5 (skips 1–3):** usually leftover folders `../<repo>-task-1` … `task-3` on disk after Git stopped treating them as worktrees (`fatal: … is not a working tree` on cleanup). Re-run **`worktree-cleanup`** with the same `-Count` / `--count` — the cleanup script removes those **orphan** directories so the next spawn can recreate all slots.
 - `branch already checked out`: ensure branch is not already attached to another worktree.
 - frequent conflicts in one module: reduce parallelism for that module, or split by subsystem.
 - stale worktree records: run `git worktree prune`.

@@ -33,28 +33,57 @@ repo_root="$(git rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
 parent_dir="$(dirname "$repo_root")"
 
+# True if $1 is still listed as a worktree root for this repo.
+is_registered_worktree() {
+  local candidate="$1"
+  local cand_abs
+  cand_abs="$(cd "$candidate" 2>/dev/null && pwd)" || return 1
+  local line wt_path wt_abs
+  while IFS= read -r line; do
+    [[ "$line" == worktree\ * ]] || continue
+    wt_path="${line#worktree }"
+    wt_abs="$(cd "$wt_path" 2>/dev/null && pwd)" || continue
+    if [[ "$cand_abs" == "$wt_abs" ]]; then
+      return 0
+    fi
+  done < <(git -C "$repo_root" worktree list --porcelain 2>/dev/null)
+  return 1
+}
+
+remove_worktree_path() {
+  local path="$1"
+  if [[ ! -e "$path" ]]; then
+    echo "Skipped (not found): $path"
+    return
+  fi
+  if git worktree remove "$path" 2>/dev/null || git worktree remove --force "$path" 2>/dev/null; then
+    echo "Removed: $path"
+    return
+  fi
+  if [[ ! -e "$path" ]]; then
+    echo "Removed: $path"
+    return
+  fi
+  if is_registered_worktree "$path"; then
+    echo "Skipped (could not remove; still a registered worktree): $path" >&2
+    return
+  fi
+  rm -rf "$path"
+  echo "Removed orphaned folder: $path"
+}
+
 declare -a branches=()
 if [[ -n "$count" ]]; then
   for ((i=1; i<=count; i++)); do
     path="$parent_dir/$repo_name-task-$i"
-    if [[ -e "$path" ]]; then
-      git worktree remove "$path" 2>/dev/null || git worktree remove --force "$path" 2>/dev/null || true
-      echo "Removed: $path"
-    else
-      echo "Skipped: $path"
-    fi
+    remove_worktree_path "$path"
     branches+=("feat/task-$i")
   done
 else
   for t in "${tasks[@]}"; do
     slug="$(slugify "$t")"
     path="$parent_dir/$repo_name-$slug"
-    if [[ -e "$path" ]]; then
-      git worktree remove "$path" 2>/dev/null || git worktree remove --force "$path" 2>/dev/null || true
-      echo "Removed: $path"
-    else
-      echo "Skipped: $path"
-    fi
+    remove_worktree_path "$path"
     branches+=("feat/$slug")
   done
 fi
