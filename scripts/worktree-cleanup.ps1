@@ -9,11 +9,6 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-# PowerShell 7+: Git writes expected failures (e.g. orphan path) to stderr; that would otherwise
-# terminate the script before we can remove the folder. Opt out for the whole script.
-if ($PSVersionTable.PSVersion.Major -ge 7) {
-    $PSNativeCommandUseErrorActionPreference = $false
-}
 
 function New-Slug {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -24,12 +19,37 @@ function New-Slug {
     return $slug
 }
 
+# Run git with stderr redirected to a file so PowerShell 7+ (ErrorAction Stop) never treats
+# expected failures (e.g. "not a working tree") as terminating errors.
+function Invoke-GitCaptured {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkDir,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList
+    )
+    $outPath = Join-Path $env:TEMP ("worktree-cleanup-{0}-out.txt" -f [Guid]::NewGuid().ToString('N'))
+    $errPath = Join-Path $env:TEMP ("worktree-cleanup-{0}-err.txt" -f [Guid]::NewGuid().ToString('N'))
+    try {
+        $p = Start-Process -FilePath 'git' -WorkingDirectory $WorkDir -ArgumentList $ArgumentList `
+            -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outPath -RedirectStandardError $errPath
+        $stdout = if (Test-Path -LiteralPath $outPath) {
+            Get-Content -LiteralPath $outPath -Raw -ErrorAction SilentlyContinue
+        } else { '' }
+        return [PSCustomObject]@{
+            ExitCode = $p.ExitCode
+            StdOut   = $stdout
+        }
+    } finally {
+        Remove-Item -LiteralPath $outPath, $errPath -ErrorAction SilentlyContinue
+    }
+}
+
 if (($Count -gt 0) -and $Tasks) { throw "Use either -Count or -Tasks, not both." }
 if (($Count -le 0) -and (-not $Tasks -or $Tasks.Count -eq 0)) { throw "Provide -Count <N> or -Tasks <list>." }
 
-$repoRoot = (git rev-parse --show-toplevel 2>$null)
-if (-not $repoRoot) { throw "Run from inside a git repository." }
-$repoRoot = $repoRoot.Trim()
+$cwd = (Get-Location).Path
+$rTop = Invoke-GitCaptured -WorkDir $cwd -ArgumentList @('rev-parse', '--show-toplevel')
+if ($rTop.ExitCode -ne 0) { throw "Run from inside a git repository." }
+$repoRoot = $rTop.StdOut.Trim()
 $repoName = Split-Path -Leaf $repoRoot
 $parentDir = Split-Path -Parent $repoRoot
 
@@ -67,8 +87,9 @@ function Test-PathIsRegisteredWorktree {
     if (-not $resolved) { return $false }
     $resolvedNorm = Get-NormalizedFullPath $resolved
     if (-not $resolvedNorm) { return $false }
-    $lines = git -C $RepoRoot worktree list 2>$null
-    if (-not $lines) { return $false }
+    $rList = Invoke-GitCaptured -WorkDir $RepoRoot -ArgumentList @('worktree', 'list')
+    if ($rList.ExitCode -ne 0) { return $false }
+    $lines = $rList.StdOut -split "`r?`n"
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $wtPath = ($line -split '\s{2,}', 2)[0].Trim()
@@ -90,9 +111,9 @@ foreach ($f in $folders) {
         continue
     }
 
-    git worktree remove $path 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        git worktree remove --force $path 2>$null
+    $r1 = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'remove', $path)
+    if ($r1.ExitCode -ne 0) {
+        $null = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'remove', '--force', $path)
     }
 
     if (-not (Test-Path -LiteralPath $path)) {
@@ -110,28 +131,29 @@ foreach ($f in $folders) {
     Write-Host "Removed orphaned folder: $path" -ForegroundColor Green
 }
 
-git worktree prune
+$null = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'prune')
 Write-Host "Pruned." -ForegroundColor Green
 
 if ($DeleteBranches -and $branches.Count -gt 0) {
-    $currentBranch = (git branch --show-current)
+    $rBranch = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('branch', '--show-current')
+    $currentBranch = $rBranch.StdOut.Trim()
     if ($currentBranch -ne "main") {
         Write-Host "Skipping branch deletion (not on main). Switch to main first." -ForegroundColor Yellow
     } else {
         foreach ($b in $branches) {
-            git show-ref --verify --quiet "refs/heads/$b"
-            if ($LASTEXITCODE -eq 0) {
-                git branch -d $b
-                if ($LASTEXITCODE -eq 0) {
+            $rRef = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('show-ref', '--verify', '--quiet', "refs/heads/$b")
+            if ($rRef.ExitCode -eq 0) {
+                $rDel = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('branch', '-d', $b)
+                if ($rDel.ExitCode -eq 0) {
                     Write-Host "Deleted local: $b" -ForegroundColor Green
                 } else {
                     Write-Host "Skipped local $b (not fully merged or in use)" -ForegroundColor Yellow
                 }
             }
-            git show-ref --verify --quiet "refs/remotes/origin/$b"
-            if ($LASTEXITCODE -eq 0) {
-                git push origin --delete $b
-                if ($LASTEXITCODE -eq 0) {
+            $rRem = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('show-ref', '--verify', '--quiet', "refs/remotes/origin/$b")
+            if ($rRem.ExitCode -eq 0) {
+                $rPush = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('push', 'origin', '--delete', $b)
+                if ($rPush.ExitCode -eq 0) {
                     Write-Host "Deleted remote: origin/$b" -ForegroundColor Green
                 } else {
                     Write-Host "Skipped remote origin/$b (push failed)" -ForegroundColor Yellow
