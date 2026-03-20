@@ -9,6 +9,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+# PowerShell 7+: Git writes expected failures (e.g. orphan path) to stderr; that would otherwise
+# terminate the script before we can remove the folder. Opt out for the whole script.
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 function New-Slug {
     param([Parameter(Mandatory = $true)][string]$Name)
