@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Removes task worktrees. Use same --count or --tasks as spawn.
+# Removes task worktrees and optionally deletes merged branches (local + remote).
+# Use same --count or --tasks as spawn.
 # Run from main repo after merge chat finishes.
 set -euo pipefail
 
 count=""
 declare -a tasks=()
+delete_branches=true
 
 slugify() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
@@ -18,6 +20,7 @@ while [[ $# -gt 0 ]]; do
       while [[ $# -gt 0 && "$1" != --* ]]; do tasks+=("$1"); shift; done
       continue
       ;;
+    --no-delete-branches) delete_branches=false ;;
     *) echo "Error: unknown $1" >&2; exit 1 ;;
   esac
   shift
@@ -30,18 +33,54 @@ repo_root="$(git rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
 parent_dir="$(dirname "$repo_root")"
 
+declare -a branches=()
 if [[ -n "$count" ]]; then
   for ((i=1; i<=count; i++)); do
     path="$parent_dir/$repo_name-task-$i"
-    [[ -e "$path" ]] && git worktree remove "$path" && echo "Removed: $path" || echo "Skipped: $path"
+    if [[ -e "$path" ]]; then
+      git worktree remove "$path" 2>/dev/null || git worktree remove --force "$path" 2>/dev/null || true
+      echo "Removed: $path"
+    else
+      echo "Skipped: $path"
+    fi
+    branches+=("feat/task-$i")
   done
 else
   for t in "${tasks[@]}"; do
     slug="$(slugify "$t")"
     path="$parent_dir/$repo_name-$slug"
-    [[ -e "$path" ]] && git worktree remove "$path" && echo "Removed: $path" || echo "Skipped: $path"
+    if [[ -e "$path" ]]; then
+      git worktree remove "$path" 2>/dev/null || git worktree remove --force "$path" 2>/dev/null || true
+      echo "Removed: $path"
+    else
+      echo "Skipped: $path"
+    fi
+    branches+=("feat/$slug")
   done
 fi
 
 git worktree prune
 echo "Pruned."
+
+if [[ "$delete_branches" == true && ${#branches[@]} -gt 0 ]]; then
+  if [[ "$(git branch --show-current)" != "main" ]]; then
+    echo "Skipping branch deletion (not on main). Switch to main first."
+  else
+    for b in "${branches[@]}"; do
+      if git show-ref --verify --quiet "refs/heads/$b" 2>/dev/null; then
+        if git branch -d "$b" 2>/dev/null; then
+          echo "Deleted local: $b"
+        else
+          echo "Skipped local $b (not fully merged or in use)"
+        fi
+      fi
+      if git show-ref --verify --quiet "refs/remotes/origin/$b" 2>/dev/null; then
+        if git push origin --delete "$b" 2>/dev/null; then
+          echo "Deleted remote: origin/$b"
+        else
+          echo "Skipped remote origin/$b (push failed)"
+        fi
+      fi
+    done
+  fi
+fi

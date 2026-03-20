@@ -1,8 +1,10 @@
-# Removes task worktrees. Use same -Count or -Tasks as spawn.
+# Removes task worktrees and optionally deletes merged branches (local + remote).
+# Use same -Count or -Tasks as spawn.
 # Run from main repo after merge chat finishes.
 param(
     [int]$Count,
-    [string[]]$Tasks
+    [string[]]$Tasks,
+    [switch]$DeleteBranches = $true
 )
 
 Set-StrictMode -Version Latest
@@ -27,17 +29,31 @@ $repoName = Split-Path -Leaf $repoRoot
 $parentDir = Split-Path -Parent $repoRoot
 
 $folders = @()
+$branches = @()
 if ($Count -gt 0) {
-    1..$Count | ForEach-Object { $folders += "$repoName-task-$_" }
+    1..$Count | ForEach-Object {
+        $n = $_
+        $folders += "$repoName-task-$n"
+        $branches += "feat/task-$n"
+    }
 } else {
-    foreach ($t in $Tasks) { $folders += "$repoName-$(New-Slug $t)" }
+    foreach ($t in $Tasks) {
+        $slug = New-Slug $t
+        $folders += "$repoName-$slug"
+        $branches += "feat/$slug"
+    }
 }
 
 foreach ($f in $folders) {
     $path = Join-Path $parentDir $f
     if (Test-Path $path) {
         git worktree remove $path
-        Write-Host "Removed: $path" -ForegroundColor Green
+        if ($LASTEXITCODE -ne 0) { git worktree remove --force $path }
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Removed: $path" -ForegroundColor Green
+        } else {
+            Write-Host "Skipped (worktree invalid or already removed): $path" -ForegroundColor Yellow
+        }
     } else {
         Write-Host "Skipped (not found): $path" -ForegroundColor Yellow
     }
@@ -45,3 +61,31 @@ foreach ($f in $folders) {
 
 git worktree prune
 Write-Host "Pruned." -ForegroundColor Green
+
+if ($DeleteBranches -and $branches.Count -gt 0) {
+    $currentBranch = (git branch --show-current)
+    if ($currentBranch -ne "main") {
+        Write-Host "Skipping branch deletion (not on main). Switch to main first." -ForegroundColor Yellow
+    } else {
+        foreach ($b in $branches) {
+            git show-ref --verify --quiet "refs/heads/$b"
+            if ($LASTEXITCODE -eq 0) {
+                git branch -d $b
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Deleted local: $b" -ForegroundColor Green
+                } else {
+                    Write-Host "Skipped local $b (not fully merged or in use)" -ForegroundColor Yellow
+                }
+            }
+            git show-ref --verify --quiet "refs/remotes/origin/$b"
+            if ($LASTEXITCODE -eq 0) {
+                git push origin --delete $b
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Deleted remote: origin/$b" -ForegroundColor Green
+                } else {
+                    Write-Host "Skipped remote origin/$b (push failed)" -ForegroundColor Yellow
+                }
+            }
+        }
+    }
+}

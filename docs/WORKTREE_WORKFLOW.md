@@ -35,7 +35,7 @@ This workflow lets you run multiple AI task chats in parallel with minimal confl
    ```powershell
    .\scripts\worktree-cleanup.ps1 -Count 5
    ```
-   Use same `-Count` or `-Tasks` as spawn.
+   Use same `-Count` or `-Tasks` as spawn. Removes worktrees and deletes merged branches (local + remote). Use `-DeleteBranches:$false` to skip branch deletion.
 
 ---
 
