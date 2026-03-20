@@ -5,8 +5,9 @@ if (-not $root) { throw "Run from inside a git repository." }
 $path = Join-Path $root "docs\worktree-prompts.md"
 $content = Get-Content $path -Raw
 if (-not $content) { throw "docs/worktree-prompts.md not found." }
-$m = [regex]::Matches($content, '```markdown\r?\n(.*?)```', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-if ($m.Count -lt 3) { throw "Could not find merge prompt in worktree-prompts.md." }
-$prompt = $m[2].Groups[1].Value.Trim()  # third block
+$mergePattern = '(?s)##\s+2\)\s+Merge Agent Genesis Prompt.*?\r?\n```markdown\r?\n(.*?)```'
+$m = [regex]::Match($content, $mergePattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+if (-not $m.Success) { throw "Could not find merge prompt block under '## 2) Merge Agent' in worktree-prompts.md." }
+$prompt = $m.Groups[1].Value.Trim()
 Set-Clipboard -Value $prompt
 Write-Host "Merge prompt copied. Paste (Ctrl+V) in merge chat." -ForegroundColor Green

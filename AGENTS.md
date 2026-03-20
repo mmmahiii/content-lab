@@ -75,4 +75,5 @@ For parallel AI task execution, use one Git worktree per task branch and a dedic
 
 - Workflow guide: `docs/WORKTREE_WORKFLOW.md`
 - Prompt templates (task + merge): `docs/worktree-prompts.md`
+- Smoke-check: `powershell -File scripts/verify-worktree-workflow.ps1` (from repo root)
 - Worktree creation scripts: `scripts/worktree-spawn.ps1` and `scripts/worktree-spawn.sh`

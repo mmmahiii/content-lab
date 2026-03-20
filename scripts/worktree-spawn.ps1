@@ -106,7 +106,8 @@ if ($created.Count -eq 0) {
     exit 0
 }
 
-Write-Host "\nCreated worktrees:" -ForegroundColor Green
+Write-Host ""
+Write-Host "Created worktrees:" -ForegroundColor Green
 $created | Format-Table -AutoSize | Out-Host
 
 $branchList = ($created | ForEach-Object { $_.Branch }) -join "`n"

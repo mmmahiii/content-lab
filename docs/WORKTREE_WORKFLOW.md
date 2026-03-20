@@ -51,6 +51,8 @@ This workflow lets you run multiple AI task chats in parallel with minimal confl
 - Local `main` exists and is up to date.
 - Clean working tree in the main repo before starting.
 
+**Smoke-check (optional):** from repo root run `powershell -File scripts/verify-worktree-workflow.ps1` (or `pwsh -File ...` if you use PowerShell 7+) — verifies scripts and prompt blocks in `docs/worktree-prompts.md` without creating worktrees.
+
 ## Step 1: Spawn task worktrees
 
 ### PowerShell (Windows)
@@ -145,6 +147,7 @@ After merges pass:
 
 ## Related files
 
+- [`scripts/verify-worktree-workflow.ps1`](scripts/verify-worktree-workflow.ps1) (smoke-check tooling)
 - [`scripts/worktree-spawn.ps1`](scripts/worktree-spawn.ps1)
 - [`scripts/worktree-spawn.sh`](scripts/worktree-spawn.sh)
 - [`scripts/worktree-copy-task.ps1`](scripts/worktree-copy-task.ps1)
