@@ -11,3 +11,7 @@ SessionLocal = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
 class Base(DeclarativeBase, MappedAsDataclass):
     pass
+
+
+# Register ORM tables on ``Base.metadata`` for Alembic autogenerate.
+import content_lab_api.models  # noqa: E402, F401

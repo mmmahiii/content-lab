@@ -15,7 +15,7 @@ class OutboxEventOut(BaseModel):
     aggregate_id: str
     event_type: str
     payload: dict[str, Any]
-    published: bool
+    dispatched_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

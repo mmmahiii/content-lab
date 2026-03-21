@@ -10,15 +10,15 @@ from pydantic import BaseModel, Field
 
 
 class AssetCreate(BaseModel):
-    kind: str
-    storage_key: str
+    asset_class: str
+    storage_uri: str
     metadata_: dict[str, Any] = Field(default_factory=dict, alias="metadata")
 
 
 class AssetOut(BaseModel):
     id: uuid.UUID
-    kind: str
-    storage_key: str
+    asset_class: str
+    storage_uri: str
     metadata_: dict[str, Any] = Field(alias="metadata")
     created_at: datetime
 
