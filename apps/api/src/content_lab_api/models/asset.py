@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from content_lab_api.models.asset_gen_param import AssetGenParam
     from content_lab_api.models.asset_usage import AssetUsage
     from content_lab_api.models.run_asset import RunAsset
+    from content_lab_api.models.storage_integrity_check import StorageIntegrityCheck
 
 try:
     from pgvector.sqlalchemy import Vector
@@ -81,4 +82,7 @@ class Asset(Base):
     )
     run_assets: Mapped[list[RunAsset]] = relationship(
         "RunAsset", back_populates="asset", init=False, default_factory=list
+    )
+    storage_integrity_checks: Mapped[list[StorageIntegrityCheck]] = relationship(
+        "StorageIntegrityCheck", back_populates="asset", init=False, default_factory=list
     )
