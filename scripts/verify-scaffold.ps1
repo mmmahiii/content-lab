@@ -121,36 +121,7 @@ docker compose -f infra/docker-compose.yml --profile app --profile web build | O
 
 # 9) API smoke test
 Write-Host "`n==> API smoke test" -ForegroundColor Cyan
-$apiJob = Start-Job -ScriptBlock {
-    param($root)
-    Set-Location (Join-Path $root "apps/api")
-    poetry run uvicorn content_lab_api.main:app --host 127.0.0.1 --port 8000
-} -ArgumentList $repoRoot
-
-try {
-    $apiReady = $false
-    for ($i = 1; $i -le 30; $i++) {
-        Start-Sleep -Seconds 2
-        try {
-            $resp = Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -Method GET
-            if ($resp.status -eq "ok" -and $resp.service -eq "api") {
-                $apiReady = $true
-                Write-Host "API health check passed" -ForegroundColor Green
-                break
-            }
-        } catch {
-            # ignore transient failures during startup
-        }
-    }
-    if (-not $apiReady) {
-        throw "API health check failed"
-    }
-}
-finally {
-    Stop-Job $apiJob -ErrorAction SilentlyContinue | Out-Null
-    Receive-Job $apiJob -ErrorAction SilentlyContinue | Out-Null
-    Remove-Job $apiJob -Force -ErrorAction SilentlyContinue | Out-Null
-}
+& (Join-Path $PSScriptRoot "api-health-smoke.ps1") -RepoRoot $repoRoot
 
 # 10) Orchestrator smoke test
 Write-Host "`n==> Orchestrator smoke test" -ForegroundColor Cyan
