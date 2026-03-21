@@ -2,12 +2,29 @@
 
 
 def test_import_models() -> None:
-    from content_lab_api.models import Asset, OutboxEvent, Run, RunAsset
+    from content_lab_api.models import (
+        Asset,
+        AuditLog,
+        Experiment,
+        OutboxEvent,
+        PolicyState,
+        ProviderJob,
+        Run,
+        RunAsset,
+        StorageIntegrityCheck,
+        Task,
+    )
 
     assert Asset.__tablename__ == "assets"
     assert Run.__tablename__ == "runs"
     assert RunAsset.__tablename__ == "run_assets"
     assert OutboxEvent.__tablename__ == "outbox_events"
+    assert PolicyState.__tablename__ == "policy_state"
+    assert Experiment.__tablename__ == "experiments"
+    assert Task.__tablename__ == "tasks"
+    assert ProviderJob.__tablename__ == "provider_jobs"
+    assert AuditLog.__tablename__ == "audit_log"
+    assert StorageIntegrityCheck.__tablename__ == "storage_integrity_checks"
     assert "asset_class" in Asset.__table__.c
     assert "storage_uri" in Asset.__table__.c
     assert "workflow_key" in Run.__table__.c

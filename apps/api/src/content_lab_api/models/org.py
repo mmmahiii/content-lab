@@ -14,7 +14,13 @@ from content_lab_api.db import Base
 
 if TYPE_CHECKING:
     from content_lab_api.models.api_key import ApiKey
+    from content_lab_api.models.audit_log import AuditLog
+    from content_lab_api.models.experiment import Experiment
     from content_lab_api.models.org_membership import OrgMembership
+    from content_lab_api.models.policy_state import PolicyState
+    from content_lab_api.models.provider_job import ProviderJob
+    from content_lab_api.models.storage_integrity_check import StorageIntegrityCheck
+    from content_lab_api.models.task import Task
 
 
 class Org(Base):
@@ -34,4 +40,22 @@ class Org(Base):
     )
     api_keys: Mapped[list[ApiKey]] = relationship(
         back_populates="org", init=False, default_factory=list
+    )
+    policy_states: Mapped[list[PolicyState]] = relationship(
+        "PolicyState", back_populates="org", init=False, default_factory=list
+    )
+    experiments: Mapped[list[Experiment]] = relationship(
+        "Experiment", back_populates="org", init=False, default_factory=list
+    )
+    tasks: Mapped[list[Task]] = relationship(
+        "Task", back_populates="org", init=False, default_factory=list
+    )
+    provider_jobs: Mapped[list[ProviderJob]] = relationship(
+        "ProviderJob", back_populates="org", init=False, default_factory=list
+    )
+    audit_logs: Mapped[list[AuditLog]] = relationship(
+        "AuditLog", back_populates="org", init=False, default_factory=list
+    )
+    storage_integrity_checks: Mapped[list[StorageIntegrityCheck]] = relationship(
+        "StorageIntegrityCheck", back_populates="org", init=False, default_factory=list
     )

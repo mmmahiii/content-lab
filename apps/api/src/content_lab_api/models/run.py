@@ -14,6 +14,7 @@ from content_lab_api.db import Base
 
 if TYPE_CHECKING:
     from content_lab_api.models.run_asset import RunAsset
+    from content_lab_api.models.task import Task
 
 
 class Run(Base):
@@ -38,4 +39,7 @@ class Run(Base):
 
     run_assets: Mapped[list[RunAsset]] = relationship(
         "RunAsset", back_populates="run", init=False, default_factory=list
+    )
+    tasks: Mapped[list[Task]] = relationship(
+        "Task", back_populates="run", init=False, default_factory=list
     )
