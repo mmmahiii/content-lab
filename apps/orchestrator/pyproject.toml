@@ -9,6 +9,7 @@ packages = [{ include = "content_lab_orchestrator", from = "src" }]
 python = "^3.11"
 prefect = "^2.20.0"
 content-lab-shared = {path = "../../packages/shared/py", develop = true}
+content-lab-runs = {path = "../../packages/runs", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
@@ -24,7 +25,11 @@ src = ["src"]
 extend-select = ["I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["content_lab_shared"]
+known-first-party = [
+    "content_lab_orchestrator",
+    "content_lab_runs",
+    "content_lab_shared",
+]
 
 [tool.mypy]
 python_version = "3.11"
