@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +19,7 @@ class OutboxEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default_factory=uuid.uuid4, init=False
     )
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id", ondelete="CASCADE"))
     aggregate_type: Mapped[str] = mapped_column(String(128))
     aggregate_id: Mapped[str] = mapped_column(String(256))
     event_type: Mapped[str] = mapped_column(String(128))

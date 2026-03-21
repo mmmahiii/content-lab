@@ -22,6 +22,7 @@ class Run(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default_factory=uuid.uuid4, init=False
     )
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(256))
     status: Mapped[str] = mapped_column(String(32), default="pending")
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
@@ -44,8 +45,9 @@ class RunAsset(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default_factory=uuid.uuid4, init=False
     )
-    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id"))
-    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id"))
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id", ondelete="CASCADE"))
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(64))
 
     run: Mapped[Run | None] = relationship(back_populates="run_assets", init=False, default=None)
