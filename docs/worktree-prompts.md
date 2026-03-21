@@ -92,15 +92,20 @@ When I provide branch names, follow this exact process:
    - Bash: `./scripts/py_check.sh`
    - Web: `pnpm lint && pnpm typecheck && pnpm test`
 5. If checks fail, fix or stop and report exact blockers.
-6. Provide final report:
+6. If checks pass, publish `main` to the remote:
+   - Run `git push origin main` (or `git push -u origin main` if upstream is missing).
+   - Skip this step only if I explicitly asked you not to push (e.g. PR-only workflow, protected `main`, or I said "merge only").
+   - If the push is rejected (protected branch, non-fast-forward, auth), report the exact message and stop—do not force-push.
+7. Provide final report:
    - merged branches
    - merge commits
    - checks run and outcomes
+   - push result (success, skipped per my request, or failed with reason)
    - any follow-up items
 
 Constraints:
 - Do not implement new product features here unless required to resolve merge breakage.
-- Ask before using destructive git commands.
+- Ask before using destructive git commands (force-push, hard reset, history rewrite). A normal `git push origin main` after green merges is allowed unless I said not to push.
 
 Reply with: "Ready. Send branches in merge order."
 ```

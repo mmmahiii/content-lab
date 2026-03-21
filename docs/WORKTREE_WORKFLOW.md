@@ -30,12 +30,15 @@ This workflow lets you run multiple AI task chats in parallel with minimal confl
    - Main worktree: open `content-lab` in Cursor.
    - New chat → run `.\scripts\worktree-copy-merge.ps1` → Ctrl+V (merge prompt).
    - Paste the branch list from spawn output (the Copy-paste block).
+   - The merge prompt includes **`git push origin main`** after checks pass. If you use **PR-only** or **protected `main`**, tell the merge chat *“merge only, do not push”* (or similar) so it skips the push.
 
 6. **Cleanup** (after merge chat finishes—once per batch, in terminal)
    ```powershell
    .\scripts\worktree-cleanup.ps1 -Count 5
    ```
    Use same `-Count` or `-Tasks` as spawn. Removes worktrees and deletes merged branches (local + remote). Use `-DeleteBranches:$false` to skip branch deletion.
+
+   **Before cleanup (Windows):** close **Cursor (or VS Code) windows** that have each task worktree folder open (`../content-lab-task-N`), and avoid having File Explorer or a terminal **cwd** inside those folders—otherwise removal can fail with *“being used by another process”*. If that happens, close those handles and re-run the same cleanup command.
 
 ---
 
@@ -115,13 +118,14 @@ feat/task-2
 feat/task-3
 ```
 
-The merge agent merges sequentially, resolves conflicts, and runs checks.
+The merge agent merges sequentially, resolves conflicts, runs checks, and **by default pushes `main` to `origin`** after green checks (unless you asked it not to—see **Exact workflow** step 5).
 
 ## Step 6: Verify and clean up
 
-After merges pass:
+After the merge chat finishes:
 
-- push `main`
+- if you skipped push in chat, run `git push origin main` yourself when ready (or open your PR workflow)
+- close task worktree editor windows (see step 6 in **Exact workflow** above) so cleanup can delete folders on Windows
 - run cleanup script (use same `-Count` or `-Tasks` as spawn):
 
 ```powershell
@@ -145,6 +149,7 @@ After merges pass:
 - `branch already checked out`: ensure branch is not already attached to another worktree.
 - frequent conflicts in one module: reduce parallelism for that module, or split by subsystem.
 - stale worktree records: run `git worktree prune`.
+- **`Remove-Item` / “being used by another process”** when running cleanup: something still has the task folder open (Cursor on that worktree, Explorer inside it, terminal cwd, or OneDrive locking files). Close those, then re-run cleanup with the same `-Count` / `-Tasks`. The cleanup script tries rename/`robocopy` fallbacks on Windows; if a folder is still locked it will skip that path, finish the rest, and exit with code **1** so you know to retry.
 
 ## Related files
 

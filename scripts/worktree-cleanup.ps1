@@ -55,6 +55,7 @@ $parentDir = Split-Path -Parent $repoRoot
 
 $folders = @()
 $branches = @()
+$failedOrphanRemovals = [System.Collections.Generic.List[string]]::new()
 if ($Count -gt 0) {
     1..$Count | ForEach-Object {
         $n = $_
@@ -104,6 +105,16 @@ function Test-PathIsRegisteredWorktree {
     return $false
 }
 
+function Get-IOException {
+    param($ErrorRecord)
+    $ex = $ErrorRecord.Exception
+    while ($null -ne $ex) {
+        if ($ex -is [System.IO.IOException]) { return $ex }
+        $ex = $ex.InnerException
+    }
+    return $null
+}
+
 foreach ($f in $folders) {
     $path = Join-Path $parentDir $f
     if (-not (Test-Path -LiteralPath $path)) {
@@ -136,7 +147,8 @@ foreach ($f in $folders) {
     catch {
         $usedFallback = $false
         $clearedViaRename = $false
-        if ($onWindows -and ($_.Exception -is [System.IO.IOException])) {
+        $ioEx = Get-IOException -ErrorRecord $_
+        if ($onWindows -and ($null -ne $ioEx)) {
             $null = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "rmdir /s /q `"$path`"") `
                 -Wait -PassThru -NoNewWindow
             $usedFallback = $true
@@ -191,10 +203,13 @@ using it (or pause OneDrive sync), then remove it manually.
 Could not remove or rename worktree folder (in use by another process):
   $path
 
-Close anything using that path (IDE workspace, File Explorer, shell cwd),
-pause OneDrive if needed, then re-run this script or delete the folder manually.
+Close Cursor windows (or VS Code) opened on that worktree folder, any File Explorer
+window inside it, and terminals whose cwd is that path. Pause OneDrive sync if the
+repo is under OneDrive, then re-run this script with the same `-Count` or `-Tasks`
+you used with `worktree-spawn` (or delete/rename the folder manually).
 "@ -ForegroundColor Red
-            throw
+            [void]$failedOrphanRemovals.Add($path)
+            continue
         }
         if ($clearedViaRename) {
             $orphanRemovedMsgPrinted = $true
@@ -238,4 +253,10 @@ if ($DeleteBranches -and $branches.Count -gt 0) {
             }
         }
     }
+}
+
+if ($failedOrphanRemovals.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Some worktree folders could not be removed (still locked). Close those workspaces and re-run cleanup. Exit code 1." -ForegroundColor Yellow
+    exit 1
 }
