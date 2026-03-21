@@ -2,9 +2,12 @@
 
 
 def test_import_models() -> None:
-    from content_lab_api.models import Asset, OutboxEvent, Run, RunAsset
+    from content_lab_api.models import Asset, OutboxEvent, Page, Reel, ReelFamily, Run, RunAsset
 
     assert Asset.__tablename__ == "assets"
+    assert Page.__tablename__ == "pages"
+    assert ReelFamily.__tablename__ == "reel_families"
+    assert Reel.__tablename__ == "reels"
     assert Run.__tablename__ == "runs"
     assert RunAsset.__tablename__ == "run_assets"
     assert OutboxEvent.__tablename__ == "outbox_events"
