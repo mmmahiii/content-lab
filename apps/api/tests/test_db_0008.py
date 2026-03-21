@@ -41,7 +41,7 @@ def test_revision_0008_module_wires_alembic_chain() -> None:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.revision == "0008"
-    assert mod.down_revision == "0003"
+    assert mod.down_revision == "0007"
 
 
 def test_alembic_script_head_is_0008() -> None:

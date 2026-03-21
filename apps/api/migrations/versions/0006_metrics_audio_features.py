@@ -1,7 +1,7 @@
 """metrics, audio, and derived feature tables for phased intelligence
 
 Revision ID: 0006
-Revises: 0003
+Revises: 0005
 Create Date: 2026-03-21
 """
 
@@ -13,7 +13,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0006"
-down_revision: str | None = "0003"
+down_revision: str | None = "0005"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

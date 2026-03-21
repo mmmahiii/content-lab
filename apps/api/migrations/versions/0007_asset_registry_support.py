@@ -1,7 +1,7 @@
 """asset registry support: families, gen params, usage lineage, asset key hash
 
 Revision ID: 0007
-Revises: 0003
+Revises: 0006
 Create Date: 2026-03-21
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0007"
-down_revision: str | None = "0003"
+down_revision: str | None = "0006"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -37,23 +37,8 @@ def upgrade() -> None:
     )
     op.create_index("ix_asset_families_org_id", "asset_families", ["org_id"])
 
-    op.create_table(
-        "reels",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column(
-            "org_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("orgs.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-    )
-    op.create_index("ix_reels_org_id", "reels", ["org_id"])
+    # ``reels`` is created in revision 0005 (full lifecycle schema); this branch only
+    # adds registry tables and ties assets to existing reels via ``asset_usage``.
 
     op.add_column(
         "assets",
@@ -164,9 +149,6 @@ def downgrade() -> None:
     op.drop_index("uq_assets_org_asset_key_hash", table_name="assets")
     op.drop_column("assets", "asset_key_hash")
     op.drop_column("assets", "family_id")
-
-    op.drop_index("ix_reels_org_id", table_name="reels")
-    op.drop_table("reels")
 
     op.drop_index("ix_asset_families_org_id", table_name="asset_families")
     op.drop_table("asset_families")

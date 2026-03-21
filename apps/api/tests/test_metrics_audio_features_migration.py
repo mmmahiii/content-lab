@@ -58,7 +58,7 @@ def _load_migration_0006() -> ModuleType:
 def test_0006_migration_revision_metadata() -> None:
     m = _load_migration_0006()
     assert m.revision == "0006"
-    assert m.down_revision == "0003"
+    assert m.down_revision == "0005"
 
 
 def test_0006_upgrade_emits_ddl_sql(monkeypatch: pytest.MonkeyPatch) -> None:

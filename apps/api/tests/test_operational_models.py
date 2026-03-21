@@ -17,12 +17,12 @@ from content_lab_api.models import Asset, OutboxEvent, Run
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_alembic_single_head_is_0004() -> None:
-    """Migration smoke: revision graph loads and head is 0004 (linear history)."""
+def test_alembic_single_head_is_0008() -> None:
+    """Migration smoke: revision graph loads and head is 0008 (linear merged history)."""
     cfg = Config(str(API_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["0004"]
+    assert heads == ["0008"]
 
 
 def test_alembic_down_revision_chain() -> None:
