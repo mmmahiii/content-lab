@@ -7,6 +7,7 @@ packages = [{ include = "content_lab_storage", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+pydantic = "^2.7.0"
 content-lab-shared = {path = "../shared/py", develop = true}
 
 [tool.poetry.group.dev.dependencies]
@@ -21,6 +22,9 @@ src = ["src"]
 
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["content_lab_storage", "content_lab_shared"]
 
 [tool.mypy]
 python_version = "3.11"

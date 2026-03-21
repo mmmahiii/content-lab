@@ -17,6 +17,12 @@ alembic = "^1.13.1"
 redis = "^5.0.4"
 httpx = "^0.27.0"
 content-lab-shared = {path = "../../packages/shared/py", develop = true}
+content-lab-core = {path = "../../packages/core", develop = true}
+content-lab-auth = {path = "../../packages/auth", develop = true}
+content-lab-storage = {path = "../../packages/storage", develop = true}
+content-lab-assets = {path = "../../packages/assets", develop = true}
+content-lab-runs = {path = "../../packages/runs", develop = true}
+content-lab-outbox = {path = "../../packages/outbox", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
@@ -34,7 +40,7 @@ extend-select = ["I", "UP", "B", "SIM"]
 ignore = ["B008"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["content_lab_shared"]
+known-first-party = ["content_lab_api", "content_lab_shared", "content_lab_core", "content_lab_auth", "content_lab_storage", "content_lab_assets", "content_lab_runs", "content_lab_outbox"]
 
 [tool.mypy]
 python_version = "3.11"
