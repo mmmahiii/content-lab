@@ -39,6 +39,23 @@ files = [
 ]
 
 [[package]]
+name = "content-lab-runs"
+version = "0.1.0"
+description = "Pipeline run lifecycle management and state machine"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/runs"
+
+[[package]]
 name = "content-lab-shared"
 version = "0.1.0"
 description = "Shared models, settings, and utilities for Content Lab"
@@ -675,4 +692,4 @@ typing-extensions = ">=4.12.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "e6d8c056377098ffa1cc766c6c137c090cad8efb19798506af278d5f01b769e1"
+content-hash = "6e82a6cd855998a84cca7b03383850695f8e21cc3a92c3747b62157ebdfb08d9"

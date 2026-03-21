@@ -476,6 +476,23 @@ files = [
 markers = {dev = "sys_platform == \"win32\""}
 
 [[package]]
+name = "content-lab-runs"
+version = "0.1.0"
+description = "Pipeline run lifecycle management and state machine"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/runs"
+
+[[package]]
 name = "content-lab-shared"
 version = "0.1.0"
 description = "Shared models, settings, and utilities for Content Lab"
@@ -3238,4 +3255,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "bba10d81fda252c3069084c9d452b9483161d87db69d0f4e7493b038de2c6af5"
+content-hash = "5a620f2fcbe39d1398755d9f057e7e4e4aef6cf655e4751b6fa1c85d620f0e66"

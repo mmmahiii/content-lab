@@ -3,6 +3,7 @@ import os
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 
+from content_lab_worker.correlation import worker_service_context
 from content_lab_shared.logging import configure_logging
 
 configure_logging()
@@ -13,4 +14,5 @@ dramatiq.set_broker(broker)
 
 @dramatiq.actor
 def ping() -> str:
+    _ = worker_service_context()
     return "pong"
