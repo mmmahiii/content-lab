@@ -24,8 +24,9 @@ class RunAsset(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default_factory=uuid.uuid4, init=False
     )
-    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id"))
-    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id"))
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id", ondelete="CASCADE"))
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"))
     asset_role: Mapped[str] = mapped_column(String(64))
 
     run: Mapped[Run | None] = relationship(back_populates="run_assets", init=False, default=None)
