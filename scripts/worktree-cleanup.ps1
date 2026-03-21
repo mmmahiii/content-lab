@@ -10,29 +10,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-#region agent log
-$script:AgentDebugLogPath = Join-Path (Split-Path -Parent $PSScriptRoot) "debug-48ea62.log"
-function Write-AgentDebugLog {
-    param(
-        [Parameter(Mandatory = $true)][string]$HypothesisId,
-        [Parameter(Mandatory = $true)][string]$Location,
-        [Parameter(Mandatory = $true)][string]$Message,
-        [hashtable]$Data = @{}
-    )
-    $payload = [ordered]@{
-        sessionId    = "48ea62"
-        runId        = $env:WORKTREE_CLEANUP_DEBUG_RUN_ID
-        hypothesisId = $HypothesisId
-        location     = $Location
-        message      = $Message
-        data         = $Data
-        timestamp    = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    }
-    $line = ($payload | ConvertTo-Json -Compress -Depth 8)
-    Add-Content -LiteralPath $script:AgentDebugLogPath -Value $line -Encoding utf8 -ErrorAction SilentlyContinue
-}
-#endregion
-
 function New-Slug {
     param([Parameter(Mandatory = $true)][string]$Name)
     $slug = $Name.Trim().ToLowerInvariant()
@@ -134,40 +111,9 @@ foreach ($f in $folders) {
         continue
     }
 
-    #region agent log
-    $cwdNorm = Get-NormalizedFullPath $cwd
-    $pathNorm = Get-NormalizedFullPath $path
-    $trimPath = if ($pathNorm) { $pathNorm.TrimEnd('\') } else { "" }
-    $cwdInsideWt = $false
-    if ($cwdNorm -and $trimPath) {
-        $cwdInsideWt = ($cwdNorm.Equals($trimPath, [StringComparison]::OrdinalIgnoreCase)) -or
-            $cwdNorm.StartsWith(($trimPath + '\'), [StringComparison]::OrdinalIgnoreCase)
-    }
-    Write-AgentDebugLog -HypothesisId "H1" -Location "worktree-cleanup.ps1:loop" -Message "before worktree remove" -Data @{
-        path           = $path
-        cwd            = $cwd
-        cwdInsideWorktree = $cwdInsideWt
-    }
-    #endregion
-
     $r1 = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'remove', $path)
     if ($r1.ExitCode -ne 0) {
-        $rForce = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'remove', '--force', $path)
-        #region agent log
-        Write-AgentDebugLog -HypothesisId "H2" -Location "worktree-cleanup.ps1:git-remove" -Message "worktree remove exit codes" -Data @{
-            path          = $path
-            removeExit    = $r1.ExitCode
-            forceExit     = $rForce.ExitCode
-        }
-        #endregion
-    }
-    else {
-        #region agent log
-        Write-AgentDebugLog -HypothesisId "H2" -Location "worktree-cleanup.ps1:git-remove" -Message "worktree remove first try ok" -Data @{
-            path       = $path
-            removeExit = $r1.ExitCode
-        }
-        #endregion
+        $null = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'remove', '--force', $path)
     }
 
     if (-not (Test-Path -LiteralPath $path)) {
@@ -177,55 +123,89 @@ foreach ($f in $folders) {
 
     # Folder still on disk but Git says it is not a worktree (stale/orphan after prune/manual edits).
     $stillReg = Test-PathIsRegisteredWorktree -RepoRoot $repoRoot -CandidatePath $path
-    #region agent log
-    Write-AgentDebugLog -HypothesisId "H3" -Location "worktree-cleanup.ps1:orphan-check" -Message "path still exists after git remove" -Data @{
-        path                = $path
-        stillRegistered     = $stillReg
-    }
-    #endregion
     if ($stillReg) {
         Write-Host "Skipped (could not remove; still a registered worktree): $path" -ForegroundColor Yellow
         continue
     }
 
-    #region agent log
-    $wtList = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'list')
-    $wtRaw = if ($null -eq $wtList.StdOut) { "" } else { $wtList.StdOut.Trim() }
-    $wtSnippet = if ($wtRaw.Length -le 500) { $wtRaw } else { $wtRaw.Substring(0, 500) }
-    $dotGit = Join-Path $path ".git"
-    $dotGitExists = Test-Path -LiteralPath $dotGit
-    $topCount = 0
-    try {
-        $topCount = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop).Count
-    } catch {
-        $topCount = -1
-    }
-    Write-AgentDebugLog -HypothesisId "H5" -Location "worktree-cleanup.ps1:pre-remove-item" -Message "context before Remove-Item orphan path" -Data @{
-        path             = $path
-        cwdInsideWorktree = $cwdInsideWt
-        oneDriveInPath   = ($path -like '*OneDrive*')
-        dotGitExists     = $dotGitExists
-        topLevelCount    = $topCount
-        worktreeListExit = $wtList.ExitCode
-        worktreeListSnip = $wtSnippet
-    }
-    #endregion
-
-    #region agent log
+    $onWindows = ($null -ne (Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and $IsWindows) -or ($env:OS -eq 'Windows_NT')
+    $orphanRemovedMsgPrinted = $false
     try {
         Remove-Item -LiteralPath $path -Recurse -Force
-        Write-AgentDebugLog -HypothesisId "H4" -Location "worktree-cleanup.ps1:remove-item" -Message "Remove-Item succeeded" -Data @{ path = $path }
     }
     catch {
-        Write-AgentDebugLog -HypothesisId "H4" -Location "worktree-cleanup.ps1:remove-item" -Message "Remove-Item failed" -Data @{
-            path      = $path
-            exception = $_.Exception.GetType().FullName
-            message   = $_.Exception.Message
+        $usedFallback = $false
+        $clearedViaRename = $false
+        if ($onWindows -and ($_.Exception -is [System.IO.IOException])) {
+            $null = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "rmdir /s /q `"$path`"") `
+                -Wait -PassThru -NoNewWindow
+            $usedFallback = $true
+            if (Test-Path -LiteralPath $path) {
+                $empty = Join-Path $env:TEMP ("worktree-cleanup-empty-{0}" -f [Guid]::NewGuid().ToString('N'))
+                try {
+                    $null = New-Item -ItemType Directory -Path $empty -Force
+                    $null = Start-Process -FilePath 'robocopy.exe' -ArgumentList @(
+                        $empty, $path, '/MIR', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/R:2', '/W:1'
+                    ) -Wait -PassThru -NoNewWindow
+                    $null = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "rmdir /s /q `"$path`"") `
+                        -Wait -PassThru -NoNewWindow
+                } finally {
+                    Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+            if (Test-Path -LiteralPath $path) {
+                $staging = Join-Path $env:TEMP ("worktree-cleanup-staging-{0}" -f [Guid]::NewGuid().ToString('N'))
+                try {
+                    Move-Item -LiteralPath $path -Destination $staging -Force
+                    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+                    if (Test-Path -LiteralPath $staging) {
+                        $null = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "rmdir /s /q `"$staging`"") `
+                            -Wait -NoNewWindow
+                    }
+                } catch {
+                    # Same sharing lock as delete; try same-directory rename next.
+                }
+            }
         }
-        throw
+        # In-place rename often works when rmdir/move fail (directory handle held by IDE / Explorer / OneDrive).
+        if (Test-Path -LiteralPath $path) {
+            try {
+                $orphanNewName = "$f.orphan.$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
+                Rename-Item -LiteralPath $path -NewName $orphanNewName
+                $orphanFinal = Join-Path $parentDir $orphanNewName
+                $clearedViaRename = $true
+                Write-Host @"
+Expected worktree folder name is now free.
+Renamed locked path to:
+  $orphanFinal
+
+Delete that folder after closing any workspace, Explorer window, or terminal
+using it (or pause OneDrive sync), then remove it manually.
+"@ -ForegroundColor Yellow
+            } catch {
+                # Fall through to error below.
+            }
+        }
+        if (Test-Path -LiteralPath $path) {
+            Write-Host @"
+Could not remove or rename worktree folder (in use by another process):
+  $path
+
+Close anything using that path (IDE workspace, File Explorer, shell cwd),
+pause OneDrive if needed, then re-run this script or delete the folder manually.
+"@ -ForegroundColor Red
+            throw
+        }
+        if ($clearedViaRename) {
+            $orphanRemovedMsgPrinted = $true
+        } elseif ($usedFallback) {
+            Write-Host "Removed orphaned folder (extended Windows cleanup): $path" -ForegroundColor Green
+            $orphanRemovedMsgPrinted = $true
+        }
     }
-    #endregion
-    Write-Host "Removed orphaned folder: $path" -ForegroundColor Green
+    if (-not $orphanRemovedMsgPrinted) {
+        Write-Host "Removed orphaned folder: $path" -ForegroundColor Green
+    }
 }
 
 $null = Invoke-GitCaptured -WorkDir $repoRoot -ArgumentList @('worktree', 'prune')
