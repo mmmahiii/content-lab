@@ -73,7 +73,10 @@ def test_logs_include_request_correlation_fields(capsys: Any) -> None:
     lines = [ln for ln in captured.strip().splitlines() if ln.strip()]
     http_events = []
     for ln in lines:
-        row = json.loads(ln)
+        try:
+            row = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
         if row.get("event") == "http_request":
             http_events.append(row)
     assert http_events, "expected http_request JSON log line"

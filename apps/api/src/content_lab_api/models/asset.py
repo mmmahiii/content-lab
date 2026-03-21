@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from content_lab_api.db import Base
+
+if TYPE_CHECKING:
+    from content_lab_api.models.run_asset import RunAsset
 
 try:
     from pgvector.sqlalchemy import Vector
@@ -39,6 +42,6 @@ class Asset(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    run_assets: Mapped[list["RunAsset"]] = relationship(
+    run_assets: Mapped[list[RunAsset]] = relationship(
         "RunAsset", back_populates="asset", init=False, default_factory=list
     )

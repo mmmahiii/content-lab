@@ -3,8 +3,8 @@ import os
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 
-from content_lab_worker.correlation import worker_service_context
 from content_lab_shared.logging import configure_logging
+from content_lab_worker.correlation import worker_service_context
 
 configure_logging()
 

@@ -32,6 +32,4 @@ class OrgMembership(Base):
     )
 
     org: Mapped[Org | None] = relationship(back_populates="memberships", init=False, default=None)
-    user: Mapped[User | None] = relationship(
-        back_populates="memberships", init=False, default=None
-    )
+    user: Mapped[User | None] = relationship(back_populates="memberships", init=False, default=None)

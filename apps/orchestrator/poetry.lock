@@ -476,6 +476,24 @@ files = [
 markers = {dev = "sys_platform == \"win32\""}
 
 [[package]]
+name = "content-lab-core"
+version = "0.1.0"
+description = "Core domain models, base classes, and shared protocols"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+pydantic = "^2.7.0"
+
+[package.source]
+type = "directory"
+url = "../../packages/core"
+
+[[package]]
 name = "content-lab-runs"
 version = "0.1.0"
 description = "Pipeline run lifecycle management and state machine"
@@ -486,6 +504,7 @@ files = []
 develop = true
 
 [package.dependencies]
+content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
 
 [package.source]
@@ -3255,4 +3274,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "5a620f2fcbe39d1398755d9f057e7e4e4aef6cf655e4751b6fa1c85d620f0e66"
+content-hash = "2894ced047e9ceece0c7be8fa4b4a094ba4b948812138f941168874aa4232742"

@@ -105,6 +105,96 @@ files = [
 markers = {main = "platform_system == \"Windows\" or sys_platform == \"win32\"", dev = "sys_platform == \"win32\""}
 
 [[package]]
+name = "content-lab-assets"
+version = "0.1.0"
+description = "Asset registry: cataloging, deduplication, and embedding lookup"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/assets"
+
+[[package]]
+name = "content-lab-auth"
+version = "0.1.0"
+description = "Authentication, authorization, and policy engine"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/auth"
+
+[[package]]
+name = "content-lab-core"
+version = "0.1.0"
+description = "Core domain models, base classes, and shared protocols"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+pydantic = "^2.7.0"
+
+[package.source]
+type = "directory"
+url = "../../packages/core"
+
+[[package]]
+name = "content-lab-outbox"
+version = "0.1.0"
+description = "Transactional outbox for reliable event publishing"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/outbox"
+
+[[package]]
+name = "content-lab-runs"
+version = "0.1.0"
+description = "Pipeline run lifecycle management and state machine"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/runs"
+
+[[package]]
 name = "content-lab-shared"
 version = "0.1.0"
 description = "Shared models, settings, and utilities for Content Lab"
@@ -122,6 +212,24 @@ structlog = "^24.1.0"
 [package.source]
 type = "directory"
 url = "../../packages/shared/py"
+
+[[package]]
+name = "content-lab-storage"
+version = "0.1.0"
+description = "MinIO/S3 object storage client and helpers"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+pydantic = "^2.7.0"
+
+[package.source]
+type = "directory"
+url = "../../packages/storage"
 
 [[package]]
 name = "fastapi"
@@ -1755,4 +1863,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "b6222677213a6ea1c4ed54fe15f49da7a886e30b816de3bc75c46f0779330b78"
+content-hash = "7be72a64b044b61b639b4045a2a338317f43a21820dbe43d8f712f6b2b0ffa2e"

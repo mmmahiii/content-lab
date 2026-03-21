@@ -17,7 +17,7 @@ class TestRunRecord:
         run.transition_to(RunStatus.RUNNING)
         assert run.status == RunStatus.RUNNING
         run.transition_to(RunStatus.COMPLETED)
-        assert run.status == RunStatus.COMPLETED
+        assert run.status == RunStatus.COMPLETED  # type: ignore[comparison-overlap]
         assert run.is_terminal
 
     def test_invalid_transition(self) -> None:
@@ -31,7 +31,7 @@ class TestRunRecord:
         run.transition_to(RunStatus.PAUSED)
         assert run.status == RunStatus.PAUSED
         run.transition_to(RunStatus.RUNNING)
-        assert run.status == RunStatus.RUNNING
+        assert run.status == RunStatus.RUNNING  # type: ignore[comparison-overlap]
 
     def test_failed_can_retry(self) -> None:
         run = RunRecord(name="run-4")

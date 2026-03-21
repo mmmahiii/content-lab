@@ -5,8 +5,8 @@ from content_lab_editing.instructions import EditInstruction, EditOperation, Edi
 
 class TestEditOperation:
     def test_members(self) -> None:
-        assert EditOperation.TRIM == "trim"
-        assert EditOperation.CONCAT == "concat"
+        assert EditOperation.TRIM.value == "trim"
+        assert EditOperation.CONCAT.value == "concat"
         assert len(EditOperation) == 6
 
 

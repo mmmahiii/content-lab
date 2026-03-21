@@ -29,7 +29,9 @@ def test_merge_and_with_helpers() -> None:
     base = RunContext(run_id="r1", actor="orchestrator")
     overlay = RunContext(task_id="step-2", request_id="req-9")
     merged = merge_run_context(base, overlay)
-    assert merged == RunContext(run_id="r1", task_id="step-2", request_id="req-9", actor="orchestrator")
+    assert merged == RunContext(
+        run_id="r1", task_id="step-2", request_id="req-9", actor="orchestrator"
+    )
 
     assert with_run_id(base, "r2").run_id == "r2"
     assert with_task_id(base, "t").task_id == "t"

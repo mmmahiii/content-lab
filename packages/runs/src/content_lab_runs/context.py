@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, fields, replace
-from typing import Iterator
+from typing import Any
 from uuid import UUID
 
 
@@ -23,12 +24,14 @@ class RunContext:
         return merge_run_context(self, overlay)
 
 
-_run_context_var: ContextVar[RunContext | None] = ContextVar("content_lab_run_context", default=None)
+_run_context_var: ContextVar[RunContext | None] = ContextVar(
+    "content_lab_run_context", default=None
+)
 
 
 def merge_run_context(base: RunContext, overlay: RunContext) -> RunContext:
     """Merge two contexts; overlay wins for fields that are not None."""
-    kwargs: dict[str, str | UUID | None] = {}
+    kwargs: dict[str, Any] = {}
     for f in fields(RunContext):
         name = f.name
         base_v = getattr(base, name)

@@ -5,7 +5,6 @@ import logging
 from typing import Any
 
 import structlog
-
 import structlog.contextvars
 
 from content_lab_shared.logging import (

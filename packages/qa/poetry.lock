@@ -26,6 +26,24 @@ files = [
 ]
 
 [[package]]
+name = "content-lab-core"
+version = "0.1.0"
+description = "Core domain models, base classes, and shared protocols"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+pydantic = "^2.7.0"
+
+[package.source]
+type = "directory"
+url = "../core"
+
+[[package]]
 name = "content-lab-shared"
 version = "0.1.0"
 description = "Shared models, settings, and utilities for Content Lab"
@@ -583,4 +601,4 @@ typing-extensions = ">=4.12.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "b268f3674e1fd9c9bc9ef13b19b60d6550246c0db835d2a3827749cd0fea9bbf"
+content-hash = "df9fccb215c1d78bbde867588b146d4807fee210084f3344baca3ea0720fae83"

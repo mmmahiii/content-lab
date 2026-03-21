@@ -6,12 +6,12 @@ from decimal import Decimal
 
 import pytest
 
-from content_lab_runs import canonical_json_bytes, idempotency_key_from_payload
+from content_lab_runs import JSONValue, canonical_json_bytes, idempotency_key_from_payload
 
 
 def test_idempotency_key_stable_across_key_order() -> None:
-    a = {"b": 1, "a": {"d": 2, "c": 3}}
-    b = {"a": {"c": 3, "d": 2}, "b": 1}
+    a: dict[str, JSONValue] = {"b": 1, "a": {"d": 2, "c": 3}}
+    b: dict[str, JSONValue] = {"a": {"c": 3, "d": 2}, "b": 1}
     k1 = idempotency_key_from_payload("scope.x", a)
     k2 = idempotency_key_from_payload("scope.x", b)
     assert k1 == k2
@@ -27,7 +27,9 @@ def test_idempotency_key_differs_for_scope() -> None:
 
 
 def test_idempotency_key_differs_for_payload() -> None:
-    assert idempotency_key_from_payload("s", {"x": 1}) != idempotency_key_from_payload("s", {"x": 2})
+    assert idempotency_key_from_payload("s", {"x": 1}) != idempotency_key_from_payload(
+        "s", {"x": 2}
+    )
 
 
 def test_idempotency_scope_strips_and_rejects_empty() -> None:

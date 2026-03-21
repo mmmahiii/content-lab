@@ -39,6 +39,78 @@ files = [
 ]
 
 [[package]]
+name = "content-lab-assets"
+version = "0.1.0"
+description = "Asset registry: cataloging, deduplication, and embedding lookup"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/assets"
+
+[[package]]
+name = "content-lab-core"
+version = "0.1.0"
+description = "Core domain models, base classes, and shared protocols"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+pydantic = "^2.7.0"
+
+[package.source]
+type = "directory"
+url = "../../packages/core"
+
+[[package]]
+name = "content-lab-creative"
+version = "0.1.0"
+description = "Creative brief generation and template management"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/creative"
+
+[[package]]
+name = "content-lab-editing"
+version = "0.1.0"
+description = "Video/image editing pipeline and Runway adapter integration"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/editing"
+
+[[package]]
 name = "content-lab-runs"
 version = "0.1.0"
 description = "Pipeline run lifecycle management and state machine"
@@ -49,6 +121,7 @@ files = []
 develop = true
 
 [package.dependencies]
+content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
 
 [package.source]
@@ -73,6 +146,24 @@ structlog = "^24.1.0"
 [package.source]
 type = "directory"
 url = "../../packages/shared/py"
+
+[[package]]
+name = "content-lab-storage"
+version = "0.1.0"
+description = "MinIO/S3 object storage client and helpers"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-shared = {path = "../shared/py", develop = true}
+pydantic = "^2.7.0"
+
+[package.source]
+type = "directory"
+url = "../../packages/storage"
 
 [[package]]
 name = "dramatiq"
@@ -692,4 +783,4 @@ typing-extensions = ">=4.12.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "6e82a6cd855998a84cca7b03383850695f8e21cc3a92c3747b62157ebdfb08d9"
+content-hash = "225c8c77f229e601a35732dcc40fd3e247855708662ea0a6cf14054513a45580"
