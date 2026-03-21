@@ -1,4 +1,4 @@
-"""OutboxEvent ORM model."""
+"""OutboxEvent ORM model (transactional outbox for reliable dispatch)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ class OutboxEvent(Base):
     aggregate_id: Mapped[str] = mapped_column(String(256))
     event_type: Mapped[str] = mapped_column(String(128))
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
-    published: Mapped[bool] = mapped_column(default=False)
+    dispatched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), init=False
     )

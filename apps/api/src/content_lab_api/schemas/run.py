@@ -10,16 +10,16 @@ from pydantic import BaseModel, Field
 
 
 class RunCreate(BaseModel):
-    name: str
-    config: dict[str, Any] = Field(default_factory=dict)
+    workflow_key: str
+    input_params: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunOut(BaseModel):
     id: uuid.UUID
-    name: str
+    workflow_key: str
     status: str
-    config: dict[str, Any]
-    result: dict[str, Any] | None
+    input_params: dict[str, Any]
+    output_payload: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 

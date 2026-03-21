@@ -8,6 +8,11 @@ def test_import_models() -> None:
     assert Run.__tablename__ == "runs"
     assert RunAsset.__tablename__ == "run_assets"
     assert OutboxEvent.__tablename__ == "outbox_events"
+    assert "asset_class" in Asset.__table__.c
+    assert "storage_uri" in Asset.__table__.c
+    assert "workflow_key" in Run.__table__.c
+    assert "dispatched_at" in OutboxEvent.__table__.c
+    assert "asset_role" in RunAsset.__table__.c
 
 
 def test_import_schemas() -> None:
