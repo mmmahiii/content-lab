@@ -15,7 +15,9 @@ from content_lab_api.models import (
     AssetGenParam,
     AssetUsage,
     Org,
+    Page,
     Reel,
+    ReelFamily,
 )
 
 
@@ -41,18 +43,16 @@ def test_assets_asset_key_hash_unique_per_org(db_session: Session, org_id: uuid.
         ),
     )
     db_session.flush()
-    db_session.execute(
-        insert(Asset).values(
-            id=uuid.uuid4(),
-            org_id=org_id,
-            asset_class="clip",
-            storage_uri="s3://b/2",
-            asset_key_hash=h,
-        ),
-    )
     with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+        db_session.execute(
+            insert(Asset).values(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                asset_class="clip",
+                storage_uri="s3://b/2",
+                asset_key_hash=h,
+            ),
+        )
 
 
 def test_assets_multiple_null_asset_key_hash_allowed(
@@ -169,19 +169,17 @@ def test_asset_gen_params_unique_asset_seq(db_session: Session, org_id: uuid.UUI
             canonical_params={},
         ),
     )
-    db_session.execute(
-        insert(AssetGenParam).values(
-            id=uuid.uuid4(),
-            org_id=org_id,
-            asset_id=aid,
-            seq=0,
-            asset_key_hash=h,
-            canonical_params={},
-        ),
-    )
     with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+        db_session.execute(
+            insert(AssetGenParam).values(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                asset_id=aid,
+                seq=0,
+                asset_key_hash=h,
+                canonical_params={},
+            ),
+        )
 
 
 def test_asset_gen_params_cascade_when_asset_deleted(
@@ -217,9 +215,27 @@ def test_asset_gen_params_cascade_when_asset_deleted(
 
 
 def test_asset_usage_unique_reel_asset_role(db_session: Session, org_id: uuid.UUID) -> None:
+    pid = uuid.uuid4()
+    fid = uuid.uuid4()
     rid = uuid.uuid4()
     aid = uuid.uuid4()
-    db_session.execute(insert(Reel).values(id=rid, org_id=org_id))
+    db_session.execute(
+        insert(Page).values(
+            id=pid,
+            org_id=org_id,
+            platform="instagram",
+            display_name="Test page",
+        ),
+    )
+    db_session.execute(
+        insert(ReelFamily).values(
+            id=fid,
+            org_id=org_id,
+            page_id=pid,
+            name="Test family",
+        ),
+    )
+    db_session.execute(insert(Reel).values(id=rid, org_id=org_id, reel_family_id=fid))
     db_session.execute(
         insert(Asset).values(
             id=aid,
@@ -238,18 +254,16 @@ def test_asset_usage_unique_reel_asset_role(db_session: Session, org_id: uuid.UU
             usage_role="background",
         ),
     )
-    db_session.execute(
-        insert(AssetUsage).values(
-            id=uuid.uuid4(),
-            org_id=org_id,
-            reel_id=rid,
-            asset_id=aid,
-            usage_role="background",
-        ),
-    )
     with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+        db_session.execute(
+            insert(AssetUsage).values(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                reel_id=rid,
+                asset_id=aid,
+                usage_role="background",
+            ),
+        )
 
 
 def test_asset_usage_rejects_unknown_reel(db_session: Session, org_id: uuid.UUID) -> None:
@@ -263,18 +277,16 @@ def test_asset_usage_rejects_unknown_reel(db_session: Session, org_id: uuid.UUID
         ),
     )
     db_session.flush()
-    db_session.execute(
-        insert(AssetUsage).values(
-            id=uuid.uuid4(),
-            org_id=org_id,
-            reel_id=uuid.uuid4(),
-            asset_id=aid,
-            usage_role="voiceover",
-        ),
-    )
     with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+        db_session.execute(
+            insert(AssetUsage).values(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                reel_id=uuid.uuid4(),
+                asset_id=aid,
+                usage_role="voiceover",
+            ),
+        )
 
 
 def test_asset_family_fk_on_asset(db_session: Session, org_id: uuid.UUID) -> None:
