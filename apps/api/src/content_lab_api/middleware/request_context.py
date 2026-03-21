@@ -10,11 +10,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from content_lab_api.constants import X_REQUEST_ID_HEADER
 from content_lab_shared.logging import ANONYMOUS_ACTOR, clear_correlation_id, set_correlation_id
 
 logger = structlog.get_logger()
 
-X_REQUEST_ID_HEADER = "x-request-id"
 X_ACTOR_HEADER = "x-actor-id"
 
 _REQUEST_ID_SAFE = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")

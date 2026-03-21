@@ -10,7 +10,8 @@ import pytest
 import structlog.contextvars
 from fastapi.testclient import TestClient
 
-from content_lab_api.main import X_REQUEST_ID_HEADER, app
+from content_lab_api.constants import X_REQUEST_ID_HEADER
+from content_lab_api.main import app
 from content_lab_shared.logging import configure_logging
 
 

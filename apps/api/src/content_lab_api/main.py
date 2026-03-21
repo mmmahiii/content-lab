@@ -6,14 +6,13 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from content_lab_api.constants import X_REQUEST_ID_HEADER
 from content_lab_api.middleware import RequestContextMiddleware
 from content_lab_api.routes import api_router
 from content_lab_shared.errors import ErrorDetail, ErrorResponse
 from content_lab_shared.logging import ANONYMOUS_ACTOR, configure_logging, redact_sensitive_string
 
 logger = structlog.get_logger()
-
-X_REQUEST_ID_HEADER = "X-Request-Id"
 
 
 @asynccontextmanager
