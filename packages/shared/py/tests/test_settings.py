@@ -14,7 +14,7 @@ class TestSettingsDefaults:
     def test_infrastructure_defaults(self) -> None:
         s = Settings()
         assert (
-            s.database_url == "postgresql+psycopg://contentlab:contentlab@localhost:5432/contentlab"
+            s.database_url == "postgresql+psycopg://contentlab:contentlab@localhost:5433/contentlab"
         )
         assert s.redis_url == "redis://localhost:6379/0"
         assert s.minio_endpoint == "http://localhost:9000"

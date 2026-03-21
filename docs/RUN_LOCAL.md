@@ -40,7 +40,7 @@ Services exposed locally:
 
 | Service | Port | Notes |
 |---------|------|-------|
-| Postgres | 5432 | User `contentlab`, DB `contentlab` |
+| Postgres | 5433 | User `contentlab`, DB `contentlab` (host port; avoids local Postgres on 5432) |
 | Redis | 6379 | Default DB 0 |
 | MinIO API | 9000 | Credentials in `.env` |
 | MinIO Console | 9001 | Web UI for browsing buckets |

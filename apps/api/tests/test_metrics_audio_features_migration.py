@@ -22,7 +22,7 @@ API_ROOT = Path(__file__).resolve().parents[1]
 def _default_database_url() -> str:
     return os.environ.get(
         "DATABASE_URL",
-        "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5432/contentlab",
+        "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5433/contentlab",
     )
 
 

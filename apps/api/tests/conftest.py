@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 def _database_url() -> str:
     return os.environ.get(
         "DATABASE_URL",
-        "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5432/contentlab",
+        "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5433/contentlab",
     )
 
 

@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_find_dotenv(), extra="ignore")
 
     # -- Infrastructure --
-    database_url: str = "postgresql+psycopg://contentlab:contentlab@localhost:5432/contentlab"
+    database_url: str = "postgresql+psycopg://contentlab:contentlab@localhost:5433/contentlab"
     redis_url: str = "redis://localhost:6379/0"
     minio_endpoint: str = "http://localhost:9000"
     minio_bucket: str = "content-lab"
