@@ -9,6 +9,8 @@ from typing import Any
 
 import structlog
 
+ANONYMOUS_ACTOR = "anonymous"
+
 # ---------------------------------------------------------------------------
 # Correlation-ID primitives
 # ---------------------------------------------------------------------------
@@ -64,6 +66,21 @@ def redact_event_dict(
     return event_dict
 
 
+_VALUE_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(api[_-]?key|password|secret|token|auth)\s*[=:]\s*[^\s,;]+"),
+    re.compile(r"(?i)bearer\s+[^\s]+"),
+    re.compile(r"(?i)sk-[a-zA-Z0-9]{8,}"),
+)
+
+
+def redact_sensitive_string(text: str, *, max_len: int = 2_000) -> str:
+    """Redact common secret patterns embedded in free-form strings (e.g. exception messages)."""
+    s = text if len(text) <= max_len else f"{text[:max_len]}…"
+    for pattern in _VALUE_SECRET_PATTERNS:
+        s = pattern.sub(_REDACTED, s)
+    return s
+
+
 # ---------------------------------------------------------------------------
 # Public configuration entry-point
 # ---------------------------------------------------------------------------
@@ -86,6 +103,7 @@ def configure_logging(level: int = logging.INFO, *, redact: bool = True) -> None
     )
 
     processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
         _inject_correlation_id,

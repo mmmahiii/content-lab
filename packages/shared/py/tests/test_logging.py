@@ -6,11 +6,14 @@ from typing import Any
 
 import structlog
 
+import structlog.contextvars
+
 from content_lab_shared.logging import (
     clear_correlation_id,
     configure_logging,
     get_correlation_id,
     redact_event_dict,
+    redact_sensitive_string,
     set_correlation_id,
 )
 
@@ -18,6 +21,7 @@ from content_lab_shared.logging import (
 class TestCorrelationId:
     def teardown_method(self) -> None:
         clear_correlation_id()
+        structlog.contextvars.clear_contextvars()
 
     def test_default_is_none(self) -> None:
         assert get_correlation_id() is None
@@ -37,6 +41,7 @@ class TestCorrelationIdInLogs:
 
     def teardown_method(self) -> None:
         clear_correlation_id()
+        structlog.contextvars.clear_contextvars()
 
     def test_correlation_id_appears_in_log(self, capsys: Any) -> None:
         configure_logging(level=logging.DEBUG)
@@ -88,9 +93,18 @@ class TestRedactEventDict:
         assert result["Secret"] == "***REDACTED***"
 
 
+class TestRedactSensitiveString:
+    def test_redacts_token_assignment(self) -> None:
+        raw = "failed: token=supersecret and ok"
+        out = redact_sensitive_string(raw)
+        assert "supersecret" not in out
+        assert "***REDACTED***" in out
+
+
 class TestConfigureLogging:
     def teardown_method(self) -> None:
         clear_correlation_id()
+        structlog.contextvars.clear_contextvars()
 
     def test_redaction_in_full_pipeline(self, capsys: Any) -> None:
         configure_logging(level=logging.DEBUG, redact=True)
