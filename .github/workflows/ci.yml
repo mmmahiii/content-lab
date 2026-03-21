@@ -26,6 +26,22 @@ jobs:
 
   python:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: contentlab
+          POSTGRES_PASSWORD: contentlab
+          POSTGRES_DB: contentlab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U contentlab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://contentlab:contentlab@localhost:5432/contentlab
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,5 +51,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install poetry
+      - name: Migrate API database
+        run: |
+          cd apps/api
+          poetry install --no-interaction
+          poetry run alembic upgrade head
       - name: Python checks
         run: bash ./scripts/py_check.sh

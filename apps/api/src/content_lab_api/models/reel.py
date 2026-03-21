@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from content_lab_api.db import Base
 
 if TYPE_CHECKING:
+    from content_lab_api.models.asset_usage import AssetUsage
     from content_lab_api.models.reel_family import ReelFamily
 
 
@@ -101,3 +102,6 @@ class Reel(Base):
     )
 
     reel_family: Mapped[ReelFamily] = relationship("ReelFamily", back_populates="reels", init=False)
+    asset_usages: Mapped[list[AssetUsage]] = relationship(
+        "AssetUsage", back_populates="reel", init=False, default_factory=list
+    )

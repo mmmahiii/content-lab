@@ -17,6 +17,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from content_lab_api.db import Base
 
 if TYPE_CHECKING:
+    from content_lab_api.models.asset_family import AssetFamily
+    from content_lab_api.models.asset_gen_param import AssetGenParam
+    from content_lab_api.models.asset_usage import AssetUsage
     from content_lab_api.models.run_asset import RunAsset
 
 try:
@@ -34,6 +37,13 @@ class Asset(Base):
             "asset_key",
             unique=True,
             postgresql_where=text("asset_key IS NOT NULL"),
+        ),
+        Index(
+            "uq_assets_org_asset_key_hash",
+            "org_id",
+            "asset_key_hash",
+            unique=True,
+            postgresql_where=text("asset_key_hash IS NOT NULL"),
         ),
     )
 
@@ -55,7 +65,20 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), init=False
     )
+    family_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("asset_families.id", ondelete="SET NULL"), nullable=True, default=None
+    )
+    asset_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
 
+    family: Mapped[AssetFamily | None] = relationship(
+        "AssetFamily", back_populates="assets", init=False, default=None
+    )
+    gen_params: Mapped[list[AssetGenParam]] = relationship(
+        "AssetGenParam", back_populates="asset", init=False, default_factory=list
+    )
+    asset_usages: Mapped[list[AssetUsage]] = relationship(
+        "AssetUsage", back_populates="asset", init=False, default_factory=list
+    )
     run_assets: Mapped[list[RunAsset]] = relationship(
         "RunAsset", back_populates="asset", init=False, default_factory=list
     )

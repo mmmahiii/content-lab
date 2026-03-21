@@ -1,4 +1,8 @@
-"""Join between workflow runs and assets (legacy table name: run_assets)."""
+"""Join between workflow runs and assets (legacy table name: run_assets).
+
+Kept for starter-run / operational lineage only. Authoritative creative lineage
+from reels to assets is ``asset_usage``; do not extend ``run_assets`` for that.
+"""
 
 from __future__ import annotations
 

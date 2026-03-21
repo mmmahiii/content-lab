@@ -18,6 +18,8 @@ def test_import_models() -> None:
     assert "phash" in Asset.__table__.c
     assert "status" in Asset.__table__.c
     assert "storage_uri" in Asset.__table__.c
+    assert "asset_key_hash" in Asset.__table__.c
+    assert "family_id" in Asset.__table__.c
     assert "workflow_key" in Run.__table__.c
     assert "flow_trigger" in Run.__table__.c
     assert "idempotency_key" in Run.__table__.c
