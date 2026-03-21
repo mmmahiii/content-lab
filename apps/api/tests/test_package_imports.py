@@ -9,9 +9,20 @@ def test_import_models() -> None:
     assert RunAsset.__tablename__ == "run_assets"
     assert OutboxEvent.__tablename__ == "outbox_events"
     assert "asset_class" in Asset.__table__.c
+    assert "source" in Asset.__table__.c
+    assert "asset_key" in Asset.__table__.c
+    assert "content_hash" in Asset.__table__.c
+    assert "phash" in Asset.__table__.c
+    assert "status" in Asset.__table__.c
     assert "storage_uri" in Asset.__table__.c
     assert "workflow_key" in Run.__table__.c
+    assert "flow_trigger" in Run.__table__.c
+    assert "idempotency_key" in Run.__table__.c
+    assert "run_metadata" in Run.__table__.c
     assert "dispatched_at" in OutboxEvent.__table__.c
+    assert "delivery_status" in OutboxEvent.__table__.c
+    assert "attempt_count" in OutboxEvent.__table__.c
+    assert "next_attempt_at" in OutboxEvent.__table__.c
     assert "asset_role" in RunAsset.__table__.c
 
 
