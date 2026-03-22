@@ -2,6 +2,26 @@
 
 from content_lab_api.schemas.asset import AssetCreate, AssetOut
 from content_lab_api.schemas.outbox import OutboxEventOut
+from content_lab_api.schemas.pages import (
+    PageConstraints,
+    PageCreate,
+    PageMetadata,
+    PageOut,
+    PageUpdate,
+    PersonaProfile,
+)
 from content_lab_api.schemas.run import RunCreate, RunOut
 
-__all__ = ["AssetCreate", "AssetOut", "OutboxEventOut", "RunCreate", "RunOut"]
+__all__ = [
+    "AssetCreate",
+    "AssetOut",
+    "OutboxEventOut",
+    "PageConstraints",
+    "PageCreate",
+    "PageMetadata",
+    "PageOut",
+    "PageUpdate",
+    "PersonaProfile",
+    "RunCreate",
+    "RunOut",
+]

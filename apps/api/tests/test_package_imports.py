@@ -56,11 +56,29 @@ def test_import_schemas() -> None:
         AssetCreate,
         AssetOut,
         OutboxEventOut,
+        PageConstraints,
+        PageCreate,
+        PageMetadata,
+        PageOut,
+        PageUpdate,
+        PersonaProfile,
         RunCreate,
         RunOut,
     )
 
-    for cls in (AssetCreate, AssetOut, OutboxEventOut, RunCreate, RunOut):
+    for cls in (
+        AssetCreate,
+        AssetOut,
+        OutboxEventOut,
+        PageConstraints,
+        PageCreate,
+        PageMetadata,
+        PageOut,
+        PageUpdate,
+        PersonaProfile,
+        RunCreate,
+        RunOut,
+    ):
         assert issubclass(cls, object)
 
 
@@ -75,6 +93,8 @@ def test_import_routes() -> None:
 
     paths = [getattr(r, "path", None) for r in api_router.routes]
     assert "/health" in paths
+    assert "/orgs/{org_id}/pages" in paths
+    assert "/orgs/{org_id}/pages/{page_id}" in paths
 
 
 def test_import_db_base() -> None:
