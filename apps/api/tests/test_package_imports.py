@@ -55,6 +55,7 @@ def test_import_schemas() -> None:
     from content_lab_api.schemas import (
         AssetCreate,
         AssetOut,
+        FlowTrigger,
         OutboxEventOut,
         PageConstraints,
         PageCreate,
@@ -62,21 +63,26 @@ def test_import_schemas() -> None:
         PageOut,
         PageUpdate,
         PersonaProfile,
+        ReelCreate,
         ReelFamilyCreate,
         ReelFamilyMode,
         ReelFamilyOut,
-        ReelCreate,
         ReelOut,
         ReelPostingInfo,
         ReelReviewInfo,
+        ReelTriggerCreate,
         ReelVariantSummary,
         RunCreate,
+        RunDetailOut,
         RunOut,
+        TaskSummaryOut,
+        WorkflowKey,
     )
 
     for cls in (
         AssetCreate,
         AssetOut,
+        FlowTrigger,
         OutboxEventOut,
         PageConstraints,
         PageCreate,
@@ -91,9 +97,13 @@ def test_import_schemas() -> None:
         ReelOut,
         ReelPostingInfo,
         ReelReviewInfo,
+        ReelTriggerCreate,
         ReelVariantSummary,
         RunCreate,
+        RunDetailOut,
         RunOut,
+        TaskSummaryOut,
+        WorkflowKey,
     ):
         assert issubclass(cls, object)
 
@@ -115,6 +125,9 @@ def test_import_routes() -> None:
     assert "/orgs/{org_id}/pages/{page_id}/reel-families/{family_id}" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reels" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reels/{reel_id}" in paths
+    assert "/orgs/{org_id}/pages/{page_id}/reels/{reel_id}/trigger" in paths
+    assert "/orgs/{org_id}/runs" in paths
+    assert "/orgs/{org_id}/runs/{run_id}" in paths
 
 
 def test_import_db_base() -> None:
