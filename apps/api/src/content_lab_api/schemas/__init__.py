@@ -10,6 +10,12 @@ from content_lab_api.schemas.pages import (
     PageUpdate,
     PersonaProfile,
 )
+from content_lab_api.schemas.reel_families import (
+    ReelFamilyCreate,
+    ReelFamilyMode,
+    ReelFamilyOut,
+    ReelVariantSummary,
+)
 from content_lab_api.schemas.run import RunCreate, RunOut
 
 __all__ = [
@@ -22,6 +28,10 @@ __all__ = [
     "PageOut",
     "PageUpdate",
     "PersonaProfile",
+    "ReelFamilyCreate",
+    "ReelFamilyMode",
+    "ReelFamilyOut",
+    "ReelVariantSummary",
     "RunCreate",
     "RunOut",
 ]
