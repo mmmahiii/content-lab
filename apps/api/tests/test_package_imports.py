@@ -62,10 +62,18 @@ def test_import_schemas() -> None:
         PageOut,
         PageUpdate,
         PersonaProfile,
+        PolicyBudgetGuardrails,
+        PolicyModeRatios,
+        PolicyScopeType,
+        PolicySimilarityThresholds,
+        PolicyStateDocument,
+        PolicyStateOut,
+        PolicyStateUpdate,
+        PolicyThresholds,
+        ReelCreate,
         ReelFamilyCreate,
         ReelFamilyMode,
         ReelFamilyOut,
-        ReelCreate,
         ReelOut,
         ReelPostingInfo,
         ReelReviewInfo,
@@ -84,6 +92,14 @@ def test_import_schemas() -> None:
         PageOut,
         PageUpdate,
         PersonaProfile,
+        PolicyBudgetGuardrails,
+        PolicyModeRatios,
+        PolicyScopeType,
+        PolicySimilarityThresholds,
+        PolicyStateDocument,
+        PolicyStateOut,
+        PolicyStateUpdate,
+        PolicyThresholds,
         ReelFamilyCreate,
         ReelFamilyMode,
         ReelFamilyOut,
@@ -111,6 +127,9 @@ def test_import_routes() -> None:
     assert "/health" in paths
     assert "/orgs/{org_id}/pages" in paths
     assert "/orgs/{org_id}/pages/{page_id}" in paths
+    assert "/orgs/{org_id}/policy/global" in paths
+    assert "/orgs/{org_id}/policy/page/{page_id}" in paths
+    assert "/orgs/{org_id}/policy/niche/{niche_key}" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reel-families" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reel-families/{family_id}" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reels" in paths
