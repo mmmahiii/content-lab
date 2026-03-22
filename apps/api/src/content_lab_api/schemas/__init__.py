@@ -16,6 +16,7 @@ from content_lab_api.schemas.reel_families import (
     ReelFamilyOut,
     ReelVariantSummary,
 )
+from content_lab_api.schemas.reels import ReelCreate, ReelOut, ReelPostingInfo, ReelReviewInfo
 from content_lab_api.schemas.run import RunCreate, RunOut
 
 __all__ = [
@@ -31,6 +32,10 @@ __all__ = [
     "ReelFamilyCreate",
     "ReelFamilyMode",
     "ReelFamilyOut",
+    "ReelCreate",
+    "ReelOut",
+    "ReelPostingInfo",
+    "ReelReviewInfo",
     "ReelVariantSummary",
     "RunCreate",
     "RunOut",

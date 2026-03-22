@@ -65,6 +65,10 @@ def test_import_schemas() -> None:
         ReelFamilyCreate,
         ReelFamilyMode,
         ReelFamilyOut,
+        ReelCreate,
+        ReelOut,
+        ReelPostingInfo,
+        ReelReviewInfo,
         ReelVariantSummary,
         RunCreate,
         RunOut,
@@ -83,6 +87,10 @@ def test_import_schemas() -> None:
         ReelFamilyCreate,
         ReelFamilyMode,
         ReelFamilyOut,
+        ReelCreate,
+        ReelOut,
+        ReelPostingInfo,
+        ReelReviewInfo,
         ReelVariantSummary,
         RunCreate,
         RunOut,
@@ -105,6 +113,8 @@ def test_import_routes() -> None:
     assert "/orgs/{org_id}/pages/{page_id}" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reel-families" in paths
     assert "/orgs/{org_id}/pages/{page_id}/reel-families/{family_id}" in paths
+    assert "/orgs/{org_id}/pages/{page_id}/reels" in paths
+    assert "/orgs/{org_id}/pages/{page_id}/reels/{reel_id}" in paths
 
 
 def test_import_db_base() -> None:
