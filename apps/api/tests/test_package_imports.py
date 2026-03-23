@@ -54,9 +54,12 @@ def test_import_models() -> None:
 def test_import_schemas() -> None:
     from content_lab_api.schemas import (
         AssetCreate,
+        AssetDetailOut,
         AssetOut,
         FlowTrigger,
         OutboxEventOut,
+        PackageArtifactOut,
+        PackageDetailOut,
         PageConstraints,
         PageCreate,
         PageMetadata,
@@ -83,12 +86,14 @@ def test_import_schemas() -> None:
         RunCreate,
         RunDetailOut,
         RunOut,
+        SignedDownloadOut,
         TaskSummaryOut,
         WorkflowKey,
     )
 
     for cls in (
         AssetCreate,
+        AssetDetailOut,
         AssetOut,
         FlowTrigger,
         OutboxEventOut,
@@ -98,6 +103,8 @@ def test_import_schemas() -> None:
         PageOut,
         PageUpdate,
         PersonaProfile,
+        PackageArtifactOut,
+        PackageDetailOut,
         PolicyBudgetGuardrails,
         PolicyModeRatios,
         PolicyScopeType,
@@ -118,6 +125,7 @@ def test_import_schemas() -> None:
         RunCreate,
         RunDetailOut,
         RunOut,
+        SignedDownloadOut,
         TaskSummaryOut,
         WorkflowKey,
     ):
@@ -147,6 +155,9 @@ def test_import_routes() -> None:
     assert "/orgs/{org_id}/pages/{page_id}/reels/{reel_id}/trigger" in paths
     assert "/orgs/{org_id}/runs" in paths
     assert "/orgs/{org_id}/runs/{run_id}" in paths
+    assert "/orgs/{org_id}/assets/{asset_id}" in paths
+    assert "/orgs/{org_id}/assets/{asset_id}/download" in paths
+    assert "/orgs/{org_id}/packages/{run_id}" in paths
 
 
 def test_import_db_base() -> None:
