@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--flow", default=DEFAULT_FLOW_NAME, choices=list_flow_names())
     run_cmd.add_argument("--name", default="world")
     run_cmd.add_argument("--reel-id", default="demo-reel")
+    run_cmd.add_argument("--run-id", default=None)
     run_cmd.add_argument("--dry-run", action="store_true")
     run_cmd.set_defaults(func=_run_selected_flow)
 
