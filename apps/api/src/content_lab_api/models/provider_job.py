@@ -43,6 +43,4 @@ class ProviderJob(Base):
     )
 
     org: Mapped[Org | None] = relationship(back_populates="provider_jobs", init=False)
-    task: Mapped[Task | None] = relationship(
-        back_populates="provider_jobs", init=False
-    )
+    task: Mapped[Task | None] = relationship(back_populates="provider_jobs", init=False)

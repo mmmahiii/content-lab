@@ -42,9 +42,5 @@ class AssetUsage(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    reel: Mapped[Reel | None] = relationship(
-        "Reel", back_populates="asset_usages", init=False
-    )
-    asset: Mapped[Asset | None] = relationship(
-        "Asset", back_populates="asset_usages", init=False
-    )
+    reel: Mapped[Reel | None] = relationship("Reel", back_populates="asset_usages", init=False)
+    asset: Mapped[Asset | None] = relationship("Asset", back_populates="asset_usages", init=False)

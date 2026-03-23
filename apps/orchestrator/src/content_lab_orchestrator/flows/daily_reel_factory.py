@@ -296,7 +296,6 @@ class InMemoryDailyReelFactoryService:
             metadata=dict(metadata),
         )
 
-
     def create_reel_variant(
         self,
         *,

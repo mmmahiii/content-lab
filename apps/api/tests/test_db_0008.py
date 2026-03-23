@@ -22,6 +22,7 @@ MIGRATION_FILE = (
     API_ROOT / "migrations" / "versions" / "0008_policy_tasks_provider_audit_integrity.py"
 )
 
+
 def _integration_database_url() -> str:
     """Prefer dedicated integration URL; otherwise use the same DB as the rest of the API tests."""
     explicit = os.environ.get("CONTENT_LAB_INTEGRATION_DATABASE_URL")

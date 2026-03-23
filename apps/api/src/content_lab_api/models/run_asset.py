@@ -34,6 +34,4 @@ class RunAsset(Base):
     asset_role: Mapped[str] = mapped_column(String(64))
 
     run: Mapped[Run | None] = relationship(back_populates="run_assets", init=False)
-    asset: Mapped[Asset | None] = relationship(
-        back_populates="run_assets", init=False
-    )
+    asset: Mapped[Asset | None] = relationship(back_populates="run_assets", init=False)
