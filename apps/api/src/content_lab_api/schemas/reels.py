@@ -8,7 +8,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from content_lab_api.models.reel import GeneratedReelStatus, Reel, ReelOrigin, validate_reel_origin_status
+from content_lab_api.models.reel import (
+    GeneratedReelStatus,
+    Reel,
+    ReelOrigin,
+    validate_reel_origin_status,
+)
 
 
 def _clean_text(value: str, *, field_name: str, max_length: int) -> str:
@@ -72,7 +77,7 @@ class ReelCreate(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_generated_only(self) -> "ReelCreate":
+    def _validate_generated_only(self) -> ReelCreate:
         if self.origin is not ReelOrigin.GENERATED:
             raise ValueError("origin must be 'generated' for this endpoint")
         if self.external_reel_id is not None:

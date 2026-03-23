@@ -90,7 +90,7 @@ class PersonaProfile(BaseModel):
         return _clean_list(value, field_name="differentiators")
 
     @model_validator(mode="after")
-    def _require_content_pillar(self) -> "PersonaProfile":
+    def _require_content_pillar(self) -> PersonaProfile:
         if not self.content_pillars:
             raise ValueError("content_pillars must contain at least one item")
         return self
@@ -217,9 +217,11 @@ class PageUpdate(BaseModel):
         return _clean_text(value, field_name=str(info.field_name), max_length=256)
 
     @model_validator(mode="after")
-    def _require_patch_fields(self) -> "PageUpdate":
+    def _require_patch_fields(self) -> PageUpdate:
         if not self.model_fields_set:
             raise ValueError("At least one field must be provided")
+        if "display_name" in self.model_fields_set and self.display_name is None:
+            raise ValueError("display_name cannot be null")
         if "ownership" in self.model_fields_set and self.ownership is None:
             raise ValueError("ownership cannot be null")
         if "metadata" in self.model_fields_set and self.metadata is None:

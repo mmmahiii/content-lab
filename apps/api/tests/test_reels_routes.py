@@ -22,7 +22,9 @@ from content_lab_api.models import (
 )
 
 
-def _make_page(org_id: uuid.UUID, *, platform: str, display_name: str, external_page_id: str) -> Page:
+def _make_page(
+    org_id: uuid.UUID, *, platform: str, display_name: str, external_page_id: str
+) -> Page:
     return Page(
         org_id=org_id,
         platform=platform,
@@ -354,7 +356,9 @@ def test_reel_human_review_actions_are_guarded_and_audited(
     )
     assert observed_approve.status_code == 409
     assert observed_post.status_code == 409
-    assert observed_approve.json()["detail"] == "Review actions are only allowed for generated reels"
+    assert (
+        observed_approve.json()["detail"] == "Review actions are only allowed for generated reels"
+    )
     assert observed_post.json()["detail"] == "Review actions are only allowed for generated reels"
 
     audit_rows = (

@@ -300,7 +300,8 @@ def approve_reel(
     _ensure_generated_reel(reel)
     if reel.status != GeneratedReelStatus.READY.value:
         raise _transition_conflict("Only ready generated reels can be approved")
-    if isinstance(reel.metadata_.get("review"), dict) and reel.metadata_["review"].get("approved_at"):
+    review = (reel.metadata_ or {}).get("review")
+    if isinstance(review, dict) and review.get("approved_at"):
         raise _transition_conflict("Reel has already been approved")
 
     actor_id, _ = _actor_info(request)

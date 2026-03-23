@@ -21,7 +21,9 @@ from content_lab_api.models import (
 )
 
 
-def _make_page(org_id: uuid.UUID, *, platform: str, display_name: str, external_page_id: str) -> Page:
+def _make_page(
+    org_id: uuid.UUID, *, platform: str, display_name: str, external_page_id: str
+) -> Page:
     return Page(
         org_id=org_id,
         platform=platform,

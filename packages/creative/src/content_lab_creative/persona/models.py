@@ -71,7 +71,7 @@ class PersonaProfile(BaseModel):
         return _clean_list(value, field_name=str(info.field_name))
 
     @model_validator(mode="after")
-    def _require_content_pillar(self) -> "PersonaProfile":
+    def _require_content_pillar(self) -> PersonaProfile:
         if not self.content_pillars:
             raise ValueError("content_pillars must contain at least one item")
         return self

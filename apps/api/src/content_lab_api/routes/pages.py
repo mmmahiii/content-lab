@@ -149,7 +149,7 @@ def update_page(
     page = _get_page_or_404(db, org_id, page_id)
     changes = body.model_dump(exclude_unset=True)
 
-    if "display_name" in changes:
+    if "display_name" in changes and body.display_name is not None:
         page.display_name = body.display_name
     if "external_page_id" in changes:
         page.external_page_id = body.external_page_id
