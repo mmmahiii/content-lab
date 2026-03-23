@@ -35,6 +35,8 @@ See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard comman
 | Orchestrator | `cd apps/orchestrator && poetry run python -m content_lab_orchestrator.cli run --name world` | — |
 | Web (Next.js) | `pnpm --filter web dev` | 3000 |
 
+**API health via background job (Windows):** From repo root run `powershell -NoProfile -File scripts/api-health-smoke.ps1`. It uses a **free ephemeral port** and sets `apps/api` inside the job. Avoid pasting `Start-Job { uvicorn … --port 8000 }` plus `Invoke-RestMethod http://127.0.0.1:8000/health`: if something else already listens on 8000, the request hits that process (often HTTP 500), not your job. Use `pwsh` only if PowerShell 7+ is installed (`pwsh` is not the same as the `pwsh` PyPI package).
+
 ### Scaffold verification
 
 Cursor Cloud's scaffold check expects `minio-create-bucket` and `packages/*/py` paths. This repo provides compatibility:
