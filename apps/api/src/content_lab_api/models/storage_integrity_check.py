@@ -39,8 +39,8 @@ class StorageIntegrityCheck(Base):
     )
 
     org: Mapped[Org | None] = relationship(
-        back_populates="storage_integrity_checks", init=False, default=None
+        back_populates="storage_integrity_checks", init=False
     )
     asset: Mapped[Asset | None] = relationship(
-        back_populates="storage_integrity_checks", init=False, default=None
+        back_populates="storage_integrity_checks", init=False
     )

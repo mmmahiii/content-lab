@@ -42,4 +42,4 @@ class Experiment(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    org: Mapped[Org | None] = relationship(back_populates="experiments", init=False, default=None)
+    org: Mapped[Org | None] = relationship(back_populates="experiments", init=False)

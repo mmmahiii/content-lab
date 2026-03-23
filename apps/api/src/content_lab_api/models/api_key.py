@@ -34,4 +34,4 @@ class ApiKey(Base):
         DateTime(timezone=True), nullable=True, default=None
     )
 
-    org: Mapped[Org | None] = relationship(back_populates="api_keys", init=False, default=None)
+    org: Mapped[Org | None] = relationship(back_populates="api_keys", init=False)

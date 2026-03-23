@@ -43,8 +43,8 @@ class AssetUsage(Base):
     )
 
     reel: Mapped[Reel | None] = relationship(
-        "Reel", back_populates="asset_usages", init=False, default=None
+        "Reel", back_populates="asset_usages", init=False
     )
     asset: Mapped[Asset | None] = relationship(
-        "Asset", back_populates="asset_usages", init=False, default=None
+        "Asset", back_populates="asset_usages", init=False
     )

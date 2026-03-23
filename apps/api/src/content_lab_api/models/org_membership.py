@@ -31,5 +31,5 @@ class OrgMembership(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    org: Mapped[Org | None] = relationship(back_populates="memberships", init=False, default=None)
-    user: Mapped[User | None] = relationship(back_populates="memberships", init=False, default=None)
+    org: Mapped[Org | None] = relationship(back_populates="memberships", init=False)
+    user: Mapped[User | None] = relationship(back_populates="memberships", init=False)

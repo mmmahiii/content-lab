@@ -45,8 +45,8 @@ class Task(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), init=False
     )
 
-    org: Mapped[Org | None] = relationship(back_populates="tasks", init=False, default=None)
-    run: Mapped[Run | None] = relationship(back_populates="tasks", init=False, default=None)
+    org: Mapped[Org | None] = relationship(back_populates="tasks", init=False)
+    run: Mapped[Run | None] = relationship(back_populates="tasks", init=False)
     provider_jobs: Mapped[list[ProviderJob]] = relationship(
         "ProviderJob", back_populates="task", init=False, default_factory=list
     )

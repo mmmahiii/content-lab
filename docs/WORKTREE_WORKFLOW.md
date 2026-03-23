@@ -33,7 +33,7 @@ This workflow lets you run multiple AI task chats in parallel with minimal confl
    - The merge prompt includes **`git push origin main`** after checks pass. If you use **PR-only** or **protected `main`**, tell the merge chat *“merge only, do not push”* (or similar) so it skips the push.
 
 6. **Cleanup** (after merge chat finishes—once per batch, in terminal)
-   ```powershell
+   ```powersheell
    .\scripts\worktree-cleanup.ps1 -Count 5
    ```
    Use same `-Count` or `-Tasks` as spawn. Removes worktrees and deletes merged branches (local + remote). Use `-DeleteBranches:$false` to skip branch deletion.

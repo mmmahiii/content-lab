@@ -15,24 +15,22 @@ from sqlalchemy import Table, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from content_lab_api.models import ProviderJob, Task
+from content_lab_api.models import Org, ProviderJob, Task
 
 API_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_FILE = (
     API_ROOT / "migrations" / "versions" / "0008_policy_tasks_provider_audit_integrity.py"
 )
 
-DEFAULT_ORG_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
-
-
-def _integration_database_url() -> str | None:
-    return os.environ.get("CONTENT_LAB_INTEGRATION_DATABASE_URL")
-
-
-requires_integration_db = pytest.mark.skipif(
-    _integration_database_url() is None,
-    reason="Set CONTENT_LAB_INTEGRATION_DATABASE_URL to exercise migrations and DB uniqueness.",
-)
+def _integration_database_url() -> str:
+    """Prefer dedicated integration URL; otherwise use the same DB as the rest of the API tests."""
+    explicit = os.environ.get("CONTENT_LAB_INTEGRATION_DATABASE_URL")
+    if explicit:
+        return explicit
+    return os.environ.get(
+        "DATABASE_URL",
+        "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5433/contentlab",
+    )
 
 
 def test_revision_0008_module_wires_alembic_chain() -> None:
@@ -63,10 +61,8 @@ def test_provider_jobs_table_has_provider_external_ref_unique_constraint() -> No
     assert "uq_provider_jobs_provider_external_ref" in names
 
 
-@requires_integration_db
 def test_migration_smoke_tables_exist_after_upgrade() -> None:
     url = _integration_database_url()
-    assert url
     engine = create_engine(url, pool_pre_ping=True)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
@@ -82,22 +78,24 @@ def test_migration_smoke_tables_exist_after_upgrade() -> None:
         assert insp.has_table(table), f"missing table {table}"
 
 
-@requires_integration_db
 def test_task_idempotency_key_unique_per_org() -> None:
     url = _integration_database_url()
-    assert url
     engine = create_engine(url, pool_pre_ping=True)
     SessionFactory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
     with SessionFactory() as session:
+        org = Org(name="DB-0008 tasks", slug=f"db0008-task-{uuid.uuid4().hex[:12]}")
+        session.add(org)
+        session.flush()
+        org_id = org.id
         first = Task(
-            org_id=DEFAULT_ORG_ID,
+            org_id=org_id,
             task_type="integration",
             idempotency_key=f"idem-{uuid.uuid4()}",
         )
         session.add(first)
         session.flush()
         dup = Task(
-            org_id=DEFAULT_ORG_ID,
+            org_id=org_id,
             task_type="integration",
             idempotency_key=first.idempotency_key,
         )
@@ -107,23 +105,25 @@ def test_task_idempotency_key_unique_per_org() -> None:
         session.rollback()
 
 
-@requires_integration_db
 def test_provider_job_external_ref_unique_per_provider() -> None:
     url = _integration_database_url()
-    assert url
     engine = create_engine(url, pool_pre_ping=True)
     SessionFactory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
     external_ref = f"ext-{uuid.uuid4()}"
     with SessionFactory() as session:
+        org = Org(name="DB-0008 provider_jobs", slug=f"db0008-pj-{uuid.uuid4().hex[:12]}")
+        session.add(org)
+        session.flush()
+        org_id = org.id
         first = ProviderJob(
-            org_id=DEFAULT_ORG_ID,
+            org_id=org_id,
             provider="test-provider",
             external_ref=external_ref,
         )
         session.add(first)
         session.flush()
         dup = ProviderJob(
-            org_id=DEFAULT_ORG_ID,
+            org_id=org_id,
             provider="test-provider",
             external_ref=external_ref,
         )

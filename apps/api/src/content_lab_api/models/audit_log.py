@@ -34,4 +34,4 @@ class AuditLog(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    org: Mapped[Org | None] = relationship(back_populates="audit_logs", init=False, default=None)
+    org: Mapped[Org | None] = relationship(back_populates="audit_logs", init=False)

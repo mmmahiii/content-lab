@@ -33,7 +33,7 @@ class RunAsset(Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"))
     asset_role: Mapped[str] = mapped_column(String(64))
 
-    run: Mapped[Run | None] = relationship(back_populates="run_assets", init=False, default=None)
+    run: Mapped[Run | None] = relationship(back_populates="run_assets", init=False)
     asset: Mapped[Asset | None] = relationship(
-        back_populates="run_assets", init=False, default=None
+        back_populates="run_assets", init=False
     )

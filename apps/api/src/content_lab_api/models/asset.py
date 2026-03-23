@@ -72,7 +72,7 @@ class Asset(Base):
     asset_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
 
     family: Mapped[AssetFamily | None] = relationship(
-        "AssetFamily", back_populates="assets", init=False, default=None
+        "AssetFamily", back_populates="assets", init=False
     )
     gen_params: Mapped[list[AssetGenParam]] = relationship(
         "AssetGenParam", back_populates="asset", init=False, default_factory=list
