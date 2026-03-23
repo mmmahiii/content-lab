@@ -1,5 +1,9 @@
 """Business-logic services."""
 
+from content_lab_api.services.asset_registry import (
+    SQLAlchemyPhase1AssetRegistryStore,
+    resolve_asset_request,
+)
 from content_lab_api.services.process_reel import (
     InMemoryProcessReelRepository,
     ProcessReelExecution,
@@ -41,6 +45,7 @@ __all__ = [
     "ProcessReelService",
     "ProcessReelStep",
     "ProcessReelStepDefinition",
+    "SQLAlchemyPhase1AssetRegistryStore",
     "SQLAlchemyProcessReelRepository",
     "StubProcessReelExecutor",
     "apply_task_row_spec",
@@ -54,4 +59,5 @@ __all__ = [
     "get_task_by_idempotency_key",
     "list_owned_pages",
     "load_policy_bundle",
+    "resolve_asset_request",
 ]

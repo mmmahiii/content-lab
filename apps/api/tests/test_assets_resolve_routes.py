@@ -84,6 +84,7 @@ def test_asset_resolve_reuses_exact_match_deterministically(
             org_id=org_id,
             asset_class="clip",
             storage_uri="s3://content-lab/assets/existing.mp4",
+            status="ready",
             asset_key=asset_key.asset_key,
             asset_key_hash=asset_key.asset_key_hash,
             metadata_={"source": "seed"},
@@ -143,7 +144,12 @@ def test_asset_resolve_generate_path_reuses_generation_intent(
     assert first_response.status_code == 200
     first_decision = first_response.json()
     assert first_decision["decision"] == "generate"
+    asset_id = first_decision["generation_intent"]["asset_id"]
     task_id = first_decision["generation_intent"]["task_id"]
+    assert first_decision["generation_intent"]["asset_status"] == "staged"
+    assert first_decision["generation_intent"]["storage_uri"].startswith(
+        "s3://content-lab/assets/raw/"
+    )
     assert first_decision["generation_intent"]["task_type"] == "asset.generate"
     assert first_decision["generation_intent"]["payload"]["provenance"]["source"] == (
         "asset_registry.resolve"
@@ -158,14 +164,51 @@ def test_asset_resolve_generate_path_reuses_generation_intent(
     assert second_response.status_code == 200
     second_decision = second_response.json()
     assert second_decision["decision"] == "generate"
+    assert second_decision["generation_intent"]["asset_id"] == asset_id
     assert second_decision["generation_intent"]["task_id"] == task_id
     assert second_decision["asset_key_hash"] == first_decision["asset_key_hash"]
 
+    assets = db_session.query(Asset).filter(Asset.org_id == org_id).all()
+    assert len(assets) == 1
+    assert str(assets[0].id) == asset_id
+    assert assets[0].status == "staged"
+    assert assets[0].asset_key_hash == first_decision["asset_key_hash"]
+    params = db_session.query(AssetGenParam).filter(AssetGenParam.asset_id == assets[0].id).all()
+    assert len(params) == 1
+    assert params[0].seq == 0
     tasks = db_session.query(Task).filter(Task.org_id == org_id).all()
     assert len(tasks) == 1
     assert tasks[0].idempotency_key == f"asset.generate:{first_decision['asset_key_hash']}"
     assert tasks[0].payload["canonical_params"]["provider"] == "runway"
     assert tasks[0].payload["canonical_params"]["model"] == "gen4.5"
+
+
+def test_asset_resolve_switches_from_staged_generate_to_ready_reuse(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    payload = _resolve_payload(reference_asset_ids=[uuid.uuid4()])
+
+    first_response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
+    assert first_response.status_code == 200
+    first_decision = first_response.json()
+    assert first_decision["decision"] == "generate"
+    asset_id = uuid.UUID(first_decision["generation_intent"]["asset_id"])
+
+    asset = db_session.get(Asset, asset_id)
+    assert asset is not None
+    asset.status = "ready"
+    asset.storage_uri = "s3://content-lab/assets/derived/generated.mp4"
+    db_session.flush()
+
+    second_response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
+    assert second_response.status_code == 200
+    second_decision = second_response.json()
+    assert second_decision["decision"] == "reuse_exact"
+    assert second_decision["asset_id"] == str(asset_id)
+    assert second_decision["storage_uri"] == "s3://content-lab/assets/derived/generated.mp4"
+    assert db_session.query(Asset).filter(Asset.org_id == org_id).count() == 1
 
 
 def test_asset_detail_returns_org_scoped_metadata_and_signed_download(
