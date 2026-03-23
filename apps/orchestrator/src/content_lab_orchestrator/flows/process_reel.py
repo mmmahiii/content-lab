@@ -1,5 +1,7 @@
 """Primary phase-1 orchestration flow for processing an individual reel."""
 
+# mypy: disable-error-code="no-any-return,untyped-decorator"
+
 from __future__ import annotations
 
 from argparse import Namespace
@@ -7,8 +9,25 @@ from argparse import Namespace
 from prefect import flow, task
 
 from content_lab_orchestrator.correlation import orchestrator_service_context
+from content_lab_runs import build_task_idempotency_key
 
 from .registry import FlowDefinition
+
+
+def build_process_reel_task_keys(reel_id: str, *, dry_run: bool) -> tuple[str, str]:
+    """Derive stable task keys for the phase-1 process-reel flow."""
+
+    normalized_reel_id = reel_id.strip()
+    return (
+        build_task_idempotency_key(
+            "process_reel.validate_reel_context",
+            payload={"reel_id": normalized_reel_id},
+        ),
+        build_task_idempotency_key(
+            "process_reel.build_package_summary",
+            payload={"reel_id": normalized_reel_id, "dry_run": dry_run},
+        ),
+    )
 
 
 @task
@@ -35,6 +54,7 @@ def process_reel(reel_id: str = "demo-reel", dry_run: bool = False) -> str:
 
     _ = orchestrator_service_context()
     validated_reel_id = validate_reel_context(reel_id)
+    _ = build_process_reel_task_keys(validated_reel_id, dry_run=dry_run)
     return build_package_summary(validated_reel_id, dry_run=dry_run)
 
 
