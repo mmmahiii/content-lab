@@ -13,6 +13,14 @@ from content_lab_api.services.process_reel import (
     StubProcessReelExecutor,
     build_process_reel_service,
 )
+from content_lab_api.services.reel_factory import (
+    FactoryOwnedPage,
+    FactoryPolicyBundle,
+    create_reel_family,
+    create_reel_variant,
+    list_owned_pages,
+    load_policy_bundle,
+)
 from content_lab_api.services.run_tasks import (
     apply_task_row_spec,
     create_run_row,
@@ -23,6 +31,8 @@ from content_lab_api.services.run_tasks import (
 )
 
 __all__ = [
+    "FactoryOwnedPage",
+    "FactoryPolicyBundle",
     "InMemoryProcessReelRepository",
     "ProcessReelExecution",
     "ProcessReelExecutor",
@@ -35,9 +45,13 @@ __all__ = [
     "StubProcessReelExecutor",
     "apply_task_row_spec",
     "build_process_reel_service",
+    "create_reel_family",
+    "create_reel_variant",
     "create_run_row",
     "create_task_row",
     "ensure_task_row",
     "get_run_by_idempotency_key",
     "get_task_by_idempotency_key",
+    "list_owned_pages",
+    "load_policy_bundle",
 ]

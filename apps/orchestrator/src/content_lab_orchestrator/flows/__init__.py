@@ -16,7 +16,7 @@ from .registry import (
 )
 
 
-def example_flow(name: str = "world") -> str:
+def example_flow(name: str = "world") -> dict[str, object]:
     """Backward-compatible alias for the starter scaffold flow."""
 
     return daily_reel_factory(name=name)
