@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from prefect import flow, task
+from prefect.flows import flow
+from prefect.tasks import task
 
 from content_lab_orchestrator.correlation import orchestrator_service_context
 

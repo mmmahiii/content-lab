@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+
 import pytest
 
 from content_lab_orchestrator.cli import main
@@ -16,7 +18,10 @@ def test_cli_runs_default_flow(capsys: pytest.CaptureFixture[str]) -> None:
     main(["run", "--name", "ryan"])
 
     captured = capsys.readouterr()
-    assert captured.out.strip().endswith("hello ryan")
+    payload = ast.literal_eval(captured.out.strip().splitlines()[-1])
+    assert payload["status"] == "scheduled"
+    assert payload["page_count"] == 1
+    assert payload["dispatch_count"] == 4
 
 
 def test_cli_runs_selected_named_flow(capsys: pytest.CaptureFixture[str]) -> None:
