@@ -8,3 +8,7 @@ def test_run_status_values_stable() -> None:
 
 def test_task_status_includes_skipped() -> None:
     assert TaskStatus.SKIPPED.value == "skipped"
+
+
+def test_task_status_includes_retrying() -> None:
+    assert TaskStatus.RETRYING.value == "retrying"

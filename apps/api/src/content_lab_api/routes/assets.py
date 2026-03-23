@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import insert
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
@@ -16,6 +15,7 @@ from content_lab_api.models import Asset, AssetGenParam, AuditLog, Org, Task
 from content_lab_api.routes._storage import build_signed_download
 from content_lab_api.schemas.asset import AssetDetailOut, SignedDownloadOut
 from content_lab_api.schemas.assets import AssetResolveDecision, AssetResolveRequest
+from content_lab_api.services import ensure_task_row
 from content_lab_assets.registry import (
     AssetKey,
     GenerateDecision,
@@ -24,6 +24,7 @@ from content_lab_assets.registry import (
     ReuseExactDecision,
     build_asset_key,
 )
+from content_lab_runs import TaskRowSpec, TaskStatus, build_task_idempotency_key
 from content_lab_shared.logging import ANONYMOUS_ACTOR
 
 router = APIRouter(prefix="/orgs/{org_id}/assets", tags=["assets"])
@@ -74,18 +75,6 @@ def _record_generation_audit(
     )
 
 
-def _task_idempotency_key(asset_key_hash: str) -> str:
-    return f"{_GENERATION_TASK_TYPE}:{asset_key_hash}"
-
-
-def _get_generation_task(db: Session, *, org_id: uuid.UUID, idempotency_key: str) -> Task | None:
-    return (
-        db.query(Task)
-        .filter(Task.org_id == org_id, Task.idempotency_key == idempotency_key)
-        .one_or_none()
-    )
-
-
 def _build_generation_task_payload(
     body: AssetResolveRequest, asset_key: AssetKey
 ) -> dict[str, Any]:
@@ -119,35 +108,30 @@ def _ensure_generation_task(
     body: AssetResolveRequest,
     asset_key: AssetKey,
 ) -> Task:
-    idempotency_key = _task_idempotency_key(asset_key.asset_key_hash)
-    existing = _get_generation_task(db, org_id=org_id, idempotency_key=idempotency_key)
-    if existing is not None:
-        return existing
-
-    task_id = uuid.uuid4()
     payload = _build_generation_task_payload(body, asset_key)
-    try:
-        db.execute(
-            insert(Task).values(
-                id=task_id,
-                org_id=org_id,
-                task_type=_GENERATION_TASK_TYPE,
-                idempotency_key=idempotency_key,
-                status="pending",
-                payload=payload,
-            )
-        )
-        task = db.query(Task).filter(Task.id == task_id).one()
-        _record_generation_audit(db, request, org_id=org_id, task=task, asset_key=asset_key)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        existing = _get_generation_task(db, org_id=org_id, idempotency_key=idempotency_key)
-        if existing is None:
+    task_result = ensure_task_row(
+        db,
+        spec=TaskRowSpec(
+            org_id=org_id,
+            task_type=_GENERATION_TASK_TYPE,
+            idempotency_key=build_task_idempotency_key(
+                _GENERATION_TASK_TYPE,
+                token=asset_key.asset_key_hash,
+            ),
+            status=TaskStatus.QUEUED,
+            payload=payload,
+        ),
+    )
+    task: Task = task_result.record
+    if task_result.created:
+        try:
+            _record_generation_audit(db, request, org_id=org_id, task=task, asset_key=asset_key)
+            db.commit()
+        except Exception:
+            db.rollback()
             raise
-        return existing
+        db.refresh(task)
 
-    db.refresh(task)
     return task
 
 

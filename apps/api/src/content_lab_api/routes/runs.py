@@ -3,15 +3,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import insert
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from content_lab_api.deps import get_db
@@ -33,23 +30,22 @@ from content_lab_api.schemas.runs import (
     run_to_detail,
     run_to_out,
 )
+from content_lab_api.services import apply_task_row_spec, create_run_row, create_task_row
+from content_lab_runs import (
+    DuplicateIdempotencyKeyError,
+    RunRowSpec,
+    RunStatus,
+    TaskRowSpec,
+    TaskStatus,
+    build_task_idempotency_key,
+    task_status_for_run_status,
+)
 from content_lab_shared.logging import ANONYMOUS_ACTOR
 
 router = APIRouter(tags=["runs"])
 
 _RESERVED_REEL_TRIGGER_KEYS = frozenset({"org_id", "page_id", "reel_id", "reel_family_id"})
-_RUN_STATUS_PENDING = "pending"
-_RUN_STATUS_QUEUED = "queued"
-_RUN_STATUS_RUNNING = "running"
-_RUN_STATUS_SUCCEEDED = "succeeded"
-_RUN_STATUS_FAILED = "failed"
-_RUN_STATUS_CANCELLED = "cancelled"
-_TASK_STATUS_PENDING = "pending"
-_TASK_STATUS_QUEUED = "queued"
-_TASK_STATUS_RUNNING = "running"
-_TASK_STATUS_SUCCEEDED = "succeeded"
-_TASK_STATUS_FAILED = "failed"
-_TASK_STATUS_CANCELLED = "cancelled"
+_RUN_STATUS_QUEUED = RunStatus.QUEUED.value
 
 
 @dataclass(slots=True)
@@ -221,14 +217,13 @@ def _record_audit(
     )
 
 
-def _raise_conflict(exc: IntegrityError) -> None:
-    message = str(exc.orig if exc.orig is not None else exc)
-    if "uq_runs_org_idempotency_key" in message:
+def _raise_conflict(exc: DuplicateIdempotencyKeyError) -> None:
+    if exc.record_type == "run":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A run with this idempotency_key already exists for the org",
         ) from exc
-    if "uq_tasks_org_idempotency_key" in message:
+    if exc.record_type == "task":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A matching trigger task already exists for the org",
@@ -251,31 +246,21 @@ def _build_run_metadata(
     return metadata
 
 
-def _task_status_from_run_status(run_status: str) -> str:
-    mapping = {
-        _RUN_STATUS_PENDING: _TASK_STATUS_PENDING,
-        _RUN_STATUS_QUEUED: _TASK_STATUS_QUEUED,
-        _RUN_STATUS_RUNNING: _TASK_STATUS_RUNNING,
-        _RUN_STATUS_SUCCEEDED: _TASK_STATUS_SUCCEEDED,
-        _RUN_STATUS_FAILED: _TASK_STATUS_FAILED,
-        _RUN_STATUS_CANCELLED: _TASK_STATUS_CANCELLED,
-    }
-    return mapping.get(run_status, _TASK_STATUS_PENDING)
-
-
-def _idempotency_key_from_payload(scope: str, payload: dict[str, Any]) -> str:
-    normalized_scope = scope.strip()
-    if not normalized_scope:
-        raise ValueError("scope must not be blank")
-    serialized = json.dumps(
-        {"scope": normalized_scope, "payload": payload},
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    return f"{normalized_scope}:{digest}"
+def _task_spec_for_run_status(task_spec: TaskRowSpec, *, run_status: str) -> TaskRowSpec:
+    task_status = task_status_for_run_status(run_status)
+    if task_status is TaskStatus.QUEUED:
+        return task_spec.queued()
+    if task_status is TaskStatus.RUNNING:
+        return task_spec.running()
+    if task_status is TaskStatus.RETRYING:
+        return task_spec.retrying()
+    if task_status is TaskStatus.SUCCEEDED:
+        return task_spec.succeeded()
+    if task_status is TaskStatus.FAILED:
+        return task_spec.failed()
+    if task_status is TaskStatus.SKIPPED:
+        return task_spec.skipped()
+    return task_spec
 
 
 def _trigger_run(
@@ -292,38 +277,36 @@ def _trigger_run(
     task_idempotency_key: str | None = None,
     target_metadata: dict[str, Any] | None = None,
 ) -> tuple[Run, Task | None]:
-    run = Run(
-        org_id=org_id,
-        workflow_key=workflow_key.value,
-        flow_trigger=flow_trigger.value,
-        idempotency_key=idempotency_key,
-        status=_RUN_STATUS_PENDING,
-        input_params=dict(input_params),
-        run_metadata=_build_run_metadata(
-            request,
-            flow_trigger=flow_trigger,
-            client_metadata=client_metadata,
-            target_metadata=target_metadata,
+    run = create_run_row(
+        db,
+        spec=RunRowSpec(
+            org_id=org_id,
+            workflow_key=workflow_key.value,
+            flow_trigger=flow_trigger.value,
+            idempotency_key=idempotency_key,
+            status=RunStatus.PENDING,
+            input_params=dict(input_params),
+            run_metadata=_build_run_metadata(
+                request,
+                flow_trigger=flow_trigger,
+                client_metadata=client_metadata,
+                target_metadata=target_metadata,
+            ),
         ),
     )
-    db.add(run)
-    db.flush()
 
     task: Task | None = None
+    task_spec: TaskRowSpec | None = None
     if task_idempotency_key is not None:
-        task_id = uuid.uuid4()
-        db.execute(
-            insert(Task).values(
-                id=task_id,
-                org_id=org_id,
-                task_type=workflow_key.value,
-                idempotency_key=task_idempotency_key,
-                status=_TASK_STATUS_PENDING,
-                run_id=run.id,
-                payload=dict(input_params),
-            )
+        task_spec = TaskRowSpec(
+            org_id=org_id,
+            task_type=workflow_key.value,
+            idempotency_key=task_idempotency_key,
+            status=TaskStatus.PENDING,
+            run_id=run.id,
+            payload=dict(input_params),
         )
-        task = db.get(Task, task_id)
+        task = create_task_row(db, spec=task_spec)
 
     trigger_result = orchestration_backend.trigger_flow(db=db, run=run, request=request)
     run.status = trigger_result.status
@@ -335,8 +318,11 @@ def _trigger_run(
     }
     run.run_metadata = run_metadata
 
-    if task is not None:
-        task.status = _task_status_from_run_status(trigger_result.status)
+    if task is not None and task_spec is not None:
+        apply_task_row_spec(
+            task,
+            spec=_task_spec_for_run_status(task_spec, run_status=trigger_result.status),
+        )
 
     return run, task
 
@@ -401,7 +387,7 @@ def create_run(
             },
         )
         db.commit()
-    except IntegrityError as exc:
+    except DuplicateIdempotencyKeyError as exc:
         db.rollback()
         _raise_conflict(exc)
     except Exception:
@@ -437,13 +423,14 @@ def trigger_reel_workflow(
     reel = _get_reel_or_404(db, org_id=org_id, page_id=page_id, reel_id=reel_id)
 
     input_params = _reel_trigger_input_params(org_id=org_id, page_id=page_id, reel=reel, body=body)
-    trigger_idempotency_key = body.idempotency_key or _idempotency_key_from_payload(
+    trigger_identity_payload = {
+        "org_id": str(org_id),
+        "page_id": str(page_id),
+        "reel_id": str(reel.id),
+    }
+    trigger_idempotency_key = body.idempotency_key or build_task_idempotency_key(
         WorkflowKey.PROCESS_REEL.value,
-        {
-            "org_id": str(org_id),
-            "page_id": str(page_id),
-            "reel_id": str(reel.id),
-        },
+        payload=trigger_identity_payload,
     )
     target_metadata = {
         "org_id": str(org_id),
@@ -485,7 +472,7 @@ def trigger_reel_workflow(
             },
         )
         db.commit()
-    except IntegrityError as exc:
+    except DuplicateIdempotencyKeyError as exc:
         db.rollback()
         _raise_conflict(exc)
     except Exception:

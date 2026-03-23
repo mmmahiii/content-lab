@@ -22,6 +22,7 @@ class TaskStatus(StrEnum):
     PENDING = "pending"
     QUEUED = "queued"
     RUNNING = "running"
+    RETRYING = "retrying"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
