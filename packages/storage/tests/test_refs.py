@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from content_lab_storage.presign import S3Presigner, S3PresignerConfig
+from content_lab_storage import S3Presigner, S3PresignerConfig
 from content_lab_storage.refs import StorageRef, build_key
 
 

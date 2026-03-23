@@ -7,6 +7,7 @@ packages = [{ include = "content_lab_storage", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+boto3 = "^1.39.0"
 pydantic = "^2.7.0"
 content-lab-shared = {path = "../shared/py", develop = true}
 
@@ -30,6 +31,11 @@ known-first-party = ["content_lab_storage", "content_lab_shared"]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: exercises the client against a live S3-compatible endpoint",
+]
 
 [build-system]
 requires = ["poetry-core"]
