@@ -220,7 +220,7 @@ def _list_reels(
         query = query.filter(Reel.origin == origin.value)
     if status_value is not None:
         query = query.filter(Reel.status == status_value)
-    return query.order_by(Reel.created_at.desc(), Reel.id.desc()).all()
+    return query.order_by(Reel.created_at.desc(), Reel.origin.desc(), Reel.id.desc()).all()
 
 
 @router.get("/orgs/{org_id}/pages/{page_id}/reels", response_model=list[ReelOut])

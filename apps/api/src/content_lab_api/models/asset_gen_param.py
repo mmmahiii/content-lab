@@ -34,6 +34,4 @@ class AssetGenParam(Base):
         DateTime(timezone=True), server_default=func.now(), init=False
     )
 
-    asset: Mapped[Asset | None] = relationship(
-        "Asset", back_populates="gen_params", init=False, default=None
-    )
+    asset: Mapped[Asset | None] = relationship("Asset", back_populates="gen_params", init=False)
