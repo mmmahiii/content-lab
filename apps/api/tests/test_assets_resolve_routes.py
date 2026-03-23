@@ -168,6 +168,73 @@ def test_asset_resolve_generate_path_reuses_generation_intent(
     assert tasks[0].payload["canonical_params"]["model"] == "gen4.5"
 
 
+def test_asset_detail_returns_org_scoped_metadata_and_signed_download(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    asset = Asset(
+        org_id=org_id,
+        asset_class="clip",
+        storage_uri="s3://content-lab/assets/derived/clip-123.mp4",
+        source="runway",
+        asset_key="asset-key-123",
+        asset_key_hash="asset-hash-123",
+        content_hash="sha256:abc123",
+        metadata_={"duration_seconds": 6},
+    )
+    db_session.add(asset)
+    db_session.flush()
+
+    db_session.add(
+        AssetGenParam(
+            org_id=org_id,
+            asset_id=asset.id,
+            seq=0,
+            asset_key_hash="asset-hash-123",
+            canonical_params={"provider": "runway", "model": "gen4.5"},
+        )
+    )
+    db_session.flush()
+
+    response = assets_client.get(f"/orgs/{org_id}/assets/{asset.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == str(asset.id)
+    assert payload["org_id"] == str(org_id)
+    assert payload["storage_uri"] == "s3://content-lab/assets/derived/clip-123.mp4"
+    assert payload["canonical_params"] == {"provider": "runway", "model": "gen4.5"}
+    assert payload["provenance"]["asset_key_hash"] == "asset-hash-123"
+    assert payload["download"]["storage_uri"] == payload["storage_uri"]
+    assert payload["download"]["url"].startswith(
+        "http://localhost:9000/content-lab/assets/derived/clip-123.mp4?"
+    )
+
+
+def test_asset_download_is_org_scoped(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    other_org = Org(name="Other Asset Org", slug=f"other-asset-org-{uuid.uuid4().hex[:8]}")
+    db_session.add(other_org)
+    db_session.flush()
+
+    other_asset = Asset(
+        org_id=other_org.id,
+        asset_class="image",
+        storage_uri="s3://content-lab/assets/other.png",
+    )
+    db_session.add(other_asset)
+    db_session.flush()
+
+    response = assets_client.get(f"/orgs/{org_id}/assets/{other_asset.id}/download")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Asset not found"
+
+
 @pytest.mark.parametrize(
     ("provider", "model"),
     [

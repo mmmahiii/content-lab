@@ -1,7 +1,13 @@
 """Pydantic schemas for API request/response payloads."""
 
-from content_lab_api.schemas.asset import AssetCreate, AssetOut
+from content_lab_api.schemas.asset import (
+    AssetCreate,
+    AssetDetailOut,
+    AssetOut,
+    SignedDownloadOut,
+)
 from content_lab_api.schemas.outbox import OutboxEventOut
+from content_lab_api.schemas.packages import PackageArtifactOut, PackageDetailOut
 from content_lab_api.schemas.pages import (
     PageConstraints,
     PageCreate,
@@ -39,6 +45,7 @@ from content_lab_api.schemas.runs import (
 
 __all__ = [
     "AssetCreate",
+    "AssetDetailOut",
     "AssetOut",
     "OutboxEventOut",
     "PageConstraints",
@@ -47,6 +54,8 @@ __all__ = [
     "PageOut",
     "PageUpdate",
     "PersonaProfile",
+    "PackageArtifactOut",
+    "PackageDetailOut",
     "FlowTrigger",
     "PolicyBudgetGuardrails",
     "PolicyModeRatios",
@@ -69,5 +78,6 @@ __all__ = [
     "RunDetailOut",
     "RunOut",
     "TaskSummaryOut",
+    "SignedDownloadOut",
     "WorkflowKey",
 ]
