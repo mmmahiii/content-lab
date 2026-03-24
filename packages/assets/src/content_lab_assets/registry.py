@@ -20,6 +20,10 @@ from content_lab_assets.policy import (
     ReusePolicyContext,
     build_decision_policy_metadata,
 )
+from content_lab_assets.providers.runway.jobs import (
+    RunwayJobStatus,
+    build_runway_job_external_ref,
+)
 from content_lab_assets.types import (
     PHASE1_GENERATION_TASK_TYPE,
     AssetResolutionDecision,
@@ -29,10 +33,6 @@ from content_lab_assets.types import (
     GenerationIntent,
     ReuseExactDecision,
     ReuseWithTransformDecision,
-)
-from content_lab_assets.providers.runway.jobs import (
-    RunwayJobStatus,
-    build_runway_job_external_ref,
 )
 from content_lab_core.models import DomainModel
 from content_lab_core.types import AssetKind

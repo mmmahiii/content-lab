@@ -177,8 +177,9 @@ def test_persist_asset_content_marks_asset_failed_when_db_finalization_fails(
 ) -> None:
     asset = _staged_asset(db_session, org_id=persisted_org)
     db_session.commit()
-    asset = db_session.get(Asset, asset.id)
-    assert asset is not None
+    persisted_asset = db_session.get(Asset, asset.id)
+    assert persisted_asset is not None
+    asset = persisted_asset
     storage_client = RecordingStorageClient()
     real_commit = db_session.commit
     commit_calls = {"count": 0}
