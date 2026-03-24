@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,10 +14,25 @@ from content_lab_assets.asset_key import (
     build_asset_key,
     validate_phase1_provider_model,
 )
+from content_lab_assets.policy import (
+    AssetReusePolicyHooks,
+    NoopAssetReusePolicyHooks,
+    ReusePolicyContext,
+    build_decision_policy_metadata,
+)
+from content_lab_assets.types import (
+    PHASE1_GENERATION_TASK_TYPE,
+    AssetResolutionDecision,
+    BlockedDecision,
+    DecisionPolicyMetadata,
+    GenerateDecision,
+    GenerationIntent,
+    ReuseExactDecision,
+    ReuseWithTransformDecision,
+)
 from content_lab_core.models import DomainModel
 from content_lab_core.types import AssetKind
 
-PHASE1_GENERATION_TASK_TYPE = "asset.generate"
 PHASE1_READY_ASSET_STATUSES = frozenset({"active", "ready"})
 
 
@@ -39,77 +54,6 @@ class AssetRegistry(Protocol):
     def register(self, record: AssetRecord) -> AssetRecord: ...
 
     def lookup_by_hash(self, content_hash: str) -> AssetRecord | None: ...
-
-
-class GenerationIntent(BaseModel):
-    """Persistable intent envelope for later provider submission."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    asset_id: uuid.UUID
-    asset_status: str
-    storage_uri: str
-    task_id: uuid.UUID | None = None
-    task_type: str = PHASE1_GENERATION_TASK_TYPE
-    task_status: str | None = None
-    idempotency_key: str
-    asset_class: str
-    provider: str
-    model: str
-    asset_key: str
-    asset_key_hash: str
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class AssetResolutionDecisionBase(BaseModel):
-    """Shared fields returned by the phase-1 resolver."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    decision: str
-    asset_key: str
-    asset_key_hash: str
-    asset_class: str
-    provider: str
-    model: str
-    canonical_params: dict[str, Any] = Field(default_factory=dict)
-    provenance: dict[str, Any] = Field(default_factory=dict)
-
-
-class ReuseExactDecision(AssetResolutionDecisionBase):
-    """Resolve to an already-registered asset with an identical AssetKey."""
-
-    decision: Literal["reuse_exact"] = "reuse_exact"
-    asset_id: uuid.UUID
-    storage_uri: str
-
-
-class GenerateDecision(AssetResolutionDecisionBase):
-    """Resolve to a fresh generation-intent task."""
-
-    decision: Literal["generate"] = "generate"
-    generation_intent: GenerationIntent
-
-
-class ReuseWithTransformDecision(AssetResolutionDecisionBase):
-    """Reserved later-compatible outcome for deterministic transform reuse."""
-
-    decision: Literal["reuse_with_transform"] = "reuse_with_transform"
-    asset_id: uuid.UUID
-    reason: str
-    transform_recipe: dict[str, Any] = Field(default_factory=dict)
-
-
-class BlockedDecision(AssetResolutionDecisionBase):
-    """Reserved later-compatible outcome for policy or safety blocking."""
-
-    decision: Literal["blocked"] = "blocked"
-    reason: str
-
-
-AssetResolutionDecision = (
-    ReuseExactDecision | GenerateDecision | ReuseWithTransformDecision | BlockedDecision
-)
 
 
 class RegistryAsset(BaseModel):
@@ -248,6 +192,8 @@ def resolve_phase1_asset(
     init_image_hash: str | None = None,
     reference_asset_ids: Sequence[uuid.UUID | str] | None = None,
     request_payload: Mapping[str, Any] | None = None,
+    policy_context: ReusePolicyContext | None = None,
+    policy_hooks: AssetReusePolicyHooks | None = None,
 ) -> AssetResolutionDecision:
     """Resolve a phase-1 generation request through exact reuse or staged generation."""
 
@@ -274,7 +220,17 @@ def resolve_phase1_asset(
             asset_id=existing_asset.asset_id,
             asset_key_hash=asset_key.asset_key_hash,
         )
-        return _reuse_exact_decision(existing_asset, asset_key=asset_key, gen_params=gen_params)
+        exact_decision = _reuse_exact_decision(
+            existing_asset,
+            asset_key=asset_key,
+            gen_params=gen_params,
+            policy=_policy_metadata(policy_context),
+        )
+        return _apply_exact_reuse_policy(
+            exact_decision,
+            policy_context=policy_context,
+            policy_hooks=policy_hooks,
+        )
 
     payload = build_generation_payload(asset_key=asset_key, request_payload=request_payload)
     intent = store.ensure_generation_intent(
@@ -282,7 +238,16 @@ def resolve_phase1_asset(
         asset_key=asset_key,
         payload=payload,
     )
-    return _generate_decision(intent, asset_key=asset_key)
+    generate_decision = _generate_decision(
+        intent,
+        asset_key=asset_key,
+        policy=_policy_metadata(policy_context),
+    )
+    return _apply_generate_policy(
+        generate_decision,
+        policy_context=policy_context,
+        policy_hooks=policy_hooks,
+    )
 
 
 def _reuse_exact_decision(
@@ -290,6 +255,7 @@ def _reuse_exact_decision(
     *,
     asset_key: AssetKey,
     gen_params: RegistryAssetGenParams | None,
+    policy: DecisionPolicyMetadata,
 ) -> ReuseExactDecision:
     return ReuseExactDecision(
         asset_id=asset.asset_id,
@@ -309,6 +275,7 @@ def _reuse_exact_decision(
             "asset_status": asset.status,
             "asset_gen_param_seq": None if gen_params is None else gen_params.seq,
         },
+        policy=policy,
     )
 
 
@@ -316,6 +283,7 @@ def _generate_decision(
     intent: RegistryGenerationIntentRecord,
     *,
     asset_key: AssetKey,
+    policy: DecisionPolicyMetadata,
 ) -> GenerateDecision:
     generation_intent = GenerationIntent(
         asset_id=intent.asset_id,
@@ -343,7 +311,59 @@ def _generate_decision(
             "asset_id": str(intent.asset_id),
             "asset_status": intent.status,
         },
+        policy=policy,
     )
+
+
+def _policy_metadata(policy_context: ReusePolicyContext | None) -> DecisionPolicyMetadata:
+    return build_decision_policy_metadata(policy_context)
+
+
+def _apply_exact_reuse_policy(
+    decision: ReuseExactDecision,
+    *,
+    policy_context: ReusePolicyContext | None,
+    policy_hooks: AssetReusePolicyHooks | None,
+) -> AssetResolutionDecision:
+    context = policy_context or ReusePolicyContext()
+    hooks = policy_hooks or NoopAssetReusePolicyHooks()
+    override = hooks.on_exact_reuse_candidate(
+        decision=decision.model_copy(deep=True),
+        context=context,
+    )
+    if override is None:
+        return decision
+    return _merge_policy_metadata(override, decision.policy)
+
+
+def _apply_generate_policy(
+    decision: GenerateDecision,
+    *,
+    policy_context: ReusePolicyContext | None,
+    policy_hooks: AssetReusePolicyHooks | None,
+) -> AssetResolutionDecision:
+    context = policy_context or ReusePolicyContext()
+    hooks = policy_hooks or NoopAssetReusePolicyHooks()
+    override = hooks.on_generate_candidate(
+        decision=decision.model_copy(deep=True),
+        context=context,
+    )
+    if override is None:
+        return decision
+    return _merge_policy_metadata(override, decision.policy)
+
+
+def _merge_policy_metadata(
+    decision: ReuseWithTransformDecision | BlockedDecision,
+    policy: DecisionPolicyMetadata,
+) -> ReuseWithTransformDecision | BlockedDecision:
+    policy_payload = decision.policy.model_dump(exclude_none=True)
+    if not policy_payload:
+        decision.policy = policy
+        return decision
+
+    decision.policy = policy.model_copy(update=policy_payload)
+    return decision
 
 
 def _normalize_required_text(value: str, *, field_name: str) -> str:
@@ -358,19 +378,24 @@ __all__ = [
     "AssetRecord",
     "AssetRegistry",
     "AssetResolutionDecision",
+    "AssetReusePolicyHooks",
     "BlockedDecision",
+    "DecisionPolicyMetadata",
     "GenerateDecision",
     "GenerationIntent",
     "PHASE1_GENERATION_TASK_TYPE",
     "PHASE1_READY_ASSET_STATUSES",
+    "NoopAssetReusePolicyHooks",
     "Phase1AssetRegistryStore",
     "Phase1ProviderLockError",
     "RegistryAsset",
     "RegistryAssetGenParams",
     "RegistryGenerationIntentRecord",
+    "ReusePolicyContext",
     "ReuseExactDecision",
     "ReuseWithTransformDecision",
     "build_asset_key",
+    "build_decision_policy_metadata",
     "build_generation_idempotency_key",
     "build_generation_payload",
     "is_ready_asset_status",
