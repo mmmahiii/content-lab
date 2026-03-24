@@ -1,1 +1,1 @@
-"""Provider-specific asset helpers."""
+"""Provider integrations for asset generation workflows."""
