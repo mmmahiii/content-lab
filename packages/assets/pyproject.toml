@@ -7,6 +7,8 @@ packages = [{ include = "content_lab_assets", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+sqlalchemy = "^2.0.30"
+psycopg = {extras = ["binary"], version = "^3.2.0"}
 content-lab-shared = {path = "../shared/py", develop = true}
 content-lab-core = {path = "../core", develop = true}
 

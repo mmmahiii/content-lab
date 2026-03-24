@@ -18,6 +18,7 @@ def test_discover_actor_module_names_is_stable() -> None:
         "content_lab_worker.actors.outbox",
         "content_lab_worker.actors.provider",
         "content_lab_worker.actors.registry",
+        "content_lab_worker.actors.runway",
     )
 
 
