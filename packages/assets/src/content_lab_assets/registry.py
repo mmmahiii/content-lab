@@ -199,8 +199,7 @@ def is_ready_asset_status(status: str) -> bool:
     """Return whether an asset status is reusable as a ready phase-1 asset."""
 
     return (
-        _normalize_required_text(status, field_name="status").lower()
-        in PHASE1_READY_ASSET_STATUSES
+        _normalize_required_text(status, field_name="status").lower() in PHASE1_READY_ASSET_STATUSES
     )
 
 
