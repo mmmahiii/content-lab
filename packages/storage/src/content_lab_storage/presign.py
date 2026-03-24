@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
+from content_lab_storage.config import S3StorageConfig
 from content_lab_storage.refs import StorageRef
 
 _ALGORITHM = "AWS4-HMAC-SHA256"
@@ -25,13 +26,6 @@ def _signature_key(*, secret_key: str, datestamp: str, region: str, service: str
     return hmac.new(service_key, b"aws4_request", hashlib.sha256).digest()
 
 
-def _normalize_endpoint(endpoint: str) -> str:
-    parsed = urlsplit(endpoint)
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"Invalid storage endpoint: {endpoint!r}")
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
-
-
 def _canonical_uri(*, endpoint_path: str, ref: StorageRef) -> str:
     prefix = endpoint_path.rstrip("/")
     key_path = quote(ref.key, safe="/~")
@@ -39,14 +33,9 @@ def _canonical_uri(*, endpoint_path: str, ref: StorageRef) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class S3PresignerConfig:
+class S3PresignerConfig(S3StorageConfig):
     """Configuration required to sign S3-compatible URLs."""
 
-    endpoint: str
-    access_key_id: str
-    secret_access_key: str
-    region: str = "us-east-1"
-    service: str = "s3"
     expires_in_seconds: int = 900
 
 
@@ -66,7 +55,7 @@ class S3Presigner:
         if config.expires_in_seconds <= 0:
             raise ValueError("expires_in_seconds must be positive")
         self._config = config
-        self._endpoint = urlsplit(_normalize_endpoint(config.endpoint))
+        self._endpoint = urlsplit(config.normalized_endpoint())
 
     def presign_download(
         self,
