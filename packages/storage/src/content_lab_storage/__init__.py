@@ -1,5 +1,10 @@
 """MinIO/S3 object storage client and helpers."""
 
+from content_lab_storage.assets import (
+    StoredAssetBytes,
+    canonical_asset_filename,
+    persist_asset_bytes,
+)
 from content_lab_storage.checksums import (
     ObjectChecksums,
     checksum_bytes,
@@ -38,11 +43,14 @@ __all__ = [
     "S3PresignerConfig",
     "S3StorageClient",
     "S3StorageConfig",
+    "StoredAssetBytes",
     "StorageRef",
     "StoredObject",
     "build_key",
+    "canonical_asset_filename",
     "checksum_bytes",
     "checksum_file",
     "checksum_stream",
     "normalize_sha256",
+    "persist_asset_bytes",
 ]

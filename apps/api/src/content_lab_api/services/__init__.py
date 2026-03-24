@@ -1,5 +1,9 @@
 """Business-logic services."""
 
+from content_lab_api.services.asset_persistence import (
+    AssetPersistenceStateError,
+    persist_asset_content,
+)
 from content_lab_api.services.asset_registry import (
     SQLAlchemyPhase1AssetRegistryStore,
     resolve_asset_request,
@@ -38,6 +42,7 @@ __all__ = [
     "FactoryOwnedPage",
     "FactoryPolicyBundle",
     "InMemoryProcessReelRepository",
+    "AssetPersistenceStateError",
     "ProcessReelExecution",
     "ProcessReelExecutor",
     "ProcessReelQAResult",
@@ -59,5 +64,6 @@ __all__ = [
     "get_task_by_idempotency_key",
     "list_owned_pages",
     "load_policy_bundle",
+    "persist_asset_content",
     "resolve_asset_request",
 ]
