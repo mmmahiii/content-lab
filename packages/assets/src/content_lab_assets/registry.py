@@ -14,6 +14,10 @@ from content_lab_assets.asset_key import (
     build_asset_key,
     validate_phase1_provider_model,
 )
+from content_lab_assets.providers.runway.jobs import (
+    RunwayJobStatus,
+    build_runway_job_external_ref,
+)
 from content_lab_core.models import DomainModel
 from content_lab_core.types import AssetKind
 
@@ -221,6 +225,8 @@ def build_generation_payload(
             "provider": canonical_params["provider"],
             "model": canonical_params["model"],
             "asset_class": canonical_params["asset_class"],
+            "external_ref": build_runway_job_external_ref(asset_key_hash=asset_key.asset_key_hash),
+            "status": RunwayJobStatus.SUBMITTED.value,
         },
         "provenance": {
             "source": "asset_registry.resolve",
