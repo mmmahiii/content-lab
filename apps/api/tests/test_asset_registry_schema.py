@@ -55,6 +55,30 @@ def test_assets_asset_key_hash_unique_per_org(db_session: Session, org_id: uuid.
         )
 
 
+def test_assets_asset_key_unique_per_org(db_session: Session, org_id: uuid.UUID) -> None:
+    key = '{"asset_class":"clip","provider":"runway"}'
+    db_session.execute(
+        insert(Asset).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            asset_class="clip",
+            storage_uri="s3://b/key-1",
+            asset_key=key,
+        ),
+    )
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            insert(Asset).values(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                asset_class="clip",
+                storage_uri="s3://b/key-2",
+                asset_key=key,
+            ),
+        )
+
+
 def test_assets_multiple_null_asset_key_hash_allowed(
     db_session: Session, org_id: uuid.UUID
 ) -> None:
@@ -87,6 +111,38 @@ def test_same_asset_key_hash_different_orgs_allowed(db_session: Session) -> None
     )
     db_session.execute(
         insert(Org).values(id=oid2, name="O2", slug=f"o2-{oid2.hex[:8]}"),
+    )
+    db_session.flush()
+
+
+def test_same_asset_key_different_orgs_allowed(db_session: Session) -> None:
+    oid1 = uuid.uuid4()
+    oid2 = uuid.uuid4()
+    db_session.execute(
+        insert(Org).values(id=oid1, name="O1-key", slug=f"o1-key-{oid1.hex[:8]}"),
+    )
+    db_session.execute(
+        insert(Org).values(id=oid2, name="O2-key", slug=f"o2-key-{oid2.hex[:8]}"),
+    )
+    db_session.flush()
+    key = '{"asset_class":"clip","provider":"runway"}'
+    db_session.execute(
+        insert(Asset).values(
+            id=uuid.uuid4(),
+            org_id=oid1,
+            asset_class="clip",
+            storage_uri="s3://b/key-1",
+            asset_key=key,
+        ),
+    )
+    db_session.execute(
+        insert(Asset).values(
+            id=uuid.uuid4(),
+            org_id=oid2,
+            asset_class="clip",
+            storage_uri="s3://b/key-2",
+            asset_key=key,
+        ),
     )
     db_session.flush()
     h = "b" * 64
