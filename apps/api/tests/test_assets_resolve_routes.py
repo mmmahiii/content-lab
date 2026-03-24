@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
-from content_lab_api.models import Asset, AssetGenParam, Org, Task
+from content_lab_api.models import Asset, AssetGenParam, Org, ProviderJob, Task
+from content_lab_assets.providers.runway.jobs import build_runway_job_external_ref
 from content_lab_assets.registry import build_asset_key
 
 
@@ -139,6 +140,7 @@ def test_asset_resolve_generate_path_reuses_generation_intent(
     org_id: uuid.UUID,
 ) -> None:
     payload = _resolve_payload(reference_asset_ids=[uuid.uuid4()])
+    payload["metadata"]["api_token"] = "secret-token"
 
     first_response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
     assert first_response.status_code == 200
@@ -181,6 +183,45 @@ def test_asset_resolve_generate_path_reuses_generation_intent(
     assert tasks[0].idempotency_key == f"asset.generate:{first_decision['asset_key_hash']}"
     assert tasks[0].payload["canonical_params"]["provider"] == "runway"
     assert tasks[0].payload["canonical_params"]["model"] == "gen4.5"
+    provider_jobs = db_session.query(ProviderJob).filter(ProviderJob.org_id == org_id).all()
+    assert len(provider_jobs) == 1
+    assert provider_jobs[0].provider == "runway"
+    assert provider_jobs[0].external_ref == build_runway_job_external_ref(
+        asset_key_hash=first_decision["asset_key_hash"]
+    )
+    assert provider_jobs[0].status == "submitted"
+    assert provider_jobs[0].task_id == tasks[0].id
+    assert provider_jobs[0].metadata_["links"]["asset_id"] == asset_id
+    assert provider_jobs[0].metadata_["links"]["task_id"] == task_id
+    assert (
+        provider_jobs[0].metadata_["snapshots"]["submission"]["request_payload"]["metadata"][
+            "api_token"
+        ]
+        == "***REDACTED***"
+    )
+    assert (
+        provider_jobs[0].metadata_["provider_ref"]["external_ref"] == provider_jobs[0].external_ref
+    )
+
+
+def test_asset_resolve_generate_path_reuses_provider_job_external_ref_uniqueness(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    payload = _resolve_payload(reference_asset_ids=[uuid.uuid4()])
+
+    first_response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
+    second_response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    provider_jobs = db_session.query(ProviderJob).filter(ProviderJob.org_id == org_id).all()
+    assert len(provider_jobs) == 1
+    assert (
+        provider_jobs[0].external_ref
+        == first_response.json()["provenance"]["provider_external_ref"]
+    )
 
 
 def test_asset_resolve_switches_from_staged_generate_to_ready_reuse(

@@ -21,6 +21,12 @@ from content_lab_api.services.process_reel import (
     StubProcessReelExecutor,
     build_process_reel_service,
 )
+from content_lab_api.services.provider_jobs import (
+    get_provider_job_by_external_ref,
+    record_provider_job_poll,
+    record_provider_job_result,
+    record_provider_job_submission,
+)
 from content_lab_api.services.reel_factory import (
     FactoryOwnedPage,
     FactoryPolicyBundle,
@@ -60,10 +66,14 @@ __all__ = [
     "create_run_row",
     "create_task_row",
     "ensure_task_row",
+    "get_provider_job_by_external_ref",
     "get_run_by_idempotency_key",
     "get_task_by_idempotency_key",
     "list_owned_pages",
     "load_policy_bundle",
     "persist_asset_content",
+    "record_provider_job_poll",
+    "record_provider_job_result",
+    "record_provider_job_submission",
     "resolve_asset_request",
 ]

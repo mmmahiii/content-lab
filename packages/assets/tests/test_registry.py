@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Mapping
 from typing import Any, TypedDict
 
+from content_lab_assets.providers.runway.jobs import build_runway_job_external_ref
 from content_lab_assets.registry import (
     AssetKey,
     AssetRecord,
@@ -314,5 +315,7 @@ def test_build_generation_payload_stays_provider_submission_ready() -> None:
         "provider": "runway",
         "model": "gen4.5",
         "asset_class": "clip",
+        "external_ref": build_runway_job_external_ref(asset_key_hash=asset_key.asset_key_hash),
+        "status": "submitted",
     }
     assert payload["provenance"]["source"] == "asset_registry.resolve"

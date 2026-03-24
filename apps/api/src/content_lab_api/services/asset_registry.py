@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.models import Asset, AssetGenParam, AuditLog, Org, Task
 from content_lab_api.schemas.assets import AssetResolveDecision, AssetResolveRequest
+from content_lab_api.services.provider_jobs import record_provider_job_submission
 from content_lab_api.services.run_tasks import ensure_task_row
 from content_lab_assets.registry import (
     AssetKey,
@@ -348,6 +349,20 @@ def resolve_asset_request(
     decision.generation_intent.task_status = task.status
     decision.generation_intent.task_type = task.task_type
     decision.provenance["task_id"] = str(task.id)
+    provider_job = record_provider_job_submission(
+        db,
+        org_id=org_id,
+        task_id=task.id,
+        asset_id=decision.generation_intent.asset_id,
+        asset_key=decision.generation_intent.asset_key,
+        asset_key_hash=decision.generation_intent.asset_key_hash,
+        request_payload=decision.generation_intent.payload.get("request"),
+        provider_payload=decision.generation_intent.payload["provider_submission"],
+        task_status=task.status,
+        asset_status=decision.generation_intent.asset_status,
+    )
+    decision.provenance["provider_job_id"] = str(provider_job.id)
+    decision.provenance["provider_external_ref"] = provider_job.external_ref
 
     if task_result.created:
         _record_generation_audit(
