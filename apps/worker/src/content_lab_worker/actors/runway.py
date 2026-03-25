@@ -160,6 +160,91 @@ def process_runway_asset(
     )
 
 
+def reconcile_runway_asset(
+    *,
+    asset_id: uuid.UUID | str,
+    external_ref: str | None = None,
+    store: RunwayAssetStore | None = None,
+    provider_client: RunwayClient | None = None,
+    storage_client: StorageClientLike | None = None,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Re-poll an existing Runway job without re-submitting provider work."""
+
+    resolved_settings = settings or Settings()
+    resolved_store = store or SQLRunwayAssetStore(settings=resolved_settings)
+    resolved_provider = provider_client or HTTPRunwayClient.from_settings(resolved_settings)
+    resolved_storage = storage_client or _build_storage_client(resolved_settings)
+    generation = resolved_store.load_generation(asset_id=asset_id)
+
+    if generation.is_ready:
+        return {
+            **_existing_summary(generation),
+            "already_finalized": True,
+            "provider_job_status": "succeeded",
+            "reconciliation_status": "already_finalized",
+        }
+    if generation.is_terminal_failure:
+        return {
+            **_terminal_summary(generation),
+            "already_finalized": True,
+            "provider_job_status": "failed",
+            "reconciliation_status": "already_finalized",
+        }
+
+    resolved_external_ref = external_ref or _existing_external_ref(generation)
+    if resolved_external_ref is None:
+        raise LookupError(f"Asset {generation.asset_id} is missing a persisted provider job")
+
+    snapshot = _poll_for_terminal_state(
+        generation=generation,
+        external_ref=resolved_external_ref,
+        store=resolved_store,
+        provider_client=resolved_provider,
+        max_polls=1,
+        poll_interval_seconds=0,
+    )
+
+    if snapshot.is_success:
+        result = _finalize_success(
+            generation=generation,
+            snapshot=snapshot,
+            external_ref=resolved_external_ref,
+            store=resolved_store,
+            provider_client=resolved_provider,
+            storage_client=resolved_storage,
+            settings=resolved_settings,
+        )
+        result["reconciliation_status"] = "repaired"
+        return result
+
+    if snapshot.is_failure:
+        return _handle_failed_task(
+            generation=generation,
+            snapshot=snapshot,
+            external_ref=resolved_external_ref,
+            store=resolved_store,
+        )
+
+    resolved_store.mark_retryable(
+        generation,
+        reason="provider job remained non-terminal during sweeper reconciliation",
+        provider_status=snapshot.normalized_status.lower(),
+        provider_metadata=snapshot.metadata(),
+        task_result={
+            "asset_id": str(generation.asset_id),
+            "phase": "reconcile",
+            "provider": "runway",
+            "provider_job_id": resolved_external_ref,
+            "provider_task_status": snapshot.normalized_status.lower(),
+        },
+        external_ref=resolved_external_ref,
+    )
+    raise RetryableRunwayActorError(
+        f"Runway task {resolved_external_ref} is still {snapshot.normalized_status.lower()}"
+    )
+
+
 def _finalize_success(
     *,
     generation: StoredRunwayGeneration,
@@ -455,4 +540,5 @@ __all__ = [
     "TerminalRunwayActorError",
     "finalize_runway_asset",
     "process_runway_asset",
+    "reconcile_runway_asset",
 ]
