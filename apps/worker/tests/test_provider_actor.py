@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from content_lab_worker.actors.provider import build_provider_submission_task
+from datetime import timedelta
+
+from content_lab_worker.actors.provider import (
+    build_provider_submission_task,
+    get_provider_sweep_threshold,
+    is_terminal_provider_job_status,
+)
 
 
 def test_build_provider_submission_task_carries_provider_job_linkage() -> None:
@@ -23,3 +29,20 @@ def test_build_provider_submission_task_carries_provider_job_linkage() -> None:
         "provider_job_id": "provider-job-1",
         "attempt": 1,
     }
+
+
+def test_provider_sweep_thresholds_cover_runway_transient_statuses() -> None:
+    submitted = get_provider_sweep_threshold(provider="runway", status="submitted")
+    retryable = get_provider_sweep_threshold(provider="runway", status="retryable")
+
+    assert submitted is not None
+    assert submitted.max_age == timedelta(minutes=15)
+    assert retryable is not None
+    assert retryable.max_age == timedelta(minutes=10)
+    assert get_provider_sweep_threshold(provider="runway", status="FAILED") is None
+
+
+def test_terminal_provider_job_statuses_are_excluded_from_sweeping() -> None:
+    assert is_terminal_provider_job_status(provider="runway", status="succeeded") is True
+    assert is_terminal_provider_job_status(provider="runway", status="cancelled") is True
+    assert is_terminal_provider_job_status(provider="runway", status="running") is False

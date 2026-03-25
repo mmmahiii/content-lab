@@ -18,6 +18,7 @@ from content_lab_worker.actors.runway import (
     RetryableRunwayActorError,
     TerminalRunwayActorError,
     process_runway_asset,
+    reconcile_runway_asset,
 )
 
 
@@ -328,6 +329,38 @@ def test_process_runway_asset_marks_terminal_failure_and_fails_asset() -> None:
     assert store.state.task_result is not None
     assert store.state.task_result["retryable"] is False
     assert store.state.task_result["failure_code"] == "SAFETY.TEXT"
+
+
+def test_reconcile_runway_asset_skips_duplicate_finalization_for_ready_assets() -> None:
+    generation = replace(
+        _base_generation(),
+        asset_status="ready",
+        task_status="succeeded",
+        provider_job=ProviderJobSnapshot(
+            id=uuid.uuid4(),
+            org_id=uuid.uuid4(),
+            provider="runway",
+            external_ref="existing-job",
+            task_id=uuid.uuid4(),
+            status="running",
+            metadata={},
+        ),
+    )
+    store = FakeRunwayStore(generation)
+    client = FakeRunwayClient(snapshots=[])
+
+    result = reconcile_runway_asset(
+        asset_id=generation.asset_id,
+        external_ref="existing-job",
+        store=store,
+        provider_client=client,
+        storage_client=FakeStorageClient(),
+    )
+
+    assert result["status"] == "ready"
+    assert result["already_finalized"] is True
+    assert result["reconciliation_status"] == "already_finalized"
+    assert client.polled_refs == []
 
 
 def _base_generation(

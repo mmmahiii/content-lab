@@ -17,6 +17,7 @@ from content_lab_orchestrator.flows import (
     get_flow_definition,
     list_flow_names,
     process_reel,
+    provider_job_sweeper,
 )
 from content_lab_orchestrator.flows.daily_reel_factory import (
     AppliedPolicy,
@@ -25,11 +26,18 @@ from content_lab_orchestrator.flows.daily_reel_factory import (
     ReelFamilyWorkUnit,
     ReelVariantWorkUnit,
 )
+from content_lab_orchestrator.flows.provider_job_sweeper import (
+    ProviderJobSweepCandidate,
+    ProviderJobSweepResult,
+)
 
 daily_reel_factory_module = importlib.import_module(
     "content_lab_orchestrator.flows.daily_reel_factory"
 )
 process_reel_flow_module = importlib.import_module("content_lab_orchestrator.flows.process_reel")
+provider_job_sweeper_flow_module = importlib.import_module(
+    "content_lab_orchestrator.flows.provider_job_sweeper"
+)
 
 
 class RecordingFactoryService:
@@ -153,6 +161,34 @@ class RecordingProcessReelExecutor:
         return {"package_uri": f"memory://packages/{execution.reel_id}.zip"}
 
 
+class RecordingProviderJobSweeperRuntime:
+    def __init__(
+        self,
+        *,
+        candidates: tuple[ProviderJobSweepCandidate, ...],
+        results: dict[str, list[ProviderJobSweepResult]],
+    ) -> None:
+        self._candidates = candidates
+        self._results = {key: list(value) for key, value in results.items()}
+        self.limits: list[int] = []
+        self.reconciled_job_ids: list[str] = []
+
+    def list_stale_jobs(
+        self,
+        *,
+        now: object | None = None,
+        limit: int = 50,
+    ) -> tuple[ProviderJobSweepCandidate, ...]:
+        _ = now
+        self.limits.append(limit)
+        return self._candidates[:limit]
+
+    def reconcile_job(self, candidate: ProviderJobSweepCandidate) -> ProviderJobSweepResult:
+        self.reconciled_job_ids.append(candidate.provider_job_id)
+        sequence = self._results[candidate.provider_job_id]
+        return sequence.pop(0)
+
+
 def _install_service(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -189,7 +225,7 @@ def test_example_flow_alias_uses_default_phase1_flow() -> None:
 
 
 def test_flow_discovery_lists_phase1_flows() -> None:
-    assert list_flow_names() == ("daily_reel_factory", "process_reel")
+    assert list_flow_names() == ("daily_reel_factory", "process_reel", "provider_job_sweeper")
 
 
 def test_default_flow_registration_points_at_daily_factory() -> None:
@@ -377,3 +413,153 @@ def test_process_reel_flow_marks_qa_failure_and_skips_packaging(
         "process_reel": "failed",
         "qa": "failed",
     }
+
+
+def test_provider_job_sweeper_reconciles_stale_jobs_and_counts_signals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidates = (
+        ProviderJobSweepCandidate(
+            provider_job_id="provider-job-1",
+            org_id="org-1",
+            provider="runway",
+            external_ref="runway-gen45:hash-1",
+            provider_job_status="running",
+            task_id="task-1",
+            task_status="running",
+            asset_id="asset-1",
+            asset_status="staged",
+            last_updated_at="2026-03-25T09:00:00+00:00",
+            stale_for_seconds=5400,
+        ),
+        ProviderJobSweepCandidate(
+            provider_job_id="provider-job-2",
+            org_id="org-1",
+            provider="runway",
+            external_ref="runway-gen45:hash-2",
+            provider_job_status="polling_failed",
+            task_id="task-2",
+            task_status="retrying",
+            asset_id="asset-2",
+            asset_status="staged",
+            last_updated_at="2026-03-25T08:30:00+00:00",
+            stale_for_seconds=7200,
+        ),
+    )
+    runtime = RecordingProviderJobSweeperRuntime(
+        candidates=candidates,
+        results={
+            "provider-job-1": [
+                ProviderJobSweepResult(
+                    provider_job_id="provider-job-1",
+                    external_ref="runway-gen45:hash-1",
+                    provider="runway",
+                    reconciliation_status="repaired",
+                    provider_job_status="succeeded",
+                    task_status="succeeded",
+                    asset_status="ready",
+                    signal_event_type="provider_job.repaired",
+                    signal_emitted=True,
+                )
+            ],
+            "provider-job-2": [
+                ProviderJobSweepResult(
+                    provider_job_id="provider-job-2",
+                    external_ref="runway-gen45:hash-2",
+                    provider="runway",
+                    reconciliation_status="retrying",
+                    provider_job_status="running",
+                    task_status="retrying",
+                    asset_status="staged",
+                    detail="Runway task runway-gen45:hash-2 is still running",
+                    signal_event_type="provider_job.reconciliation_failed",
+                    signal_emitted=True,
+                )
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        provider_job_sweeper_flow_module,
+        "build_provider_job_sweeper_runtime",
+        lambda: runtime,
+    )
+
+    result = provider_job_sweeper(limit=10)
+
+    assert runtime.limits == [10]
+    assert runtime.reconciled_job_ids == ["provider-job-1", "provider-job-2"]
+    assert result["status"] == "completed"
+    assert result["counts"] == {
+        "stale": 2,
+        "repaired": 1,
+        "failed": 0,
+        "retrying": 1,
+        "already_finalized": 0,
+        "skipped": 0,
+        "signals_emitted": 2,
+    }
+    assert [item["reconciliation_status"] for item in result["results"]] == [
+        "repaired",
+        "retrying",
+    ]
+
+
+def test_provider_job_sweeper_is_idempotent_when_a_revisited_job_is_already_finalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = ProviderJobSweepCandidate(
+        provider_job_id="provider-job-3",
+        org_id="org-1",
+        provider="runway",
+        external_ref="runway-gen45:hash-3",
+        provider_job_status="running",
+        task_id="task-3",
+        task_status="running",
+        asset_id="asset-3",
+        asset_status="staged",
+        last_updated_at="2026-03-25T07:30:00+00:00",
+        stale_for_seconds=10800,
+    )
+    runtime = RecordingProviderJobSweeperRuntime(
+        candidates=(candidate,),
+        results={
+            "provider-job-3": [
+                ProviderJobSweepResult(
+                    provider_job_id="provider-job-3",
+                    external_ref="runway-gen45:hash-3",
+                    provider="runway",
+                    reconciliation_status="already_finalized",
+                    provider_job_status="succeeded",
+                    task_status="succeeded",
+                    asset_status="ready",
+                    signal_event_type="provider_job.repaired",
+                    signal_emitted=True,
+                ),
+                ProviderJobSweepResult(
+                    provider_job_id="provider-job-3",
+                    external_ref="runway-gen45:hash-3",
+                    provider="runway",
+                    reconciliation_status="already_finalized",
+                    provider_job_status="succeeded",
+                    task_status="succeeded",
+                    asset_status="ready",
+                    signal_event_type="provider_job.repaired",
+                    signal_emitted=False,
+                ),
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        provider_job_sweeper_flow_module,
+        "build_provider_job_sweeper_runtime",
+        lambda: runtime,
+    )
+
+    first_result = provider_job_sweeper()
+    second_result = provider_job_sweeper()
+
+    assert runtime.reconciled_job_ids == ["provider-job-3", "provider-job-3"]
+    assert first_result["counts"]["already_finalized"] == 1
+    assert first_result["counts"]["signals_emitted"] == 1
+    assert second_result["counts"]["already_finalized"] == 1
+    assert second_result["counts"]["signals_emitted"] == 0

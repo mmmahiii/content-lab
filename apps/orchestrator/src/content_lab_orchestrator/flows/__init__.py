@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .daily_reel_factory import daily_reel_factory
 from .process_reel import process_reel
+from .provider_job_sweeper import provider_job_sweeper
 from .registry import (
     DEFAULT_FLOW_NAME,
     FlowDefinition,
@@ -32,6 +33,7 @@ __all__ = [
     "get_flow_definition",
     "list_flow_definitions",
     "list_flow_names",
+    "provider_job_sweeper",
     "process_reel",
     "run_flow",
 ]
