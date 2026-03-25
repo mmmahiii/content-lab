@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
 from content_lab_api.models import Org
-from content_lab_api.schemas.pages import PageMetadata
+from content_lab_api.schemas.pages import PageCreate, PageMetadata
+from content_lab_creative.persona import PageMetadata as CreativePageMetadata
 
 
 def _create_org(db_session: Session) -> uuid.UUID:
@@ -30,6 +31,21 @@ def test_page_metadata_schema_rejects_invalid_persona_shape() -> None:
                 }
             }
         )
+
+
+def test_api_page_metadata_reuses_creative_schema() -> None:
+    assert PageMetadata is CreativePageMetadata
+
+
+def test_page_create_schema_documents_persona_shape() -> None:
+    schema = PageCreate.model_json_schema()
+    persona_schema = schema["$defs"]["PersonaProfile"]
+
+    assert "extensions" in persona_schema["properties"]
+    assert (
+        persona_schema["properties"]["extensions"]["description"]
+        == "Reserved structured directives for future persona extensions such as voice, banned motifs, or CTA posture."
+    )
 
 
 def test_create_page_rejects_invalid_ownership_payload(
@@ -79,6 +95,22 @@ def test_create_page_rejects_invalid_persona_and_constraint_payloads(
                 },
             },
         )
+        extension_response = client.post(
+            f"/orgs/{org_id}/pages",
+            json={
+                "platform": "instagram",
+                "display_name": "Bad Persona Extension",
+                "ownership": "owned",
+                "metadata": {
+                    "persona": {
+                        "label": "Helpful brand",
+                        "audience": "Creators",
+                        "content_pillars": ["education"],
+                        "extensions": {"voice": {"style": "warm"}},
+                    }
+                },
+            },
+        )
         constraint_response = client.post(
             f"/orgs/{org_id}/pages",
             json={
@@ -97,5 +129,9 @@ def test_create_page_rejects_invalid_persona_and_constraint_payloads(
 
     assert persona_response.status_code == 422
     assert "content_pillars must contain at least one item" in str(persona_response.json())
+    assert extension_response.status_code == 422
+    assert "extensions values must be strings or arrays of strings" in str(
+        extension_response.json()
+    )
     assert constraint_response.status_code == 422
     assert "constraint list fields must be arrays of strings" in str(constraint_response.json())

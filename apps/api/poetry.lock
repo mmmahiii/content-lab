@@ -157,6 +157,8 @@ develop = true
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
+psycopg = {version = "^3.2.0", extras = ["binary"]}
+sqlalchemy = "^2.0.30"
 
 [package.source]
 type = "directory"
@@ -197,6 +199,24 @@ pydantic = "^2.7.0"
 [package.source]
 type = "directory"
 url = "../../packages/core"
+
+[[package]]
+name = "content-lab-creative"
+version = "0.1.0"
+description = "Creative brief generation and template management"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/creative"
 
 [[package]]
 name = "content-lab-outbox"
@@ -1979,4 +1999,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "7be72a64b044b61b639b4045a2a338317f43a21820dbe43d8f712f6b2b0ffa2e"
+content-hash = "9971d41887b4f656ebe5ce6edecc23765bff030eb48daa72c2260a0a919fd93e"

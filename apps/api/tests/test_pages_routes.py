@@ -49,6 +49,10 @@ def test_pages_crud_is_org_scoped_and_audited(
                 "content_pillars": ["operations", "positioning"],
                 "differentiators": ["operator-led advice"],
                 "primary_call_to_action": "Book a strategy call",
+                "extensions": {
+                    "voice": "plainspoken and specific",
+                    "banned_motifs": ["stock trading charts"],
+                },
             },
             "constraints": {
                 "blocked_phrases": ["guaranteed results"],
@@ -71,6 +75,7 @@ def test_pages_crud_is_org_scoped_and_audited(
     assert created["org_id"] == str(org_id)
     assert created["ownership"] == "owned"
     assert created["metadata"]["persona"]["content_pillars"] == ["operations", "positioning"]
+    assert created["metadata"]["persona"]["extensions"]["voice"] == "plainspoken and specific"
     assert created["metadata"]["constraints"]["required_disclosures"] == ["Results vary"]
     assert created["metadata"]["niche"] == "b2b services"
 
@@ -100,6 +105,7 @@ def test_pages_crud_is_org_scoped_and_audited(
                     "audience": "Early-stage teams",
                     "brand_tone": ["practical"],
                     "content_pillars": ["systems"],
+                    "extensions": {"cta_posture": "soft_sell"},
                 },
                 "constraints": {
                     "blocked_phrases": ["overnight success"],
@@ -116,6 +122,7 @@ def test_pages_crud_is_org_scoped_and_audited(
     assert updated["display_name"] == "Owned Page Updated"
     assert updated["handle"] == "@owned.updated"
     assert updated["metadata"]["persona"]["label"] == "Direct operator"
+    assert updated["metadata"]["persona"]["extensions"]["cta_posture"] == "soft_sell"
     assert updated["metadata"]["constraints"]["allow_direct_cta"] is False
     assert updated["metadata"]["market"] == "uk"
 

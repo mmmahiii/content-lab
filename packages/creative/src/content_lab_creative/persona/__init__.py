@@ -1,5 +1,17 @@
 """Persona and page-constraint models for creative planning."""
 
-from content_lab_creative.persona.models import PageConstraints, PageMetadata, PersonaProfile
+from content_lab_creative.persona.schema import (
+    PageConstraints,
+    PageMetadata,
+    PersonaProfile,
+    validate_page_metadata,
+    validate_persona_profile,
+)
 
-__all__ = ["PageConstraints", "PageMetadata", "PersonaProfile"]
+__all__ = [
+    "PageConstraints",
+    "PageMetadata",
+    "PersonaProfile",
+    "validate_page_metadata",
+    "validate_persona_profile",
+]
