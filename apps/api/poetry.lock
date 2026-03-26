@@ -237,6 +237,24 @@ type = "directory"
 url = "../../packages/outbox"
 
 [[package]]
+name = "content-lab-qa"
+version = "0.1.0"
+description = "Quality assurance gates and content validation"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/qa"
+
+[[package]]
 name = "content-lab-runs"
 version = "0.1.0"
 description = "Pipeline run lifecycle management and state machine"
@@ -1999,4 +2017,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "9971d41887b4f656ebe5ce6edecc23765bff030eb48daa72c2260a0a919fd93e"
+content-hash = "b8dcfc16824fcac6102cbd55e0833b5fc630344f633e1a6d85d25a14467e153a"

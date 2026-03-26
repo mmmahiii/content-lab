@@ -31,6 +31,12 @@ from content_lab_orchestrator.flows.provider_job_sweeper import (
     ProviderJobSweepResult,
 )
 
+_SHA256_A = "sha256:" + ("a" * 64)
+_SHA256_B = "sha256:" + ("b" * 64)
+_SHA256_C = "sha256:" + ("c" * 64)
+_SHA256_D = "sha256:" + ("d" * 64)
+_SHA256_E = "sha256:" + ("e" * 64)
+
 daily_reel_factory_module = importlib.import_module(
     "content_lab_orchestrator.flows.daily_reel_factory"
 )
@@ -158,7 +164,91 @@ class RecordingProcessReelExecutor:
 
     def package_reel(self, execution: ProcessReelExecution) -> dict[str, object]:
         self.calls.append("packaging")
-        return {"package_uri": f"memory://packages/{execution.reel_id}.zip"}
+        return {
+            "reel_id": execution.reel_id,
+            "package_root_uri": f"memory://packages/{execution.reel_id}",
+            "manifest_uri": f"memory://packages/{execution.reel_id}/package_manifest.json",
+            "manifest": {
+                "version": 1,
+                "artifact_count": 5,
+                "complete": True,
+                "artifacts": [
+                    {
+                        "name": "final_video",
+                        "filename": "final_video.mp4",
+                        "checksum_sha256": _SHA256_A,
+                    },
+                    {
+                        "name": "cover",
+                        "filename": "cover.png",
+                        "checksum_sha256": _SHA256_B,
+                    },
+                    {
+                        "name": "caption_variants",
+                        "filename": "caption_variants.txt",
+                        "checksum_sha256": _SHA256_C,
+                    },
+                    {
+                        "name": "posting_plan",
+                        "filename": "posting_plan.json",
+                        "checksum_sha256": _SHA256_D,
+                    },
+                    {
+                        "name": "provenance",
+                        "filename": "provenance.json",
+                        "checksum_sha256": _SHA256_E,
+                    },
+                ],
+            },
+            "provenance": {
+                "editor_version": "basic_vertical_v1",
+                "assets": [
+                    {
+                        "role": "source_clip",
+                        "storage_uri": f"memory://assets/{execution.reel_id}/source.mp4",
+                    }
+                ],
+                "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
+            },
+            "artifacts": [
+                {
+                    "name": "final_video",
+                    "filename": "final_video.mp4",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/final_video.mp4",
+                    "checksum_sha256": _SHA256_A,
+                },
+                {
+                    "name": "cover",
+                    "filename": "cover.png",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/cover.png",
+                    "checksum_sha256": _SHA256_B,
+                },
+                {
+                    "name": "caption_variants",
+                    "filename": "caption_variants.txt",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/caption_variants.txt",
+                    "checksum_sha256": _SHA256_C,
+                },
+                {
+                    "name": "posting_plan",
+                    "filename": "posting_plan.json",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/posting_plan.json",
+                    "checksum_sha256": _SHA256_D,
+                },
+                {
+                    "name": "provenance",
+                    "filename": "provenance.json",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/provenance.json",
+                    "checksum_sha256": _SHA256_E,
+                },
+                {
+                    "name": "package_manifest",
+                    "filename": "package_manifest.json",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/package_manifest.json",
+                    "checksum_sha256": "sha256:" + ("f" * 64),
+                },
+            ],
+        }
 
 
 class RecordingProviderJobSweeperRuntime:
@@ -370,7 +460,8 @@ def test_process_reel_flow_persists_success_path(monkeypatch: pytest.MonkeyPatch
     ]
     assert result["reel_status"] == "ready"
     assert result["run_status"] == "succeeded"
-    assert result["step_outputs"]["packaging"] == {"package_uri": "memory://packages/reel-42.zip"}
+    assert result["step_outputs"]["packaging"]["package_root_uri"] == "memory://packages/reel-42"
+    assert result["step_outputs"]["packaging"]["package_qa"]["passed"] is True
 
     run_id = result["run_id"]
     assert repository.reels["reel-42"].status == "ready"

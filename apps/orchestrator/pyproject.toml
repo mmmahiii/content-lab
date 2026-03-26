@@ -10,6 +10,7 @@ python = "^3.11"
 prefect = "^2.20.0"
 content-lab-api = {path = "../api", develop = true}
 content-lab-worker = {path = "../worker", develop = true}
+content-lab-qa = {path = "../../packages/qa", develop = true}
 content-lab-shared = {path = "../../packages/shared/py", develop = true}
 content-lab-core = {path = "../../packages/core", develop = true}
 content-lab-runs = {path = "../../packages/runs", develop = true}
@@ -28,7 +29,7 @@ src = ["src"]
 extend-select = ["I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["content_lab_orchestrator", "content_lab_api", "content_lab_worker", "content_lab_shared", "content_lab_core", "content_lab_runs"]
+known-first-party = ["content_lab_orchestrator", "content_lab_api", "content_lab_worker", "content_lab_qa", "content_lab_shared", "content_lab_core", "content_lab_runs"]
 
 [tool.mypy]
 python_version = "3.11"

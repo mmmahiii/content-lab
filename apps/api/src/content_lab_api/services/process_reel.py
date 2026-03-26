@@ -16,6 +16,7 @@ from content_lab_api.models.reel import GeneratedReelStatus, Reel
 from content_lab_api.models.reel_family import ReelFamily
 from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
+from content_lab_qa import evaluate_package
 from content_lab_runs import RunStatus, TaskStatus
 
 PROCESS_REEL_WORKFLOW_KEY = "process_reel"
@@ -869,15 +870,51 @@ class ProcessReelService:
         return execution.with_output(ProcessReelStep.QA, result_payload)
 
     def run_packaging(self, execution: ProcessReelExecution) -> ProcessReelExecution:
-        next_execution = self._run_step(
-            execution,
-            step=ProcessReelStep.PACKAGING,
-            action=self._executor.package_reel,
+        definition = PROCESS_REEL_STEP_INDEX[ProcessReelStep.PACKAGING]
+        self._repository.update_task(
+            run_id=execution.run_id,
+            task_type=definition.step.value,
+            status=TaskStatus.RUNNING.value,
         )
+        try:
+            result_payload = self._executor.package_reel(execution)
+            package_qa = evaluate_package(result_payload)
+            if not package_qa.passed:
+                failure_payload = {
+                    "error": package_qa.message,
+                    "package_qa": package_qa.as_payload(),
+                }
+                self._repository.update_task(
+                    run_id=execution.run_id,
+                    task_type=definition.step.value,
+                    status=TaskStatus.FAILED.value,
+                    result=failure_payload,
+                )
+                raise ValueError(package_qa.message)
+        except Exception as exc:
+            if "package_qa" not in locals():
+                self._repository.update_task(
+                    run_id=execution.run_id,
+                    task_type=definition.step.value,
+                    status=TaskStatus.FAILED.value,
+                    result={"error": str(exc)},
+                )
+            raise
+
+        result_with_qa = dict(result_payload)
+        result_with_qa["package_qa"] = package_qa.as_payload()
+        self._repository.update_task(
+            run_id=execution.run_id,
+            task_type=definition.step.value,
+            status=TaskStatus.SUCCEEDED.value,
+            result=result_with_qa,
+        )
+        next_execution = execution.with_output(ProcessReelStep.PACKAGING, result_with_qa)
         self._persist_package_metadata(next_execution)
         return next_execution
 
     def mark_ready(self, execution: ProcessReelExecution) -> dict[str, Any]:
+        _assert_package_ready_for_publish(execution)
         self._repository.update_task(
             run_id=execution.run_id,
             task_type=PROCESS_REEL_TASK_TYPE,
@@ -1219,3 +1256,16 @@ def _optional_mapping(**kwargs: Any) -> dict[str, Any]:
         for key, value in kwargs.items()
         if value is not None and str(value).strip() != ""
     }
+
+
+def _assert_package_ready_for_publish(execution: ProcessReelExecution) -> None:
+    package_output = execution.outputs.get(ProcessReelStep.PACKAGING.value)
+    if not isinstance(package_output, Mapping):
+        raise ValueError("Packaging output is missing; reel cannot be marked ready.")
+    package_qa = package_output.get("package_qa")
+    if not isinstance(package_qa, Mapping):
+        raise ValueError("Packaging QA result is missing; reel cannot be marked ready.")
+    if bool(package_qa.get("passed")):
+        return
+    message = str(package_qa.get("message", "")).strip()
+    raise ValueError(message or "Package QA failed; reel cannot be marked ready.")
