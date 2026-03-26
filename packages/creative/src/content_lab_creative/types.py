@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from content_lab_core.types import Platform
 from content_lab_creative.persona import PageConstraints, PageMetadata
@@ -173,3 +173,136 @@ class PlannedCreativeBrief(BaseModel):
     @property
     def is_short_form(self) -> bool:
         return self.duration_seconds <= 60
+
+
+class ScriptOverlayEmphasis(str, Enum):
+    """Editing intent attached to an on-screen overlay cue."""
+
+    HOOK = "hook"
+    VALUE = "value"
+    CTA = "cta"
+    DISCLOSURE = "disclosure"
+
+
+class CaptionVariantName(str, Enum):
+    """Stable caption slots for packaging and QA."""
+
+    SHORT = "short"
+    STANDARD = "standard"
+    ENGAGEMENT = "engagement"
+
+
+class PinnedCommentPurpose(str, Enum):
+    """Reason a pinned comment should accompany a reel package."""
+
+    ENGAGEMENT = "engagement"
+    DISCLOSURE = "disclosure"
+
+
+class ScriptBeat(BaseModel):
+    """A timed beat of spoken narration for editing and voiceover planning."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_seconds: int = Field(ge=0)
+    end_seconds: int = Field(gt=0)
+    narration: str = Field(min_length=1, max_length=280)
+    shot_direction: str | None = Field(default=None, max_length=280)
+
+    @model_validator(mode="after")
+    def _validate_timing(self) -> ScriptBeat:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("script beat end_seconds must be greater than start_seconds")
+        return self
+
+
+class OverlayCue(BaseModel):
+    """Timed text overlay shown on screen during editing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_seconds: int = Field(ge=0)
+    end_seconds: int = Field(gt=0)
+    text: str = Field(min_length=1, max_length=120)
+    emphasis: ScriptOverlayEmphasis = ScriptOverlayEmphasis.VALUE
+
+    @model_validator(mode="after")
+    def _validate_timing(self) -> OverlayCue:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("overlay cue end_seconds must be greater than start_seconds")
+        return self
+
+
+class CaptionVariant(BaseModel):
+    """A ready-to-post caption in a stable packaging slot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    variant: CaptionVariantName
+    text: str = Field(min_length=1, max_length=2_200)
+
+
+class PinnedComment(BaseModel):
+    """Optional pinned comment packaged alongside the reel."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=500)
+    purpose: PinnedCommentPurpose = PinnedCommentPurpose.ENGAGEMENT
+
+
+class GeneratedScriptOutput(BaseModel):
+    """Structured phase-1 script output for editing, QA, and packaging."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["phase_1"] = "phase_1"
+    provider_name: str = Field(min_length=1, max_length=80)
+    brief_title: str = Field(min_length=1, max_length=200)
+    duration_seconds: int = Field(ge=5, le=180)
+    hook_text: str = Field(min_length=1, max_length=200)
+    spoken_script: list[ScriptBeat] = Field(default_factory=list, min_length=1, max_length=12)
+    overlay_timeline: list[OverlayCue] = Field(default_factory=list, min_length=1, max_length=16)
+    caption_variants: list[CaptionVariant] = Field(default_factory=list, min_length=1, max_length=6)
+    hashtags: list[str] = Field(default_factory=list, max_length=30)
+    pinned_comments: list[PinnedComment] = Field(default_factory=list, max_length=5)
+
+    @field_validator("hashtags")
+    @classmethod
+    def _validate_hashtags(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for hashtag in value:
+            cleaned = hashtag.strip()
+            if not cleaned.startswith("#") or len(cleaned) == 1:
+                raise ValueError("hashtags must begin with # and include at least one character")
+            lowered = cleaned.lower()
+            if lowered in seen:
+                raise ValueError("hashtags must be unique")
+            seen.add(lowered)
+            normalized.append(cleaned)
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_output_shape(self) -> GeneratedScriptOutput:
+        caption_slots = [caption.variant for caption in self.caption_variants]
+        if len(set(caption_slots)) != len(caption_slots):
+            raise ValueError("caption_variants must use unique variant slots")
+
+        previous_script_end = 0
+        for beat in self.spoken_script:
+            if beat.start_seconds < previous_script_end:
+                raise ValueError("spoken_script beats must be ordered and non-overlapping")
+            if beat.end_seconds > self.duration_seconds:
+                raise ValueError("spoken_script beats must fit within duration_seconds")
+            previous_script_end = beat.end_seconds
+
+        previous_overlay_start = -1
+        for cue in self.overlay_timeline:
+            if cue.start_seconds < previous_overlay_start:
+                raise ValueError("overlay_timeline cues must be ordered by start_seconds")
+            if cue.end_seconds > self.duration_seconds:
+                raise ValueError("overlay_timeline cues must fit within duration_seconds")
+            previous_overlay_start = cue.start_seconds
+
+        return self
