@@ -543,7 +543,9 @@ alembic = "^1.13.1"
 content-lab-assets = {path = "../../packages/assets", develop = true}
 content-lab-auth = {path = "../../packages/auth", develop = true}
 content-lab-core = {path = "../../packages/core", develop = true}
+content-lab-creative = {path = "../../packages/creative", develop = true}
 content-lab-outbox = {path = "../../packages/outbox", develop = true}
+content-lab-qa = {path = "../../packages/qa", develop = true}
 content-lab-runs = {path = "../../packages/runs", develop = true}
 content-lab-shared = {path = "../../packages/shared/py", develop = true}
 content-lab-storage = {path = "../../packages/storage", develop = true}
@@ -647,6 +649,7 @@ develop = true
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
+content-lab-storage = {path = "../storage", develop = true}
 
 [package.source]
 type = "directory"
@@ -669,6 +672,24 @@ content-lab-shared = {path = "../shared/py", develop = true}
 [package.source]
 type = "directory"
 url = "../../packages/outbox"
+
+[[package]]
+name = "content-lab-qa"
+version = "0.1.0"
+description = "Quality assurance gates and content validation"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/qa"
 
 [[package]]
 name = "content-lab-runs"
@@ -4079,4 +4100,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "ad7390cb2029c2040fde963ccfb9ebbd68478b030000e7d507ec70d6f53df597"
+content-hash = "60e8688e683ada24ef4c18eb95dfb19fa21cabbbbaddace4ec663d187b878b68"
