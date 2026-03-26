@@ -1,0 +1,43 @@
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_type": "video",
+      "codec_name": "h264",
+      "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+      "width": 1080,
+      "height": 1920,
+      "duration": "12.345000",
+      "bit_rate": "2432000",
+      "avg_frame_rate": "30/1",
+      "tags": {
+        "language": "und"
+      }
+    },
+    {
+      "index": 1,
+      "codec_type": "audio",
+      "codec_name": "aac",
+      "codec_long_name": "AAC (Advanced Audio Coding)",
+      "duration": "12.300000",
+      "bit_rate": "128000",
+      "sample_rate": "48000",
+      "channels": 2,
+      "tags": {
+        "language": "eng"
+      }
+    }
+  ],
+  "format": {
+    "filename": "sample.mp4",
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "format_long_name": "QuickTime / MOV",
+    "duration": "12.345000",
+    "size": "4567890",
+    "bit_rate": "2560000",
+    "tags": {
+      "major_brand": "isom",
+      "encoder": "Lavf61.1.100"
+    }
+  }
+}
