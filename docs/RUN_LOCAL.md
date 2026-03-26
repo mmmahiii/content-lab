@@ -194,8 +194,10 @@ Run this in each project directory (`apps/api`, `apps/worker`,
 
 ### Pydantic V2 deprecation warnings
 
-Orchestrator tests emit Pydantic V2 deprecation warnings from Prefect
-internals. These are harmless and can be ignored.
+Known Pydantic V2 deprecation warnings from Prefect internals are filtered in
+the orchestrator pytest configuration so test output stays readable. If these
+warnings reappear after a dependency upgrade, review the filters in
+`apps/orchestrator/pyproject.toml`.
 
 ### FastAPI startup deprecation warning
 
