@@ -286,10 +286,110 @@ class StubProcessReelExecutor:
         )
 
     def package_reel(self, execution: ProcessReelExecution) -> dict[str, Any]:
+        package_root_uri = f"memory://packages/{execution.reel_id}"
+        final_video_checksum = "sha256:" + ("a" * 64)
+        cover_checksum = "sha256:" + ("b" * 64)
+        caption_checksum = "sha256:" + ("c" * 64)
+        posting_plan_checksum = "sha256:" + ("d" * 64)
+        provenance_checksum = "sha256:" + ("e" * 64)
+        manifest_checksum = "sha256:" + ("f" * 64)
         return {
-            "package_uri": f"memory://packages/{execution.reel_id}.zip",
-            "manifest_uri": f"memory://packages/{execution.reel_id}.json",
+            "package_root_uri": package_root_uri,
+            "manifest_uri": f"{package_root_uri}/package_manifest.json",
             "ready_for_publish": True,
+            "manifest": {
+                "version": 1,
+                "artifact_count": 5,
+                "complete": True,
+                "artifacts": [
+                    {
+                        "name": "final_video",
+                        "filename": "final_video.mp4",
+                        "checksum_sha256": final_video_checksum,
+                    },
+                    {
+                        "name": "cover",
+                        "filename": "cover.png",
+                        "checksum_sha256": cover_checksum,
+                    },
+                    {
+                        "name": "caption_variants",
+                        "filename": "caption_variants.txt",
+                        "checksum_sha256": caption_checksum,
+                    },
+                    {
+                        "name": "posting_plan",
+                        "filename": "posting_plan.json",
+                        "checksum_sha256": posting_plan_checksum,
+                    },
+                    {
+                        "name": "provenance",
+                        "filename": "provenance.json",
+                        "checksum_sha256": provenance_checksum,
+                    },
+                ],
+            },
+            "provenance": {
+                "editor_version": "stub_vertical_v1",
+                "assets": [
+                    {
+                        "role": "source_clip",
+                        "storage_uri": f"memory://assets/{execution.reel_id}/primary.mp4",
+                    }
+                ],
+                "provider_jobs": [
+                    {
+                        "provider": "stub",
+                        "status": "succeeded",
+                        "job_id": f"job-{execution.reel_id}",
+                    }
+                ],
+                "source_run_id": execution.run_id,
+                "asset_ids": [f"asset-{execution.reel_id}-primary"],
+                "upstream_refs": {
+                    "timeline_uri": execution.outputs[ProcessReelStep.EDITING.value][
+                        "timeline_uri"
+                    ],
+                },
+            },
+            "artifacts": [
+                {
+                    "name": "final_video",
+                    "filename": "final_video.mp4",
+                    "storage_uri": f"{package_root_uri}/final_video.mp4",
+                    "checksum_sha256": final_video_checksum,
+                },
+                {
+                    "name": "cover",
+                    "filename": "cover.png",
+                    "storage_uri": f"{package_root_uri}/cover.png",
+                    "checksum_sha256": cover_checksum,
+                },
+                {
+                    "name": "caption_variants",
+                    "filename": "caption_variants.txt",
+                    "storage_uri": f"{package_root_uri}/caption_variants.txt",
+                    "checksum_sha256": caption_checksum,
+                },
+                {
+                    "name": "posting_plan",
+                    "filename": "posting_plan.json",
+                    "storage_uri": f"{package_root_uri}/posting_plan.json",
+                    "checksum_sha256": posting_plan_checksum,
+                },
+                {
+                    "name": "provenance",
+                    "filename": "provenance.json",
+                    "storage_uri": f"{package_root_uri}/provenance.json",
+                    "checksum_sha256": provenance_checksum,
+                },
+                {
+                    "name": "package_manifest",
+                    "filename": "package_manifest.json",
+                    "storage_uri": f"{package_root_uri}/package_manifest.json",
+                    "checksum_sha256": manifest_checksum,
+                },
+            ],
         }
 
 
