@@ -9,6 +9,7 @@ packages = [{ include = "content_lab_editing", from = "src" }]
 python = "^3.11"
 content-lab-shared = {path = "../shared/py", develop = true}
 content-lab-core = {path = "../core", develop = true}
+content-lab-storage = {path = "../storage", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
@@ -24,12 +25,17 @@ src = ["src"]
 extend-select = ["I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["content_lab_editing", "content_lab_core", "content_lab_shared"]
+known-first-party = ["content_lab_editing", "content_lab_core", "content_lab_shared", "content_lab_storage"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: exercises the builder against a live S3-compatible endpoint",
+]
 
 [build-system]
 requires = ["poetry-core"]

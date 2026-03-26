@@ -25,6 +25,15 @@ from content_lab_storage.paths import (
     ReelPackageRefs,
 )
 from content_lab_storage.presign import PresignedDownload, S3Presigner, S3PresignerConfig
+from content_lab_storage.reel_packages import (
+    REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES,
+    ReelPackageArtifact,
+    StoredReelPackage,
+    assert_reel_package_complete,
+    expected_reel_package_filenames,
+    persist_reel_package_directory,
+    resolve_reel_package_directory,
+)
 from content_lab_storage.refs import StorageRef, build_key
 
 __all__ = [
@@ -37,20 +46,27 @@ __all__ = [
     "POSTING_PLAN_FILENAME",
     "PresignedDownload",
     "PROVENANCE_FILENAME",
+    "REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES",
     "ReelPackageRefs",
+    "ReelPackageArtifact",
     "RetrievedObject",
     "S3Presigner",
     "S3PresignerConfig",
     "S3StorageClient",
     "S3StorageConfig",
+    "StoredReelPackage",
     "StoredAssetBytes",
     "StorageRef",
     "StoredObject",
+    "assert_reel_package_complete",
     "build_key",
     "canonical_asset_filename",
     "checksum_bytes",
     "checksum_file",
     "checksum_stream",
+    "expected_reel_package_filenames",
     "normalize_sha256",
     "persist_asset_bytes",
+    "persist_reel_package_directory",
+    "resolve_reel_package_directory",
 ]
