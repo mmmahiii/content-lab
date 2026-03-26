@@ -29,7 +29,8 @@ This workflow lets you run multiple AI task chats in parallel with minimal confl
 5. **Merge** (after all tasks finish)
    - Main worktree: open `content-lab` in Cursor.
    - New chat → run `.\scripts\worktree-copy-merge.ps1` → Ctrl+V (merge prompt).
-   - Paste the branch list from spawn output (the Copy-paste block).
+   - Paste the branch list from spawn output (the Copy-paste block)
+   .
    - The merge prompt includes **`git push origin main`** after checks pass. If you use **PR-only** or **protected `main`**, tell the merge chat *“merge only, do not push”* (or similar) so it skips the push.
 
 6. **Cleanup** (after merge chat finishes—once per batch, in terminal)
