@@ -869,11 +869,13 @@ class ProcessReelService:
         return execution.with_output(ProcessReelStep.QA, result_payload)
 
     def run_packaging(self, execution: ProcessReelExecution) -> ProcessReelExecution:
-        return self._run_step(
+        next_execution = self._run_step(
             execution,
             step=ProcessReelStep.PACKAGING,
             action=self._executor.package_reel,
         )
+        self._persist_package_metadata(next_execution)
+        return next_execution
 
     def mark_ready(self, execution: ProcessReelExecution) -> dict[str, Any]:
         self._repository.update_task(
@@ -1077,9 +1079,41 @@ class ProcessReelService:
             "step_outputs": {name: dict(payload) for name, payload in execution.outputs.items()},
             "task_statuses": self._repository.task_statuses(execution.run_id),
         }
+        package_payload = _summary_package_payload(
+            execution.outputs.get(ProcessReelStep.PACKAGING.value)
+        )
+        if package_payload is not None:
+            summary["package"] = package_payload
         if error_message is not None:
             summary["error"] = error_message
         return summary
+
+    def _persist_package_metadata(self, execution: ProcessReelExecution) -> None:
+        package_step_output = execution.outputs.get(ProcessReelStep.PACKAGING.value)
+        package_payload = _summary_package_payload(package_step_output)
+        if package_payload is None:
+            return
+
+        metadata_patch = {
+            "package": package_payload,
+            "package_artifact_uris": _package_artifact_uris(package_payload),
+            "package_provenance_refs": _collect_reference_values(package_payload.get("provenance")),
+            PROCESS_REEL_METADATA_KEY: {
+                "last_run_id": execution.run_id,
+                "current_step": ProcessReelStep.PACKAGING.value,
+                **_optional_mapping(
+                    package_root_uri=package_payload.get("package_root_uri"),
+                    manifest_uri=package_payload.get("manifest_uri"),
+                    provenance_uri=package_payload.get("provenance_uri"),
+                ),
+            },
+        }
+        current_reel = self._repository.get_reel(execution.reel_id)
+        self._repository.update_reel(
+            reel_id=execution.reel_id,
+            status=current_reel.status,
+            metadata_patch=metadata_patch,
+        )
 
     @staticmethod
     def _step_payload(
@@ -1113,3 +1147,75 @@ def build_process_reel_service(
         executor=executor,
         actor=actor,
     )
+
+
+def _summary_package_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+
+    candidate = value.get("package")
+    package_payload = (
+        dict(cast(Mapping[str, Any], candidate)) if isinstance(candidate, Mapping) else dict(value)
+    )
+    if "package_root_uri" not in package_payload and package_payload.get("package_uri") is not None:
+        package_payload["package_root_uri"] = package_payload.get("package_uri")
+    if not _looks_like_package_payload(package_payload):
+        return None
+    if "reel_id" in package_payload:
+        package_payload["reel_id"] = str(package_payload["reel_id"])
+    return package_payload
+
+
+def _looks_like_package_payload(value: Mapping[str, Any]) -> bool:
+    return any(
+        key in value
+        for key in ("artifacts", "manifest", "manifest_uri", "package_root_uri", "provenance")
+    )
+
+
+def _package_artifact_uris(package_payload: Mapping[str, Any]) -> dict[str, str]:
+    artifact_uris: dict[str, str] = {}
+    artifacts = package_payload.get("artifacts")
+    if not isinstance(artifacts, list):
+        return artifact_uris
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            continue
+        name = str(artifact.get("name", "")).strip()
+        storage_uri = str(artifact.get("storage_uri", "")).strip()
+        if not name or not storage_uri:
+            continue
+        artifact_uris[name] = storage_uri
+    return artifact_uris
+
+
+def _collect_reference_values(value: Any, *, path: str = "") -> list[dict[str, str]]:
+    references: list[dict[str, str]] = []
+    if isinstance(value, Mapping):
+        for key in sorted(value):
+            child_path = key if not path else f"{path}.{key}"
+            references.extend(_collect_reference_values(value[key], path=child_path))
+        return references
+
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            references.extend(_collect_reference_values(item, path=f"{path}[{index}]"))
+        return references
+
+    if value is None or not path:
+        return references
+
+    terminal = path.rsplit(".", maxsplit=1)[-1]
+    if "[" in terminal:
+        terminal = terminal.split("[", maxsplit=1)[0]
+    if terminal.endswith(("_id", "_ids", "_ref", "_refs", "_uri", "_uris")):
+        references.append({"path": path, "value": str(value)})
+    return references
+
+
+def _optional_mapping(**kwargs: Any) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if value is not None and str(value).strip() != ""
+    }
