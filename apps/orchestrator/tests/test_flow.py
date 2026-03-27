@@ -4,6 +4,7 @@ import importlib
 import subprocess
 import uuid
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -44,7 +45,9 @@ from content_lab_orchestrator.flows import (
 from content_lab_orchestrator.flows.daily_reel_factory import (
     AppliedPolicy,
     BudgetGuardrailOutcome,
+    OperatorSummaryEvent,
     OwnedPageSelection,
+    PersistedRunSummary,
     ReelFamilyWorkUnit,
     ReelVariantWorkUnit,
 )
@@ -83,16 +86,14 @@ storage_integrity_flow_module = importlib.import_module(
 
 
 class RecordingFactoryService:
-    def __init__(self) -> None:
-        self.created_families: list[ReelFamilyWorkUnit] = []
-        self.created_reels: list[ReelVariantWorkUnit] = []
-
-    def list_owned_pages(
+    def __init__(
         self,
-        selector: str,
-    ) -> list[OwnedPageSelection]:
-        assert selector == "seed-page"
-        return [
+        *,
+        pages: list[OwnedPageSelection] | None = None,
+        global_policies: dict[str, dict[str, object]] | None = None,
+        page_policies: dict[str, dict[str, object] | None] | None = None,
+    ) -> None:
+        self._pages = pages or [
             OwnedPageSelection(
                 org_id="org-1",
                 page_id="page-1",
@@ -100,35 +101,51 @@ class RecordingFactoryService:
                 platform="instagram",
                 handle="@page-one",
                 content_pillars=("proof", "faq"),
-                metadata={"selection_seed": selector},
+                metadata={"selection_seed": "seed-page"},
             )
         ]
+        self._global_policies = global_policies or {
+            "org-1": {
+                "mode_ratios": {
+                    "explore": 0.4,
+                    "exploit": 0.3,
+                    "mutation": 0.2,
+                    "chaos": 0.1,
+                },
+                "budget": {
+                    "per_run_usd_limit": 10.0,
+                    "daily_usd_limit": 40.0,
+                },
+            }
+        }
+        self._page_policies = page_policies or {
+            "page-1": {
+                "mode_ratios": {
+                    "mutation": 0.5,
+                    "explore": 0.2,
+                },
+                "budget": {"per_run_usd_limit": 6.0},
+            }
+        }
+        self.created_families: list[ReelFamilyWorkUnit] = []
+        self.created_reels: list[ReelVariantWorkUnit] = []
+        self.persisted_summaries: list[PersistedRunSummary] = []
+        self.operator_events: list[OperatorSummaryEvent] = []
+
+    def list_owned_pages(
+        self,
+        selector: str,
+    ) -> list[OwnedPageSelection]:
+        assert selector == "seed-page"
+        return list(self._pages)
 
     def load_global_policy(self, *, org_id: str) -> dict[str, object]:
-        assert org_id == "org-1"
-        return {
-            "mode_ratios": {
-                "explore": 0.4,
-                "exploit": 0.3,
-                "mutation": 0.2,
-                "chaos": 0.1,
-            },
-            "budget": {
-                "per_run_usd_limit": 10.0,
-                "daily_usd_limit": 40.0,
-            },
-        }
+        return deepcopy(self._global_policies[org_id])
 
     def load_page_policy(self, *, org_id: str, page_id: str) -> dict[str, object] | None:
-        assert org_id == "org-1"
-        assert page_id == "page-1"
-        return {
-            "mode_ratios": {
-                "mutation": 0.5,
-                "explore": 0.2,
-            },
-            "budget": {"per_run_usd_limit": 6.0},
-        }
+        _ = org_id
+        policy = self._page_policies.get(page_id)
+        return None if policy is None else deepcopy(policy)
 
     def create_reel_family(
         self,
@@ -168,6 +185,39 @@ class RecordingFactoryService:
         )
         self.created_reels.append(reel)
         return reel
+
+    def persist_run_summary(
+        self,
+        *,
+        selector: str,
+        summary: dict[str, object],
+    ) -> PersistedRunSummary:
+        persisted = PersistedRunSummary(
+            summary_id=f"summary-{len(self.persisted_summaries) + 1}",
+            selector=selector,
+            payload=deepcopy(summary),
+        )
+        self.persisted_summaries.append(persisted)
+        return persisted
+
+    def emit_operator_summary_event(
+        self,
+        *,
+        selector: str,
+        summary: PersistedRunSummary,
+    ) -> OperatorSummaryEvent:
+        event = OperatorSummaryEvent(
+            event_id=f"event-{len(self.operator_events) + 1}",
+            aggregate_type="daily_reel_factory_run_summary",
+            aggregate_id=summary.summary_id,
+            event_type="daily_reel_factory.operator_summary",
+            payload={
+                "selector": selector,
+                "summary": summary.to_payload(),
+            },
+        )
+        self.operator_events.append(event)
+        return event
 
 
 class RecordingProcessReelExecutor:
@@ -855,6 +905,14 @@ def _dispatch_payloads(result: dict[str, object]) -> list[dict[str, object]]:
     return cast(list[dict[str, object]], result["dispatches"])
 
 
+def _run_summary_payload(result: dict[str, object]) -> dict[str, object]:
+    return cast(dict[str, object], result["run_summary"])
+
+
+def _operator_event_payload(result: dict[str, object]) -> dict[str, object]:
+    return cast(dict[str, object], result["operator_event"])
+
+
 def test_example_flow_alias_uses_default_phase1_flow() -> None:
     result = _result_payload(example_flow("ryan"))
 
@@ -935,13 +993,18 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
         "Page One faq exploit",
     ]
     assert [reel.variant_label for reel in service.created_reels] == ["A", "B", "A", "B"]
+    assert service.created_families[0].metadata["production_model"] == "package_first"
+    assert service.created_reels[0].metadata["target_artifact"] == "ready_to_post_package"
     assert process_calls == ["reel-1", "reel-2", "reel-3", "reel-4"]
 
     assert result["status"] == "scheduled"
+    assert result["production_model"] == "package_first"
+    assert result["target_artifact"] == "ready_to_post_package"
     assert result["page_count"] == 1
     assert result["family_count"] == 2
     assert result["reel_count"] == 4
     assert result["dispatch_count"] == 4
+    assert result["skipped_count"] == 0
     assert result["budget_guardrails"] == {
         "status": "enforced",
         "checked_pages": 1,
@@ -949,6 +1012,27 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
         "warned_pages": 0,
         "limited_pages": 0,
     }
+    assert len(service.persisted_summaries) == 1
+    assert len(service.operator_events) == 1
+
+    run_summary = _run_summary_payload(result)
+    assert run_summary["summary_id"] == "summary-1"
+    assert cast(dict[str, object], run_summary["counts"]) == {
+        "pages": 1,
+        "families": 2,
+        "reels": 4,
+        "dispatched": 4,
+        "skipped": 0,
+        "blocked_pages": 0,
+    }
+    summary_pages = cast(list[dict[str, object]], run_summary["pages"])
+    assert summary_pages[0]["dispatched_reels"] == 4
+    assert summary_pages[0]["skipped_reels"] == 0
+
+    operator_event = _operator_event_payload(result)
+    assert operator_event["event_id"] == "event-1"
+    assert operator_event["event_type"] == "daily_reel_factory.operator_summary"
+    assert cast(dict[str, object], operator_event["payload"])["selector"] == "seed-page"
 
 
 def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
@@ -993,6 +1077,7 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
 
     assert result["status"] == "guardrail_blocked"
     assert result["dispatch_count"] == 0
+    assert result["skipped_count"] == 4
     assert result["budget_guardrails"] == {
         "status": "stubbed",
         "checked_pages": 1,
@@ -1006,6 +1091,155 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "skipped",
         "skipped",
     ]
+    run_summary = _run_summary_payload(result)
+    assert cast(dict[str, object], run_summary["counts"]) == {
+        "pages": 1,
+        "families": 2,
+        "reels": 4,
+        "dispatched": 0,
+        "skipped": 4,
+        "blocked_pages": 1,
+    }
+    operator_event = _operator_event_payload(result)
+    assert cast(dict[str, object], operator_event["payload"])["selector"] == "seed-page"
+
+
+def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecordingFactoryService(
+        pages=[
+            OwnedPageSelection(
+                org_id="org-1",
+                page_id="page-1",
+                display_name="Page One",
+                platform="instagram",
+                handle="@page-one",
+                content_pillars=("proof", "faq"),
+                metadata={"selection_seed": "seed-page"},
+            ),
+            OwnedPageSelection(
+                org_id="org-2",
+                page_id="page-2",
+                display_name="Page Two",
+                platform="instagram",
+                handle="@page-two",
+                content_pillars=("proof", "faq"),
+                metadata={"selection_seed": "seed-page"},
+            ),
+        ],
+        global_policies={
+            "org-1": {
+                "mode_ratios": {
+                    "explore": 0.4,
+                    "exploit": 0.3,
+                    "mutation": 0.2,
+                    "chaos": 0.1,
+                },
+                "budget": {"per_run_usd_limit": 10.0},
+            },
+            "org-2": {
+                "mode_ratios": {
+                    "explore": 0.5,
+                    "exploit": 0.3,
+                    "mutation": 0.1,
+                    "chaos": 0.1,
+                },
+                "budget": {"per_run_usd_limit": 10.0},
+            },
+        },
+        page_policies={
+            "page-1": {
+                "mode_ratios": {
+                    "mutation": 0.6,
+                    "explore": 0.2,
+                },
+                "budget": {"per_run_usd_limit": 6.0},
+            },
+            "page-2": {
+                "mode_ratios": {
+                    "exploit": 0.7,
+                    "explore": 0.2,
+                },
+                "budget": {"per_run_usd_limit": 6.0},
+            },
+        },
+    )
+    process_calls: list[str] = []
+
+    class MixedGuardrails:
+        def check(
+            self,
+            *,
+            page: OwnedPageSelection,
+            policy: AppliedPolicy,
+            reels: tuple[ReelVariantWorkUnit, ...],
+        ) -> BudgetGuardrailOutcome:
+            assert len(reels) == 4
+            _ = policy
+            if page.page_id == "page-2":
+                return BudgetGuardrailOutcome(
+                    allowed=False,
+                    status="blocked",
+                    detail="daily limit reached",
+                )
+            return BudgetGuardrailOutcome(
+                allowed=True,
+                status="within_limits",
+                detail="budget-ok",
+            )
+
+    monkeypatch.setattr(
+        daily_reel_factory_module,
+        "get_daily_reel_factory_service",
+        lambda: service,
+    )
+    monkeypatch.setattr(
+        daily_reel_factory_module,
+        "get_budget_guardrail_checker",
+        lambda: MixedGuardrails(),
+    )
+
+    def _record_process_call(reel: ReelVariantWorkUnit) -> str:
+        process_calls.append(reel.reel_id)
+        return f"processed {reel.reel_id}"
+
+    monkeypatch.setattr(
+        daily_reel_factory_module,
+        "run_process_reel",
+        _record_process_call,
+    )
+
+    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+
+    assert result["status"] == "partially_scheduled"
+    assert result["page_count"] == 2
+    assert result["family_count"] == 4
+    assert result["reel_count"] == 8
+    assert result["dispatch_count"] == 4
+    assert result["skipped_count"] == 4
+    assert process_calls == ["reel-1", "reel-2", "reel-3", "reel-4"]
+
+    run_summary = _run_summary_payload(result)
+    assert cast(dict[str, object], run_summary["counts"]) == {
+        "pages": 2,
+        "families": 4,
+        "reels": 8,
+        "dispatched": 4,
+        "skipped": 4,
+        "blocked_pages": 1,
+    }
+    summary_pages = cast(list[dict[str, object]], run_summary["pages"])
+    assert [page["dispatched_reels"] for page in summary_pages] == [4, 0]
+    assert [page["skipped_reels"] for page in summary_pages] == [0, 4]
+    assert [page["family_modes"] for page in summary_pages] == [
+        ["mutation", "exploit"],
+        ["exploit", "explore"],
+    ]
+
+    operator_event = _operator_event_payload(result)
+    assert operator_event["aggregate_id"] == "summary-1"
+    assert cast(dict[str, object], operator_event["payload"])["selector"] == "seed-page"
 
 
 def test_daily_reel_factory_reduces_dispatches_when_budget_guardrail_limits_page(
