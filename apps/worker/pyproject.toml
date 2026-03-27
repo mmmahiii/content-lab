@@ -16,6 +16,7 @@ content-lab-storage = {path = "../../packages/storage", develop = true}
 content-lab-creative = {path = "../../packages/creative", develop = true}
 content-lab-editing = {path = "../../packages/editing", develop = true}
 content-lab-assets = {path = "../../packages/assets", develop = true}
+content-lab-outbox = {path = "../../packages/outbox", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
@@ -31,7 +32,7 @@ src = ["src"]
 extend-select = ["I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["content_lab_worker", "content_lab_shared", "content_lab_core", "content_lab_runs", "content_lab_storage", "content_lab_creative", "content_lab_editing", "content_lab_assets"]
+known-first-party = ["content_lab_worker", "content_lab_shared", "content_lab_core", "content_lab_runs", "content_lab_storage", "content_lab_creative", "content_lab_editing", "content_lab_assets", "content_lab_outbox"]
 
 [tool.mypy]
 python_version = "3.11"
