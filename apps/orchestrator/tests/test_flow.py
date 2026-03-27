@@ -77,7 +77,10 @@ class RecordingFactoryService:
                 "mutation": 0.2,
                 "chaos": 0.1,
             },
-            "budget": {"per_run_usd_limit": 10.0},
+            "budget": {
+                "per_run_usd_limit": 10.0,
+                "daily_usd_limit": 40.0,
+            },
         }
 
     def load_page_policy(self, *, org_id: str, page_id: str) -> dict[str, object] | None:
@@ -340,7 +343,10 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
             reels: tuple[ReelVariantWorkUnit, ...],
         ) -> BudgetGuardrailOutcome:
             assert page.page_id == "page-1"
-            assert policy.effective_policy["budget"] == {"per_run_usd_limit": 6.0}
+            assert cast(dict[str, object], policy.effective_policy["budget"]) == {
+                "per_run_usd_limit": 6.0,
+                "daily_usd_limit": 40.0,
+            }
             assert len(reels) == 4
             return BudgetGuardrailOutcome(
                 allowed=True,
@@ -388,6 +394,8 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
         "status": "enforced",
         "checked_pages": 1,
         "blocked_pages": 0,
+        "warned_pages": 0,
+        "limited_pages": 0,
     }
 
 
@@ -437,6 +445,8 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "status": "stubbed",
         "checked_pages": 1,
         "blocked_pages": 1,
+        "warned_pages": 0,
+        "limited_pages": 0,
     }
     assert [dispatch["status"] for dispatch in _dispatch_payloads(result)] == [
         "skipped",
@@ -444,6 +454,86 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "skipped",
         "skipped",
     ]
+
+
+def test_daily_reel_factory_reduces_dispatches_when_budget_guardrail_limits_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecordingFactoryService()
+    process_calls: list[str] = []
+
+    def _limited_global_policy(*, org_id: str) -> dict[str, object]:
+        assert org_id == "org-1"
+        return {
+            "mode_ratios": {
+                "explore": 0.4,
+                "exploit": 0.3,
+                "mutation": 0.2,
+                "chaos": 0.1,
+            },
+            "budget": {
+                "per_run_usd_limit": 10.0,
+                "daily_usd_limit": 15.0,
+                "daily_spent_usd": 3.0,
+            },
+        }
+
+    monkeypatch.setattr(service, "load_global_policy", _limited_global_policy)
+    monkeypatch.setattr(
+        daily_reel_factory_module,
+        "get_daily_reel_factory_service",
+        lambda: service,
+    )
+
+    def _record_limited_process_call(reel: ReelVariantWorkUnit) -> str:
+        process_calls.append(reel.reel_id)
+        return f"processed {reel.reel_id}"
+
+    monkeypatch.setattr(
+        daily_reel_factory_module,
+        "run_process_reel",
+        _record_limited_process_call,
+    )
+
+    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+
+    assert result["status"] == "partially_scheduled"
+    assert result["dispatch_count"] == 2
+    assert process_calls == ["reel-1", "reel-2"]
+    assert result["budget_guardrails"] == {
+        "status": "warn",
+        "checked_pages": 1,
+        "blocked_pages": 0,
+        "warned_pages": 1,
+        "limited_pages": 1,
+    }
+    assert [dispatch["status"] for dispatch in _dispatch_payloads(result)] == [
+        "dispatched",
+        "dispatched",
+        "skipped",
+        "skipped",
+    ]
+    assert cast(list[dict[str, object]], result["pages"])[0]["guardrail"] == {
+        "allowed": True,
+        "status": "warn",
+        "detail": "Reduced daily_plan: approved 2 of 4 units within the remaining daily budget of 12.00 USD.",
+        "action": "reduce",
+        "scope": "daily_plan",
+        "requested_units": 4,
+        "approved_units": 2,
+        "unit_cost_usd": 6.0,
+        "requested_cost_usd": 24.0,
+        "approved_cost_usd": 12.0,
+        "spent_usd": 3.0,
+        "committed_usd": 0.0,
+        "reserved_usd": 3.0,
+        "remaining_before_usd": 12.0,
+        "remaining_after_usd": 0.0,
+        "reasons": [
+            "limited_to_remaining_budget",
+            "remaining_budget_below_warning_threshold",
+        ],
+    }
 
 
 def test_process_reel_flow_persists_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
