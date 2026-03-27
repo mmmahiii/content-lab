@@ -147,10 +147,30 @@ develop = true
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
+content-lab-storage = {path = "../storage", develop = true}
 
 [package.source]
 type = "directory"
 url = "../../packages/editing"
+
+[[package]]
+name = "content-lab-outbox"
+version = "0.1.0"
+description = "Transactional outbox for reliable event publishing"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+sqlalchemy = "^2.0.30"
+
+[package.source]
+type = "directory"
+url = "../../packages/outbox"
 
 [[package]]
 name = "content-lab-runs"
@@ -1175,4 +1195,4 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "225c8c77f229e601a35732dcc40fd3e247855708662ea0a6cf14054513a45580"
+content-hash = "975d3befc1eecd67356edb525ff10fd01850b12066b964b62b24507b91388b61"

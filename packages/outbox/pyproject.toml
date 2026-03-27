@@ -9,6 +9,7 @@ packages = [{ include = "content_lab_outbox", from = "src" }]
 python = "^3.11"
 content-lab-shared = {path = "../shared/py", develop = true}
 content-lab-core = {path = "../core", develop = true}
+sqlalchemy = "^2.0.30"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
