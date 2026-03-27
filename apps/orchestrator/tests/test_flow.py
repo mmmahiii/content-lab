@@ -23,7 +23,6 @@ from content_lab_creative import (
     PersonaProfile,
     PolicyStateDocument,
 )
-from content_lab_core.types import Platform
 from content_lab_storage.client import RetrievedObject, StoredObject
 from content_lab_storage.integrity import S3ObjectIntegrityVerifier
 from content_lab_storage.refs import StorageRef
@@ -34,6 +33,7 @@ from content_lab_api.services import (
     ProcessReelQAResult,
     ProcessReelService,
 )
+from content_lab_core.types import Platform
 from content_lab_orchestrator.flows import (
     DEFAULT_FLOW_NAME,
     example_flow,
