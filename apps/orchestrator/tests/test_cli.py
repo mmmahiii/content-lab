@@ -23,6 +23,7 @@ def test_cli_lists_registered_flows(capsys: pytest.CaptureFixture[str]) -> None:
         "daily_reel_factory",
         "process_reel",
         "provider_job_sweeper",
+        "storage_integrity_check",
     ]
 
 
