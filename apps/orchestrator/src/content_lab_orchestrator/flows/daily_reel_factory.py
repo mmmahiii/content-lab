@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 from argparse import Namespace
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -11,6 +12,12 @@ from typing import Protocol, cast
 
 from prefect.flows import flow
 
+from content_lab_core.budget import (
+    BudgetGuardrailDecision,
+    budget_policy_from_mapping,
+    budget_usage_from_mapping,
+    evaluate_daily_budget_guardrail,
+)
 from content_lab_orchestrator.correlation import orchestrator_service_context
 from content_lab_runs import JSONValue, idempotency_key_from_payload
 
@@ -46,6 +53,7 @@ _MODE_PRIORITY = {
     "mutation": 2,
     "chaos": 3,
 }
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,20 +158,7 @@ class ReelVariantWorkUnit:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class BudgetGuardrailOutcome:
-    """Result of the current budget-guardrail gate."""
-
-    allowed: bool
-    status: str
-    detail: str
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "allowed": self.allowed,
-            "status": self.status,
-            "detail": self.detail,
-        }
+BudgetGuardrailOutcome = BudgetGuardrailDecision
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,8 +316,8 @@ class InMemoryDailyReelFactoryService:
         )
 
 
-class StubBudgetGuardrailChecker:
-    """Placeholder until the durable budget service exists."""
+class PolicyBudgetGuardrailChecker:
+    """Deterministic policy-backed budget checker for the phase-1 factory."""
 
     def check(
         self,
@@ -331,11 +326,11 @@ class StubBudgetGuardrailChecker:
         policy: AppliedPolicy,
         reels: tuple[ReelVariantWorkUnit, ...],
     ) -> BudgetGuardrailOutcome:
-        _ = page, policy, reels
-        return BudgetGuardrailOutcome(
-            allowed=True,
-            status="stubbed",
-            detail="Budget guardrails are not implemented yet; allowing phase-1 scheduling.",
+        _ = page
+        return evaluate_daily_budget_guardrail(
+            policy=budget_policy_from_mapping(policy.effective_policy),
+            usage=budget_usage_from_mapping(policy.effective_policy),
+            requested_units=len(reels),
         )
 
 
@@ -395,7 +390,7 @@ def get_daily_reel_factory_service() -> DailyReelFactoryService:
 def get_budget_guardrail_checker() -> BudgetGuardrailChecker:
     """Dependency seam for the future budget service."""
 
-    return StubBudgetGuardrailChecker()
+    return PolicyBudgetGuardrailChecker()
 
 
 def choose_target_owned_pages(
@@ -521,14 +516,24 @@ def evaluate_budget_guardrails(
 ) -> dict[str, BudgetGuardrailOutcome]:
     """Run the current budget gate for each page batch."""
 
-    return {
-        page_batch.page.page_id: checker.check(
+    outcomes: dict[str, BudgetGuardrailOutcome] = {}
+    for page_batch in page_batches:
+        outcome = checker.check(
             page=page_batch.page,
             policy=page_batch.policy,
             reels=page_batch.reels,
         )
-        for page_batch in page_batches
-    }
+        outcomes[page_batch.page.page_id] = outcome
+        logger.info(
+            "budget guardrail evaluated page=%s status=%s action=%s approved=%s/%s detail=%s",
+            page_batch.page.page_id,
+            outcome.status,
+            outcome.action,
+            outcome.approved_units,
+            len(page_batch.reels),
+            outcome.detail,
+        )
+    return outcomes
 
 
 def run_process_reel(reel: ReelVariantWorkUnit) -> object:
@@ -553,26 +558,36 @@ def dispatch_process_reel_runs(
     dispatches: list[DispatchRecord] = []
     for page_batch in page_batches:
         guardrail = guardrails[page_batch.page.page_id]
-        if not guardrail.allowed:
-            dispatches.extend(
-                DispatchRecord(
-                    reel_id=reel.reel_id,
-                    status="skipped",
-                    reason=guardrail.detail,
-                )
-                for reel in page_batch.reels
-            )
-            continue
-
+        approved_reel_count = _approved_reel_count(page_batch=page_batch, guardrail=guardrail)
         dispatches.extend(
             DispatchRecord(
                 reel_id=reel.reel_id,
                 status="dispatched",
                 result=run_process_reel(reel),
             )
-            for reel in page_batch.reels
+            for reel in page_batch.reels[:approved_reel_count]
+        )
+        dispatches.extend(
+            DispatchRecord(
+                reel_id=reel.reel_id,
+                status="skipped",
+                reason=guardrail.detail,
+            )
+            for reel in page_batch.reels[approved_reel_count:]
         )
     return dispatches
+
+
+def _approved_reel_count(
+    *,
+    page_batch: PageBatch,
+    guardrail: BudgetGuardrailOutcome,
+) -> int:
+    if not guardrail.allowed:
+        return 0
+    if guardrail.approved_units <= 0:
+        return len(page_batch.reels)
+    return min(guardrail.approved_units, len(page_batch.reels))
 
 
 def _guardrail_summary(guardrails: dict[str, BudgetGuardrailOutcome]) -> dict[str, object]:
@@ -588,6 +603,10 @@ def _guardrail_summary(guardrails: dict[str, BudgetGuardrailOutcome]) -> dict[st
         "status": status,
         "checked_pages": len(guardrails),
         "blocked_pages": sum(1 for guardrail in guardrails.values() if not guardrail.allowed),
+        "warned_pages": sum(1 for guardrail in guardrails.values() if guardrail.status == "warn"),
+        "limited_pages": sum(
+            1 for guardrail in guardrails.values() if guardrail.action in {"reduce", "stop"}
+        ),
     }
 
 
