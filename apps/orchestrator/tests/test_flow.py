@@ -4,6 +4,10 @@ import importlib
 from typing import cast
 
 import pytest
+from botocore.exceptions import ClientError
+from content_lab_storage.client import RetrievedObject, StoredObject
+from content_lab_storage.integrity import S3ObjectIntegrityVerifier
+from content_lab_storage.refs import StorageRef
 
 from content_lab_api.services import (
     InMemoryProcessReelRepository,
@@ -30,6 +34,12 @@ from content_lab_orchestrator.flows.provider_job_sweeper import (
     ProviderJobSweepCandidate,
     ProviderJobSweepResult,
 )
+from content_lab_orchestrator.flows.storage_integrity_check import (
+    AssetIntegrityCandidate,
+    ReelPackageArtifactCandidate,
+    ReelPackageIntegrityCandidate,
+    StorageIntegrityCheckResult,
+)
 
 _SHA256_A = "sha256:" + ("a" * 64)
 _SHA256_B = "sha256:" + ("b" * 64)
@@ -43,6 +53,9 @@ daily_reel_factory_module = importlib.import_module(
 process_reel_flow_module = importlib.import_module("content_lab_orchestrator.flows.process_reel")
 provider_job_sweeper_flow_module = importlib.import_module(
     "content_lab_orchestrator.flows.provider_job_sweeper"
+)
+storage_integrity_flow_module = importlib.import_module(
+    "content_lab_orchestrator.flows.storage_integrity_check"
 )
 
 
@@ -279,6 +292,81 @@ class RecordingProviderJobSweeperRuntime:
         return sequence.pop(0)
 
 
+class RecordingStorageIntegrityRuntime:
+    def __init__(
+        self,
+        *,
+        asset_candidates: tuple[AssetIntegrityCandidate, ...],
+        package_candidates: tuple[ReelPackageIntegrityCandidate, ...],
+        asset_results: dict[str, list[StorageIntegrityCheckResult]],
+        package_results: dict[str, list[StorageIntegrityCheckResult]],
+    ) -> None:
+        self._asset_candidates = asset_candidates
+        self._package_candidates = package_candidates
+        self._asset_results = {key: list(value) for key, value in asset_results.items()}
+        self._package_results = {key: list(value) for key, value in package_results.items()}
+        self.asset_limits: list[int] = []
+        self.package_limits: list[int] = []
+        self.reconciled_asset_ids: list[str] = []
+        self.reconciled_reel_ids: list[str] = []
+
+    def list_recent_assets(
+        self,
+        *,
+        limit: int = 50,
+    ) -> tuple[AssetIntegrityCandidate, ...]:
+        self.asset_limits.append(limit)
+        return self._asset_candidates[:limit]
+
+    def list_recent_reel_packages(
+        self,
+        *,
+        limit: int = 25,
+    ) -> tuple[ReelPackageIntegrityCandidate, ...]:
+        self.package_limits.append(limit)
+        return self._package_candidates[:limit]
+
+    def reconcile_asset(self, candidate: AssetIntegrityCandidate) -> StorageIntegrityCheckResult:
+        self.reconciled_asset_ids.append(candidate.asset_id)
+        return self._asset_results[candidate.asset_id].pop(0)
+
+    def reconcile_reel_package(
+        self,
+        candidate: ReelPackageIntegrityCandidate,
+    ) -> StorageIntegrityCheckResult:
+        self.reconciled_reel_ids.append(candidate.reel_id)
+        return self._package_results[candidate.reel_id].pop(0)
+
+
+class FakeStorageClient:
+    def __init__(
+        self,
+        *,
+        head_error: Exception | None = None,
+        get_error: Exception | None = None,
+        head_object: StoredObject | None = None,
+        retrieved_object: RetrievedObject | None = None,
+    ) -> None:
+        self._head_error = head_error
+        self._get_error = get_error
+        self._head_object = head_object
+        self._retrieved_object = retrieved_object
+
+    def head_object(self, *, storage_uri: str) -> StoredObject:
+        assert storage_uri.startswith("s3://")
+        if self._head_error is not None:
+            raise self._head_error
+        assert self._head_object is not None
+        return self._head_object
+
+    def get_object(self, *, storage_uri: str) -> RetrievedObject:
+        assert storage_uri.startswith("s3://")
+        if self._get_error is not None:
+            raise self._get_error
+        assert self._retrieved_object is not None
+        return self._retrieved_object
+
+
 def _install_service(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -315,7 +403,12 @@ def test_example_flow_alias_uses_default_phase1_flow() -> None:
 
 
 def test_flow_discovery_lists_phase1_flows() -> None:
-    assert list_flow_names() == ("daily_reel_factory", "process_reel", "provider_job_sweeper")
+    assert list_flow_names() == (
+        "daily_reel_factory",
+        "process_reel",
+        "provider_job_sweeper",
+        "storage_integrity_check",
+    )
 
 
 def test_default_flow_registration_points_at_daily_factory() -> None:
@@ -654,3 +747,150 @@ def test_provider_job_sweeper_is_idempotent_when_a_revisited_job_is_already_fina
     assert first_result["counts"]["signals_emitted"] == 1
     assert second_result["counts"]["already_finalized"] == 1
     assert second_result["counts"]["signals_emitted"] == 0
+
+
+def test_storage_object_integrity_verifier_marks_missing_objects() -> None:
+    missing_error = ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+    verifier = S3ObjectIntegrityVerifier(FakeStorageClient(head_error=missing_error))
+
+    result = verifier.verify_object(
+        storage_uri="s3://content-lab/assets/missing.mp4",
+        expected_checksum_sha256=_SHA256_A,
+        verify_checksum=True,
+    )
+
+    assert result.status == "missing"
+    assert result.exists is False
+    assert result.expected_checksum_sha256 == _SHA256_A
+    assert result.actual_checksum_sha256 is None
+
+
+def test_storage_object_integrity_verifier_detects_checksum_mismatch() -> None:
+    ref = StorageRef(bucket="content-lab", key="packages/reel-1/final_video.mp4")
+    verifier = S3ObjectIntegrityVerifier(
+        FakeStorageClient(
+            head_object=StoredObject(
+                ref=ref,
+                size_bytes=3,
+                metadata={"checksum-sha256": _SHA256_A},
+                checksum_sha256=_SHA256_A,
+            ),
+            retrieved_object=RetrievedObject(
+                ref=ref,
+                size_bytes=3,
+                metadata={"checksum-sha256": _SHA256_A},
+                checksum_sha256=_SHA256_A,
+                body=b"bad",
+            ),
+        )
+    )
+
+    result = verifier.verify_object(
+        storage_uri=ref.uri,
+        expected_checksum_sha256=_SHA256_A,
+        verify_checksum=True,
+    )
+
+    assert result.status == "corrupt"
+    assert result.exists is True
+    assert result.expected_checksum_sha256 == _SHA256_A
+    assert result.actual_checksum_sha256 != _SHA256_A
+
+
+def test_storage_integrity_check_flow_records_missing_assets_and_corrupt_packages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset_candidate = AssetIntegrityCandidate(
+        asset_id="asset-1",
+        org_id="org-1",
+        asset_class="video",
+        storage_uri="s3://content-lab/assets/asset-1/video.mp4",
+        expected_checksum_sha256=_SHA256_A,
+        created_at="2026-03-26T12:00:00+00:00",
+    )
+    package_candidate = ReelPackageIntegrityCandidate(
+        reel_id="reel-1",
+        org_id="org-1",
+        reel_status="ready",
+        package_root_uri="s3://content-lab/packages/reel-1",
+        updated_at="2026-03-26T13:00:00+00:00",
+        artifacts=(
+            ReelPackageArtifactCandidate(
+                name="final_video",
+                storage_uri="s3://content-lab/packages/reel-1/final_video.mp4",
+                expected_checksum_sha256=_SHA256_A,
+            ),
+            ReelPackageArtifactCandidate(
+                name="cover",
+                storage_uri="s3://content-lab/packages/reel-1/cover.png",
+                expected_checksum_sha256=_SHA256_B,
+            ),
+        ),
+    )
+    runtime = RecordingStorageIntegrityRuntime(
+        asset_candidates=(asset_candidate,),
+        package_candidates=(package_candidate,),
+        asset_results={
+            "asset-1": [
+                StorageIntegrityCheckResult(
+                    org_id="org-1",
+                    check_kind="asset_object",
+                    status="missing",
+                    asset_id="asset-1",
+                    check_id="check-asset-1",
+                    alert_emitted=True,
+                    checked_object_count=1,
+                    issue_count=1,
+                    detail={
+                        "asset": {"asset_id": "asset-1"},
+                        "objects": [{"status": "missing"}],
+                    },
+                )
+            ]
+        },
+        package_results={
+            "reel-1": [
+                StorageIntegrityCheckResult(
+                    org_id="org-1",
+                    check_kind="reel_package",
+                    status="corrupt",
+                    reel_id="reel-1",
+                    check_id="check-reel-1",
+                    alert_emitted=True,
+                    checked_object_count=2,
+                    issue_count=2,
+                    detail={
+                        "package": {"reel_id": "reel-1"},
+                        "objects": [
+                            {"artifact_name": "final_video", "status": "corrupt"},
+                            {"artifact_name": "posting_plan", "status": "missing"},
+                        ],
+                    },
+                )
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        storage_integrity_flow_module,
+        "build_storage_integrity_runtime",
+        lambda: runtime,
+    )
+
+    result = storage_integrity_flow_module.storage_integrity_check(asset_limit=5, package_limit=5)
+
+    assert runtime.asset_limits == [5]
+    assert runtime.package_limits == [5]
+    assert runtime.reconciled_asset_ids == ["asset-1"]
+    assert runtime.reconciled_reel_ids == ["reel-1"]
+    assert result["status"] == "completed"
+    assert result["counts"] == {
+        "assets_scanned": 1,
+        "packages_scanned": 1,
+        "healthy": 0,
+        "missing": 1,
+        "corrupt": 1,
+        "skipped": 0,
+        "alerts_emitted": 2,
+        "records_written": 2,
+    }
+    assert [item["status"] for item in result["results"]] == ["missing", "corrupt"]
