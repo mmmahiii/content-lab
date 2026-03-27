@@ -13,6 +13,12 @@ from content_lab_outbox.event import (
     build_flow_failure_event,
     build_package_ready_event,
 )
+from content_lab_outbox.process_reel import (
+    PROCESS_REEL_FAILURE_EVENT,
+    PROCESS_REEL_PACKAGE_READY_EVENT,
+    build_process_reel_event_payload,
+    process_reel_event_type,
+)
 
 
 class TestOutboxEntry:
@@ -120,3 +126,26 @@ def test_build_flow_failure_event_rejects_missing_error() -> None:
                 "run_id": "run-123",
             }
         )
+
+
+def test_process_reel_event_helpers_map_ready_and_failure_states() -> None:
+    ready_summary = {
+        "run_id": "run-1",
+        "reel_id": "reel-1",
+        "org_id": str(uuid.uuid4()),
+        "page_id": "page-1",
+        "reel_family_id": "family-1",
+        "reel_status": "ready",
+        "run_status": "succeeded",
+        "task_statuses": {"process_reel": "succeeded"},
+    }
+    failed_summary = {
+        **ready_summary,
+        "reel_status": "qa_failed",
+        "run_status": "failed",
+        "error": "qa failed",
+    }
+
+    assert process_reel_event_type(ready_summary) == PROCESS_REEL_PACKAGE_READY_EVENT
+    assert process_reel_event_type(failed_summary) == PROCESS_REEL_FAILURE_EVENT
+    assert build_process_reel_event_payload(failed_summary)["error"] == "qa failed"
