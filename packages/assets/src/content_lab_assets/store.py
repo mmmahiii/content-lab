@@ -7,7 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -26,6 +27,68 @@ _TASK_STATUS_FAILED = "failed"
 _TASK_STATUS_RETRYING = "retrying"
 _TASK_STATUS_RUNNING = "running"
 _TASK_STATUS_SUCCEEDED = "succeeded"
+
+_UPDATE_TASK_RESULT_STMT = text(
+    """
+    UPDATE tasks
+    SET status = :status,
+        result = :result,
+        updated_at = NOW()
+    WHERE id = :task_id
+    """
+).bindparams(bindparam("result", type_=JSONB()))
+
+_UPDATE_ASSET_FULL_STMT = text(
+    """
+    UPDATE assets
+    SET status = :status,
+        storage_uri = :storage_uri,
+        content_hash = :content_hash,
+        metadata = :metadata
+    WHERE id = :asset_id
+    """
+).bindparams(bindparam("metadata", type_=JSONB()))
+
+_UPDATE_ASSET_METADATA_STMT = text(
+    """
+    UPDATE assets
+    SET metadata = :metadata
+    WHERE id = :asset_id
+    """
+).bindparams(bindparam("metadata", type_=JSONB()))
+
+_INSERT_PROVIDER_JOB_STMT = text(
+    """
+    INSERT INTO provider_jobs (
+        id,
+        org_id,
+        provider,
+        external_ref,
+        task_id,
+        status,
+        metadata
+    ) VALUES (
+        :id,
+        :org_id,
+        :provider,
+        :external_ref,
+        :task_id,
+        :status,
+        :metadata
+    )
+    """
+).bindparams(bindparam("metadata", type_=JSONB()))
+
+_UPDATE_PROVIDER_JOB_STMT = text(
+    """
+    UPDATE provider_jobs
+    SET task_id = :task_id,
+        status = :status,
+        metadata = :metadata,
+        updated_at = NOW()
+    WHERE id = :provider_job_id
+    """
+).bindparams(bindparam("metadata", type_=JSONB()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -460,15 +523,7 @@ class SQLRunwayAssetStore:
         with self._session_factory.begin() as session:
             if generation.task_id is not None:
                 session.execute(
-                    text(
-                        """
-                        UPDATE tasks
-                        SET status = :status,
-                            result = :result,
-                            updated_at = NOW()
-                        WHERE id = :task_id
-                        """
-                    ),
+                    _UPDATE_TASK_RESULT_STMT,
                     {
                         "status": task_status,
                         "result": None if task_result is None else dict(task_result),
@@ -479,16 +534,7 @@ class SQLRunwayAssetStore:
             if asset_status is not None or storage_uri is not None or content_hash is not None:
                 metadata = _merge_dicts(generation.asset_metadata, asset_metadata)
                 session.execute(
-                    text(
-                        """
-                        UPDATE assets
-                        SET status = :status,
-                            storage_uri = :storage_uri,
-                            content_hash = :content_hash,
-                            metadata = :metadata
-                        WHERE id = :asset_id
-                        """
-                    ),
+                    _UPDATE_ASSET_FULL_STMT,
                     {
                         "status": asset_status or generation.asset_status,
                         "storage_uri": storage_uri or generation.storage_uri,
@@ -499,13 +545,7 @@ class SQLRunwayAssetStore:
                 )
             elif asset_metadata:
                 session.execute(
-                    text(
-                        """
-                        UPDATE assets
-                        SET metadata = :metadata
-                        WHERE id = :asset_id
-                        """
-                    ),
+                    _UPDATE_ASSET_METADATA_STMT,
                     {
                         "metadata": _merge_dicts(generation.asset_metadata, asset_metadata),
                         "asset_id": generation.asset_id,
@@ -561,27 +601,7 @@ class SQLRunwayAssetStore:
 
         if existing_provider_job_id is None:
             session.execute(
-                text(
-                    """
-                    INSERT INTO provider_jobs (
-                        id,
-                        org_id,
-                        provider,
-                        external_ref,
-                        task_id,
-                        status,
-                        metadata
-                    ) VALUES (
-                        :id,
-                        :org_id,
-                        :provider,
-                        :external_ref,
-                        :task_id,
-                        :status,
-                        :metadata
-                    )
-                    """
-                ),
+                _INSERT_PROVIDER_JOB_STMT,
                 {
                     "id": uuid.uuid4(),
                     "org_id": generation.org_id,
@@ -595,16 +615,7 @@ class SQLRunwayAssetStore:
             return
 
         session.execute(
-            text(
-                """
-                UPDATE provider_jobs
-                SET task_id = :task_id,
-                    status = :status,
-                    metadata = :metadata,
-                    updated_at = NOW()
-                WHERE id = :provider_job_id
-                """
-            ),
+            _UPDATE_PROVIDER_JOB_STMT,
             {
                 "task_id": generation.task_id,
                 "status": provider_status,
