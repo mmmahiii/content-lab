@@ -49,6 +49,18 @@ python_version = "3.11"
 strict = true
 ignore_missing_imports = true
 
+[tool.pyright]
+include = ["src", "migrations", "tests"]
+pythonVersion = "3.11"
+
+[[tool.pyright.executionEnvironments]]
+root = "migrations"
+reportMissingImports = "none"
+
+[[tool.pyright.executionEnvironments]]
+root = "."
+extraPaths = ["src"]
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
