@@ -12,7 +12,8 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import Table, create_engine, inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from content_lab_api.models import Org, ProviderJob, Task
@@ -32,6 +33,22 @@ def _integration_database_url() -> str:
         "DATABASE_URL",
         "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5433/contentlab",
     )
+
+
+def _integration_engine_or_skip() -> Engine:
+    """Return an engine to the integration DB, or skip if Postgres is unreachable (fast timeout)."""
+    url = _integration_database_url()
+    engine = create_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 5},
+    )
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except OperationalError as exc:
+        pytest.skip(f"PostgreSQL not reachable ({url!r}): {exc}")
+    return engine
 
 
 def test_revision_0008_module_wires_alembic_chain() -> None:
@@ -63,10 +80,7 @@ def test_provider_jobs_table_has_provider_external_ref_unique_constraint() -> No
 
 
 def test_migration_smoke_tables_exist_after_upgrade() -> None:
-    url = _integration_database_url()
-    engine = create_engine(url, pool_pre_ping=True)
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
+    engine = _integration_engine_or_skip()
     insp = inspect(engine)
     for table in (
         "policy_state",
@@ -80,8 +94,7 @@ def test_migration_smoke_tables_exist_after_upgrade() -> None:
 
 
 def test_task_idempotency_key_unique_per_org() -> None:
-    url = _integration_database_url()
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = _integration_engine_or_skip()
     SessionFactory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
     with SessionFactory() as session:
         org = Org(name="DB-0008 tasks", slug=f"db0008-task-{uuid.uuid4().hex[:12]}")
@@ -107,8 +120,7 @@ def test_task_idempotency_key_unique_per_org() -> None:
 
 
 def test_provider_job_external_ref_unique_per_provider() -> None:
-    url = _integration_database_url()
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = _integration_engine_or_skip()
     SessionFactory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
     external_ref = f"ext-{uuid.uuid4()}"
     with SessionFactory() as session:

@@ -22,7 +22,11 @@ def _database_url() -> str:
 @pytest.fixture(scope="session")
 def db_engine() -> Engine:
     url = _database_url()
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = create_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 5},
+    )
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))

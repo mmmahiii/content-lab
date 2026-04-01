@@ -28,7 +28,11 @@ def _default_database_url() -> str:
 
 def _postgres_ready() -> bool:
     try:
-        engine = create_engine(_default_database_url(), pool_pre_ping=True)
+        engine = create_engine(
+            _default_database_url(),
+            pool_pre_ping=True,
+            connect_args={"connect_timeout": 5},
+        )
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         engine.dispose()
@@ -91,7 +95,11 @@ def test_reel_metrics_snapshot_and_nullable_feature_embedding(
     from content_lab_api.models.reel_metric import ReelMetric
     from content_lab_api.models.run import Run
 
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = create_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 5},
+    )
     SessionFactory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
     org_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
