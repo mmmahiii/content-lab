@@ -169,7 +169,11 @@ class HTTPRunwayClient:
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> HTTPRunwayClient:
         resolved = settings or Settings()
-        return cls(api_key=resolved.runway_api_key.get_secret_value())
+        return cls(
+            api_key=resolved.runway_api_key.get_secret_value(),
+            base_url=resolved.runway_api_base_url,
+            api_version=resolved.runway_api_version,
+        )
 
     def submit_generation(
         self,

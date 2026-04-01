@@ -26,6 +26,8 @@ class TestSettingsDefaults:
         s = Settings()
         assert isinstance(s.runway_api_key, SecretStr)
         assert s.runway_api_key.get_secret_value() == "changeme"
+        assert s.runway_api_base_url == "https://api.dev.runwayml.com"
+        assert s.runway_api_version == "2024-11-06"
 
     def test_security_defaults(self) -> None:
         s = Settings()

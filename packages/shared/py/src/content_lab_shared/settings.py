@@ -41,6 +41,9 @@ class Settings(BaseSettings):
 
     # -- Provider keys --
     runway_api_key: SecretStr = SecretStr("changeme")
+    # Must match the Runway key (dev vs prod); see Runway API docs for your account.
+    runway_api_base_url: str = "https://api.dev.runwayml.com"
+    runway_api_version: str = "2024-11-06"
 
     # -- Security --
     api_key_salt: SecretStr = SecretStr("changeme-salt")
