@@ -10,6 +10,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@content-lab/shared-ts':
+        specifier: workspace:*
+        version: link:../../packages/shared/ts
       next:
         specifier: 15.0.0
         version: 15.0.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
