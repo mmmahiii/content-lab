@@ -342,3 +342,33 @@ export interface PackageDetailOut {
   created_at: ISODateTimeString;
   updated_at: ISODateTimeString;
 }
+
+export type RunCreateRequest = {
+  workflow_key: WorkflowKey;
+  input_params: JsonObject;
+  metadata: JsonObject;
+  idempotency_key?: string | null;
+};
+
+export type ReelTriggerRequest = {
+  input_params: JsonObject;
+  metadata: JsonObject;
+  idempotency_key?: string | null;
+};
+
+export type ReelResponse = ReelOut;
+export type RunResponse = RunOut;
+export type TaskSummaryResponse = TaskSummaryOut;
+export type RunDetailResponse = RunDetailOut;
+
+export interface ApiValidationIssue {
+  loc?: Array<string | number>;
+  msg?: string;
+  type?: string;
+}
+
+export type ApiErrorDetail = string | ApiValidationIssue[] | JsonObject | null;
+
+export interface ApiErrorResponse {
+  detail?: ApiErrorDetail;
+}

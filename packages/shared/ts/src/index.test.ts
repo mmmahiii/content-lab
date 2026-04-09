@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type {
+  ApiErrorResponse,
   HealthResponse,
   PackageDetailOut,
   PageCreate,
@@ -8,7 +9,9 @@ import type {
   PolicyStateOut,
   ReelFamilyOut,
   ReelOut,
+  ReelResponse,
   ReelTriggerCreate,
+  RunCreateRequest,
   RunDetailOut,
 } from './index';
 
@@ -423,6 +426,44 @@ describe('shared-ts contracts', () => {
     expect(reel.status).toBe('ready');
     expect(run.tasks[0]?.task_type).toBe('plan_reels');
     expect(packageDetail.artifacts[0]?.name).toBe('final_video');
+  });
+
+  it('supports operator console request and response aliases', () => {
+    const run: RunCreateRequest = {
+      workflow_key: 'daily_reel_factory',
+      input_params: {},
+      metadata: {},
+    };
+    const reel: ReelResponse = {
+      id: '11111111-1111-4111-8111-111111111111',
+      org_id: '11111111-1111-4111-8111-111111111111',
+      page_id: '22222222-2222-4222-8222-222222222222',
+      reel_family_id: '33333333-3333-4333-8333-333333333333',
+      origin: 'generated',
+      status: 'ready',
+      variant_label: 'Ready cut',
+      external_reel_id: null,
+      metadata: {},
+      approved_at: null,
+      approved_by: null,
+      posted_at: null,
+      posted_by: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+    const error: ApiErrorResponse = {
+      detail: [
+        {
+          loc: ['body', 'input_params'],
+          msg: 'Field required',
+          type: 'missing',
+        },
+      ],
+    };
+
+    expect(run.workflow_key).toBe('daily_reel_factory');
+    expect(reel.status).toBe('ready');
+    expect(Array.isArray(error.detail)).toBe(true);
   });
 
   it('preserves narrowed operator contract unions', () => {
