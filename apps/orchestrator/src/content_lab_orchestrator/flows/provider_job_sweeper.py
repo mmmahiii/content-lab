@@ -235,6 +235,8 @@ class SQLProviderJobSweeperRuntime:
                 external_ref=candidate.external_ref,
                 store=self._store,
                 settings=self._settings,
+                max_polls=3,
+                poll_interval_seconds=5.0,
             )
         except RetryableRunwayActorError as exc:
             return self._finalize_result(

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, cast
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -26,11 +27,17 @@ from content_lab_shared.settings import Settings
 
 RUNWAY_API_BASE_URL = "https://api.dev.runwayml.com"
 RUNWAY_API_VERSION = "2024-11-06"
+# Runway Gen-4.x text/image-to-video API rejects duration above this (see API validation errors).
+RUNWAY_GEN45_MAX_DURATION_SECONDS = 10
 _RETRYABLE_TASK_STATUSES = frozenset({"PENDING", "RUNNING", "THROTTLED"})
 _SUCCESS_TASK_STATUS = "SUCCEEDED"
 _FAILED_TASK_STATUSES = frozenset({"FAILED", "CANCELLED"})
 _TERMINAL_FAILURE_PREFIXES = ("SAFETY.", "INPUT_PREPROCESSING.SAFETY.")
 _RETRYABLE_FAILURE_PREFIXES = ("INTERNAL", "INPUT_PREPROCESSING.INTERNAL")
+
+
+class RunwayInsufficientCreditsError(RuntimeError):
+    """Raised when Runway rejects a request because the account has no usable credits."""
 
 
 class RunwayFailureDisposition(StrEnum):
@@ -217,8 +224,19 @@ class HTTPRunwayClient:
             method=method,
             headers=self._headers(with_json=payload is not None),
         )
-        with urlopen(request) as response:
-            body = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except HTTPError as err:
+            err_body = err.read().decode("utf-8", errors="replace")
+            snippet = err_body[:2500]
+            if err.code == 400 and _runway_error_body_indicates_insufficient_credits(snippet):
+                raise RunwayInsufficientCreditsError(
+                    f"Runway API HTTP {err.code} on {method} {path}: {snippet}"
+                ) from err
+            raise RuntimeError(
+                f"Runway API HTTP {err.code} on {method} {path}: {snippet}"
+            ) from err
         if not isinstance(body, dict):
             raise ValueError("Runway API response was not a JSON object")
         return cast(dict[str, Any], body)
@@ -231,6 +249,24 @@ class HTTPRunwayClient:
         if with_json:
             headers["Content-Type"] = "application/json"
         return headers
+
+
+def _runway_error_body_indicates_insufficient_credits(body: str) -> bool:
+    lowered = body.lower()
+    if "credit" not in lowered:
+        return False
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return "enough credits" in lowered or (
+            "insufficient" in lowered and "credit" in lowered
+        )
+    msg = str(payload.get("error", "")).lower()
+    if not msg:
+        return "enough credits" in lowered
+    return "credit" in msg and (
+        "enough" in msg or "insufficient" in msg or "do not have" in msg
+    )
 
 
 def classify_failure(failure_code: str | None) -> RunwayFailureDisposition:
@@ -259,9 +295,11 @@ def _build_submit_body(
         "model": str(canonical_params.get("model", request_payload.get("model", "gen4.5"))),
         "promptText": str(canonical_params.get("prompt", request_payload.get("prompt", ""))),
         "ratio": _runway_ratio(canonical_params.get("ratio") or request_payload.get("ratio")),
-        "duration": _int_or_default(
-            canonical_params.get("duration_seconds", request_payload.get("duration_seconds")),
-            default=6,
+        "duration": _clamp_runway_duration_seconds(
+            _int_or_default(
+                canonical_params.get("duration_seconds", request_payload.get("duration_seconds")),
+                default=6,
+            ),
         ),
     }
 
@@ -288,6 +326,12 @@ def _int_or_default(value: Any, *, default: int) -> int:
     return int(value)
 
 
+def _clamp_runway_duration_seconds(seconds: int) -> int:
+    if seconds < 1:
+        return 1
+    return min(seconds, RUNWAY_GEN45_MAX_DURATION_SECONDS)
+
+
 def _runway_ratio(value: Any) -> str:
     if value is None:
         return "720:1280"
@@ -312,10 +356,12 @@ __all__ = [
     "HTTPRunwayClient",
     "RUNWAY_API_BASE_URL",
     "RUNWAY_API_VERSION",
+    "RUNWAY_GEN45_MAX_DURATION_SECONDS",
     "RUNWAY_PROVIDER",
     "RunwayClient",
     "RunwayDownloadedAsset",
     "RunwayFailureDisposition",
+    "RunwayInsufficientCreditsError",
     "RunwayJobStatus",
     "RunwaySubmittedTask",
     "RunwayTaskSnapshot",

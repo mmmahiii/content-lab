@@ -25,6 +25,7 @@ from content_lab_assets.providers.base import (
     ensure_phase1_provider_model,
     redact_provider_data,
 )
+from content_lab_assets.providers.runway import RUNWAY_GEN45_MAX_DURATION_SECONDS
 
 RUNWAY_API_BASE_URL = "https://api.dev.runwayml.com"
 RUNWAY_API_VERSION = "2024-11-06"
@@ -101,11 +102,12 @@ class RunwayGen45Client:
                 provider=self.provider_name,
             )
 
+        duration = max(1, min(int(request.duration_seconds), RUNWAY_GEN45_MAX_DURATION_SECONDS))
         body: dict[str, Any] = {
             "model": self.model_name,
             "promptText": request.prompt,
             "ratio": request.ratio,
-            "duration": request.duration_seconds,
+            "duration": duration,
         }
         if request.seed is not None:
             body["seed"] = request.seed

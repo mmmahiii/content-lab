@@ -9,6 +9,7 @@ import pytest
 
 from content_lab_assets.providers.runway import (
     RunwayDownloadedAsset,
+    RunwayInsufficientCreditsError,
     RunwaySubmittedTask,
     RunwayTaskSnapshot,
 )
@@ -252,6 +253,88 @@ def test_process_runway_asset_moves_staged_asset_to_ready() -> None:
     assert client.polled_refs == ["rwy-task-123", "rwy-task-123"]
     assert len(storage.objects) == 1
     assert storage.objects[0].checksum_sha256 is not None
+
+
+def test_process_runway_asset_fails_terminal_when_runway_returns_insufficient_credits() -> None:
+    generation = _base_generation()
+
+    class CreditsExhaustedClient:
+        def submit_generation(
+            self,
+            *,
+            task_payload: Mapping[str, Any],
+            canonical_params: Mapping[str, Any],
+            idempotency_key: str,
+        ) -> RunwaySubmittedTask:
+            raise RunwayInsufficientCreditsError(
+                'Runway API HTTP 400 on POST /v1/text_to_video: {"error":"no credits"}'
+            )
+
+        def get_task(self, external_ref: str) -> RunwayTaskSnapshot:
+            raise AssertionError("poll should not run")
+
+        def download_output(self, task: RunwayTaskSnapshot) -> RunwayDownloadedAsset:
+            raise AssertionError("download should not run")
+
+    store = FakeRunwayStore(generation)
+    with pytest.raises(TerminalRunwayActorError, match="insufficient credits"):
+        process_runway_asset(
+            asset_id=generation.asset_id,
+            store=store,
+            provider_client=CreditsExhaustedClient(),
+            storage_client=FakeStorageClient(),
+            max_polls=1,
+            poll_interval_seconds=0,
+        )
+    assert store.state.asset_status == "failed"
+    assert store.state.task_status == "failed"
+    assert store.state.task_result is not None
+    assert store.state.task_result.get("retryable") is False
+    assert store.state.task_result.get("phase") == "submit"
+
+
+def test_process_runway_asset_submits_when_provider_job_only_has_registry_external_ref() -> None:
+    """API-created provider_jobs rows use runway-gen45:… keys; Runway GET /v1/tasks expects a UUID."""
+    generation = _base_generation()
+    generation = replace(
+        generation,
+        provider_job=ProviderJobSnapshot(
+            id=uuid.uuid4(),
+            org_id=generation.org_id,
+            provider="runway",
+            external_ref="runway-gen45:" + "ab" * 32,
+            task_id=generation.task_id,
+            status="submitted",
+            metadata={},
+        ),
+    )
+    store = FakeRunwayStore(generation)
+    client = FakeRunwayClient(
+        snapshots=[
+            RunwayTaskSnapshot(id="rwy-task-123", status="RUNNING"),
+            RunwayTaskSnapshot(
+                id="rwy-task-123",
+                status="SUCCEEDED",
+                output=("https://cdn.runwayml.com/out/generated.mp4",),
+            ),
+        ],
+        downloaded_asset=RunwayDownloadedAsset(
+            url="https://cdn.runwayml.com/out/generated.mp4",
+            body=b"video-bytes",
+            content_type="video/mp4",
+        ),
+    )
+    result = process_runway_asset(
+        asset_id=generation.asset_id,
+        store=store,
+        provider_client=client,
+        storage_client=FakeStorageClient(),
+        max_polls=3,
+        poll_interval_seconds=0,
+    )
+    assert result["status"] == "ready"
+    assert client.submit_calls == 1
+    assert client.polled_refs == ["rwy-task-123", "rwy-task-123"]
 
 
 def test_process_runway_asset_marks_retryable_failure_without_resubmitting_existing_job() -> None:

@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from content_lab_assets.asset_key import Phase1ProviderLockError
+from content_lab_assets.providers.runway import RUNWAY_GEN45_MAX_DURATION_SECONDS
 from content_lab_assets.providers.base import (
     ProviderRetryPolicy,
     ProviderTaskFailedError,
@@ -102,6 +103,16 @@ def test_phase1_video_provider_factory_rejects_non_locked_path(
 ) -> None:
     with pytest.raises(Phase1ProviderLockError):
         get_phase1_video_provider(provider=provider, model=model, api_key="top-secret")
+
+
+def test_submit_clamps_duration_to_runway_api_max() -> None:
+    transport = RecordingTransport(
+        responses=[RunwayHttpResponse(status_code=200, json_body={"id": "task-123"})]
+    )
+    provider = RunwayGen45Client(api_key="super-secret", transport=transport)
+    request = _submit_request().model_copy(update={"duration_seconds": 15})
+    provider.submit(request)
+    assert transport.calls[0]["json_body"]["duration"] == RUNWAY_GEN45_MAX_DURATION_SECONDS
 
 
 def test_submit_uses_text_to_video_path_and_redacts_provider_secret_logs() -> None:

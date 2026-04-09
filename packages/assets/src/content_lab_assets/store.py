@@ -82,7 +82,8 @@ _INSERT_PROVIDER_JOB_STMT = text(
 _UPDATE_PROVIDER_JOB_STMT = text(
     """
     UPDATE provider_jobs
-    SET task_id = :task_id,
+    SET external_ref = :external_ref,
+        task_id = :task_id,
         status = :status,
         metadata = :metadata,
         updated_at = NOW()
@@ -617,6 +618,7 @@ class SQLRunwayAssetStore:
         session.execute(
             _UPDATE_PROVIDER_JOB_STMT,
             {
+                "external_ref": external_ref,
                 "task_id": generation.task_id,
                 "status": provider_status,
                 "metadata": metadata,

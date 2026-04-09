@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from content_lab_assets import GenerateDecision, ReuseExactDecision, resolve_phase1_asset
-from content_lab_assets.providers.runway import HTTPRunwayClient, RunwayClient
+from content_lab_assets.providers.runway import (
+    RUNWAY_GEN45_MAX_DURATION_SECONDS,
+    HTTPRunwayClient,
+    RunwayClient,
+)
 from content_lab_creative import (
     DirectorPlanInput,
     PageMetadata,
@@ -69,6 +73,9 @@ _PRIMARY_ASSET_CLASS = "clip"
 _PRIMARY_ASSET_MODEL = "gen4.5"
 _PRIMARY_ASSET_PROVIDER = "runway"
 _PRIMARY_ASSET_RATIO = "9:16"
+# Orchestrator calls Runway in-process; allow long-running Gen4 jobs (~10 min at 5s cadence).
+_RUNWAY_SYNC_MAX_POLLS = 120
+_RUNWAY_SYNC_POLL_INTERVAL_SECONDS = 5.0
 
 
 class ProcessReelExecutionLike(Protocol):
@@ -238,8 +245,8 @@ class SQLProcessReelAssetResolver:
         session_factory: sessionmaker[Session] | None = None,
         provider_client: RunwayClient | None = None,
         storage_client: ProcessReelStorageClient | None = None,
-        max_polls: int = 3,
-        poll_interval_seconds: float = 0.0,
+        max_polls: int = _RUNWAY_SYNC_MAX_POLLS,
+        poll_interval_seconds: float = _RUNWAY_SYNC_POLL_INTERVAL_SECONDS,
     ) -> None:
         self._settings = settings or Settings()
         self._session_factory = session_factory or SessionLocal
@@ -501,7 +508,10 @@ class PhaseOneProcessReelExecutor:
         prompt = _build_primary_asset_prompt(
             brief_payload=brief.model_dump(mode="json"), script=script
         )
-        duration_seconds = min(max(brief.duration_seconds, 5), 12)
+        duration_seconds = min(
+            max(brief.duration_seconds, 5),
+            RUNWAY_GEN45_MAX_DURATION_SECONDS,
+        )
         return {
             "brief": brief.model_dump(mode="json"),
             "script": script.model_dump(mode="json"),

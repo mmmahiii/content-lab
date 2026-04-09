@@ -16,8 +16,13 @@ from content_lab_assets.providers.runway import (
     RunwayClient,
     RunwayDownloadedAsset,
     RunwayFailureDisposition,
+    RunwayInsufficientCreditsError,
     RunwayTaskSnapshot,
     classify_failure,
+)
+from content_lab_assets.providers.runway.jobs import (
+    is_runway_registry_external_ref,
+    runway_provider_api_task_id_from_metadata,
 )
 from content_lab_assets.store import RunwayAssetStore, SQLRunwayAssetStore, StoredRunwayGeneration
 from content_lab_shared.settings import Settings
@@ -34,6 +39,9 @@ logger = get_actor_logger("runway")
 QUEUE_NAME = build_queue_name("runway")
 _DEFAULT_MAX_POLLS = 3
 _DEFAULT_POLL_INTERVAL_SECONDS = 5.0
+# One-shot reconcile (no re-submit): wait long enough to outlast typical Gen4 renders.
+_RECONCILE_DEFAULT_MAX_POLLS = 120
+_RECONCILE_DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 
 
 class RetryableRunwayActorError(RuntimeError):
@@ -90,6 +98,22 @@ def process_runway_asset(
                 canonical_params=generation.canonical_params,
                 idempotency_key=generation.task_idempotency_key,
             )
+        except RunwayInsufficientCreditsError as exc:
+            resolved_store.mark_failed(
+                generation,
+                reason="Runway account has insufficient credits",
+                provider_status="insufficient_credits",
+                task_result={"error": str(exc), "phase": "submit"},
+                asset_metadata={
+                    "runway": {
+                        "failure": "insufficient_credits",
+                    }
+                },
+            )
+            raise TerminalRunwayActorError(
+                "Runway rejected the request: insufficient credits. "
+                "Add credits to the Runway workspace or use a different API key."
+            ) from exc
         except Exception as exc:
             resolved_store.mark_retryable(
                 generation,
@@ -168,6 +192,8 @@ def reconcile_runway_asset(
     provider_client: RunwayClient | None = None,
     storage_client: StorageClientLike | None = None,
     settings: Settings | None = None,
+    max_polls: int = _RECONCILE_DEFAULT_MAX_POLLS,
+    poll_interval_seconds: float = _RECONCILE_DEFAULT_POLL_INTERVAL_SECONDS,
 ) -> dict[str, Any]:
     """Re-poll an existing Runway job without re-submitting provider work."""
 
@@ -201,8 +227,8 @@ def reconcile_runway_asset(
         external_ref=resolved_external_ref,
         store=resolved_store,
         provider_client=resolved_provider,
-        max_polls=1,
-        poll_interval_seconds=0,
+        max_polls=max_polls,
+        poll_interval_seconds=poll_interval_seconds,
     )
 
     if snapshot.is_success:
@@ -474,7 +500,15 @@ def _poll_for_terminal_state(
 
 def _existing_external_ref(generation: StoredRunwayGeneration) -> str | None:
     if generation.provider_job is not None:
-        return str(generation.provider_job.external_ref)
+        job = generation.provider_job
+        meta = job.metadata
+        api_task_id = runway_provider_api_task_id_from_metadata(meta)
+        if api_task_id is not None:
+            return api_task_id
+        column_ref = str(job.external_ref).strip()
+        if is_runway_registry_external_ref(column_ref):
+            return None
+        return column_ref
     runway_state = generation.asset_metadata.get("runway")
     if isinstance(runway_state, Mapping):
         external_ref = runway_state.get("external_ref")

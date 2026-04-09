@@ -36,10 +36,51 @@ def normalize_runway_job_status(status: str | RunwayJobStatus) -> RunwayJobStatu
 
 
 def build_runway_job_external_ref(*, asset_key_hash: str) -> str:
-    """Build the deterministic external provider reference used for Runway submissions."""
+    """Build the deterministic registry key for provider_jobs (not Runway's /v1/tasks/{uuid} id)."""
 
     normalized_hash = normalize_identifier(asset_key_hash, field_name="asset_key_hash")
     return f"{_RUNWAY_EXTERNAL_REF_PREFIX}:{normalized_hash}"
+
+
+def is_runway_registry_external_ref(external_ref: str) -> bool:
+    """True when ``external_ref`` is our stable registry key (``runway-gen45:…``), not a Runway task UUID."""
+
+    normalized = str(external_ref).strip()
+    return normalized.startswith(f"{_RUNWAY_EXTERNAL_REF_PREFIX}:")
+
+
+def runway_provider_api_task_id_from_metadata(metadata: Mapping[str, Any]) -> str | None:
+    """Return the Runway task UUID from merged provider_job metadata, if present."""
+
+    submission = metadata.get("submission")
+    if isinstance(submission, Mapping):
+        parsed = _optional_uuid_string(submission.get("task_id"))
+        if parsed is not None:
+            return parsed
+    snapshots = metadata.get("snapshots")
+    if isinstance(snapshots, Mapping):
+        snap = snapshots.get("submission")
+        if isinstance(snap, Mapping):
+            for key in ("response", "provider_payload"):
+                block = snap.get(key)
+                if isinstance(block, Mapping):
+                    parsed = _optional_uuid_string(block.get("id"))
+                    if parsed is not None:
+                        return parsed
+    return None
+
+
+def _optional_uuid_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    candidate = str(value).strip()
+    if not candidate:
+        return None
+    try:
+        uuid.UUID(candidate)
+    except ValueError:
+        return None
+    return candidate
 
 
 def sanitize_provider_payload(value: Any) -> Any:

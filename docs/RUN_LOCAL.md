@@ -142,6 +142,27 @@ make infra-app
 # or: docker compose -f infra/docker-compose.yml --profile app up -d --build
 ```
 
+## Real Manual Reel Smoke
+
+Run the end-to-end one-reel happy path with:
+
+```powershell
+powershell -NoProfile -File scripts/manual-smoke-reel.ps1
+```
+
+This script creates or reuses the test org/page, upserts policy, creates a
+reel family and generated reel, queues the real trigger route, runs the real
+`process_reel` flow with the queued `run_id`, and verifies Postgres, MinIO,
+and outbox state.
+
+Before running it:
+
+- infra must already be up;
+- Alembic migrations must already be applied;
+- the API must already be running on `http://127.0.0.1:8000`;
+- `.env` must contain a real `RUNWAY_API_KEY`;
+- `ffmpeg` must be available on `PATH`.
+
 ## Docker (full stack)
 
 | Mode | Command |
