@@ -1,5 +1,6 @@
 export type UUID = string;
 export type ISODateTimeString = string;
+export type ISODateString = ISODateTimeString;
 
 export type JsonPrimitive = boolean | number | string | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
@@ -102,7 +103,54 @@ export interface PageOut {
   updated_at: ISODateTimeString;
 }
 
+export type PolicyScopeType = 'global' | 'page' | 'niche';
+
+export interface PolicyModeRatios {
+  exploit: number;
+  explore: number;
+  mutation: number;
+  chaos: number;
+}
+
+export interface PolicyBudgetGuardrails {
+  per_run_usd_limit: number;
+  daily_usd_limit: number;
+  monthly_usd_limit: number;
+}
+
+export interface PolicySimilarityThresholds {
+  warn_at: number;
+  block_at: number;
+}
+
+export interface PolicyThresholds {
+  similarity: PolicySimilarityThresholds;
+  min_quality_score: number;
+}
+
+export interface PolicyStateDocument {
+  mode_ratios: PolicyModeRatios;
+  budget: PolicyBudgetGuardrails;
+  thresholds: PolicyThresholds;
+}
+
+export interface PolicyStateUpdate {
+  mode_ratios?: PolicyModeRatios;
+  budget?: PolicyBudgetGuardrails;
+  thresholds?: PolicyThresholds;
+}
+
+export interface PolicyStateOut {
+  id: UUID;
+  org_id: UUID;
+  scope_type: PolicyScopeType;
+  scope_id: string | null;
+  state: PolicyStateDocument;
+  updated_at: ISODateTimeString;
+}
+
 export type ReelOrigin = 'generated' | 'observed';
+
 export type GeneratedReelStatus =
   | 'draft'
   | 'planning'
@@ -113,6 +161,7 @@ export type GeneratedReelStatus =
   | 'ready'
   | 'posted'
   | 'archived';
+
 export type ObservedReelStatus = 'active' | 'removed' | 'unavailable';
 export type ReelStatus = GeneratedReelStatus | ObservedReelStatus;
 
@@ -258,52 +307,6 @@ export interface RunDetailOut extends RunOut {
   task_status_counts: Partial<Record<TaskStatus, number>>;
 }
 
-export type PolicyScopeType = 'global' | 'page' | 'niche';
-
-export interface PolicyModeRatios {
-  exploit: number;
-  explore: number;
-  mutation: number;
-  chaos: number;
-}
-
-export interface PolicyBudgetGuardrails {
-  per_run_usd_limit: number;
-  daily_usd_limit: number;
-  monthly_usd_limit: number;
-}
-
-export interface PolicySimilarityThresholds {
-  warn_at: number;
-  block_at: number;
-}
-
-export interface PolicyThresholds {
-  similarity: PolicySimilarityThresholds;
-  min_quality_score: number;
-}
-
-export interface PolicyStateDocument {
-  mode_ratios: PolicyModeRatios;
-  budget: PolicyBudgetGuardrails;
-  thresholds: PolicyThresholds;
-}
-
-export interface PolicyStateUpdate {
-  mode_ratios?: PolicyModeRatios;
-  budget?: PolicyBudgetGuardrails;
-  thresholds?: PolicyThresholds;
-}
-
-export interface PolicyStateOut {
-  id: UUID;
-  org_id: UUID;
-  scope_type: PolicyScopeType;
-  scope_id: string | null;
-  state: PolicyStateDocument;
-  updated_at: ISODateTimeString;
-}
-
 export interface SignedDownloadOut {
   storage_uri: string;
   url: string;
@@ -320,7 +323,6 @@ export interface PackageArtifactOut {
 }
 
 export type PackageManifestMetadata = JsonObject;
-
 export type PackageProvenance = JsonObject;
 
 export interface PackageDetailOut {
