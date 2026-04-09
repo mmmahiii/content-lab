@@ -1,9 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { OperatorShell } from './_components/operator-shell';
+
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
+  return <OperatorShell>{children}</OperatorShell>;
 }

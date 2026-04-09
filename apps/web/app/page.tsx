@@ -1,8 +1,8 @@
-export default function HomePage() {
-  return (
-    <main style={{ padding: 24, fontFamily: 'system-ui' }}>
-      <h1>Content Lab</h1>
-      <p>Admin UI scaffold.</p>
-    </main>
-  );
+import { DashboardHomeView } from './_components/operator-console';
+import { loadOperatorDashboard } from './_lib/operator-dashboard';
+
+export default async function HomePage() {
+  const dashboard = await loadOperatorDashboard();
+
+  return <DashboardHomeView dashboard={dashboard} />;
 }
