@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 
 from content_lab_assets.asset_key import Phase1ProviderLockError
-from content_lab_assets.providers.runway import RUNWAY_GEN45_MAX_DURATION_SECONDS
 from content_lab_assets.providers.base import (
     ProviderRetryPolicy,
     ProviderTaskFailedError,
@@ -14,6 +13,7 @@ from content_lab_assets.providers.base import (
     VideoProviderAdapter,
     get_phase1_video_provider,
 )
+from content_lab_assets.providers.runway import RUNWAY_GEN45_MAX_DURATION_SECONDS
 from content_lab_assets.providers.runway.client import (
     RUNWAY_IMAGE_TO_VIDEO_PATH,
     RUNWAY_TASK_PATH_TEMPLATE,

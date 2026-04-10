@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import dramatiq
 
@@ -502,7 +502,7 @@ def _existing_external_ref(generation: StoredRunwayGeneration) -> str | None:
     if generation.provider_job is not None:
         job = generation.provider_job
         meta = job.metadata
-        api_task_id = runway_provider_api_task_id_from_metadata(meta)
+        api_task_id = cast(str | None, runway_provider_api_task_id_from_metadata(meta))
         if api_task_id is not None:
             return api_task_id
         column_ref = str(job.external_ref).strip()

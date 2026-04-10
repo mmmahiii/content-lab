@@ -51,7 +51,9 @@ def test_build_submit_body_clamps_duration_to_runway_api_max() -> None:
 def test_runway_provider_api_task_id_from_metadata_reads_submission_block() -> None:
     tid = "a00b1b44-3b3f-4831-a2ba-c4ca71e29999"
     assert runway_provider_api_task_id_from_metadata({"submission": {"task_id": tid}}) == tid
-    assert runway_provider_api_task_id_from_metadata({"submission": {"task_id": "not-a-uuid"}}) is None
+    assert (
+        runway_provider_api_task_id_from_metadata({"submission": {"task_id": "not-a-uuid"}}) is None
+    )
 
 
 def test_sanitize_provider_payload_redacts_nested_secrets() -> None:

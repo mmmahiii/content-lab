@@ -234,9 +234,7 @@ class HTTPRunwayClient:
                 raise RunwayInsufficientCreditsError(
                     f"Runway API HTTP {err.code} on {method} {path}: {snippet}"
                 ) from err
-            raise RuntimeError(
-                f"Runway API HTTP {err.code} on {method} {path}: {snippet}"
-            ) from err
+            raise RuntimeError(f"Runway API HTTP {err.code} on {method} {path}: {snippet}") from err
         if not isinstance(body, dict):
             raise ValueError("Runway API response was not a JSON object")
         return cast(dict[str, Any], body)
@@ -258,15 +256,11 @@ def _runway_error_body_indicates_insufficient_credits(body: str) -> bool:
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
-        return "enough credits" in lowered or (
-            "insufficient" in lowered and "credit" in lowered
-        )
+        return "enough credits" in lowered or ("insufficient" in lowered and "credit" in lowered)
     msg = str(payload.get("error", "")).lower()
     if not msg:
         return "enough credits" in lowered
-    return "credit" in msg and (
-        "enough" in msg or "insufficient" in msg or "do not have" in msg
-    )
+    return "credit" in msg and ("enough" in msg or "insufficient" in msg or "do not have" in msg)
 
 
 def classify_failure(failure_code: str | None) -> RunwayFailureDisposition:
