@@ -140,6 +140,8 @@ export interface PolicyStateUpdate {
   thresholds?: PolicyThresholds;
 }
 
+export type PolicySectionKey = 'mode_ratios' | 'budget' | 'thresholds';
+
 export interface PolicyStateOut {
   id: UUID;
   org_id: UUID;
@@ -164,6 +166,7 @@ export type GeneratedReelStatus =
 
 export type ObservedReelStatus = 'active' | 'removed' | 'unavailable';
 export type ReelStatus = GeneratedReelStatus | ObservedReelStatus;
+export type ReviewQueueState = 'ready_for_review' | 'qa_failed' | 'posted';
 
 export interface ReelReviewInfo {
   approved_at: ISODateTimeString;

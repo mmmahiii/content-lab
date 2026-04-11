@@ -1,14 +1,16 @@
-type ResourceState = 'ready' | 'empty' | 'error' | 'unconfigured';
-type PackageStatus = 'ready' | 'failed' | 'pending' | 'not_started';
+import type { ReviewQueueState } from '@shared/types';
+
+export type ResourceState = 'ready' | 'empty' | 'error' | 'unconfigured';
+export type PackageStatus = 'ready' | 'failed' | 'pending' | 'not_started';
 type JsonRecord = Record<string, unknown>;
 
-type Resource<T> = {
+export type Resource<T> = {
   state: ResourceState;
   data: T;
   message?: string;
 };
 
-type OperatorContext = {
+export type OperatorContext = {
   apiBaseUrl: string;
   orgId: string | null;
   configurationMessage?: string;
@@ -50,6 +52,20 @@ export type CurrentRun = {
   pageName: string | null;
   reelId: string | null;
   packageStatus: PackageStatus;
+};
+
+export type ReviewQueueItem = {
+  id: string;
+  pageId: string;
+  pageName: string;
+  variantLabel: string;
+  status: string;
+  queueState: ReviewQueueState;
+  updatedAt: string;
+  currentStep: string | null;
+  lastRunId: string | null;
+  packageStatus: PackageStatus;
+  packageMessage: string | null;
 };
 
 export type OperatorDashboardSnapshot = {
@@ -97,7 +113,7 @@ type ApiRunDetail = {
   tasks: ApiRunTask[];
 };
 
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
+export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
 const MAX_RECENT_REELS = 8;
 const MAX_CURRENT_RUNS = 6;
 
@@ -143,7 +159,7 @@ function readBoolean(record: JsonRecord | null, key: string): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
-function resolveOperatorContext(): OperatorContext {
+export function resolveOperatorContext(): OperatorContext {
   const apiBaseUrl = (
     process.env.CONTENT_LAB_API_BASE_URL ??
     process.env.NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL ??
@@ -228,7 +244,7 @@ function getProcessReelMetadata(metadata: JsonRecord): JsonRecord | null {
   return asRecord(metadata.process_reel);
 }
 
-async function loadOwnedPages(context: OperatorContext): Promise<Resource<OwnedPage[]>> {
+export async function loadOwnedPages(context: OperatorContext): Promise<Resource<OwnedPage[]>> {
   try {
     const pages = await fetchJson<ApiPage[]>(
       context,
@@ -469,4 +485,95 @@ export async function loadOperatorDashboard(): Promise<OperatorDashboardSnapshot
     reels,
     runs,
   };
+}
+
+function deriveReviewQueueState(reel: RecentReel): ReviewQueueState | null {
+  if (reel.status === 'posted') {
+    return 'posted';
+  }
+
+  if (reel.status === 'qa_failed' || reel.packageStatus === 'failed') {
+    return 'qa_failed';
+  }
+
+  if (reel.status === 'ready' || reel.packageStatus === 'ready') {
+    return 'ready_for_review';
+  }
+
+  return null;
+}
+
+export function buildPackageReviewQueue(
+  dashboard: OperatorDashboardSnapshot,
+): Resource<ReviewQueueItem[]> {
+  if (dashboard.reels.state !== 'ready') {
+    if (dashboard.reels.state === 'empty') {
+      return emptyResource(
+        [],
+        'Queue items appear after generated reels either pass QA, fail QA, or are marked posted.',
+      );
+    }
+
+    return {
+      state: dashboard.reels.state,
+      data: [],
+      message:
+        dashboard.reels.message ??
+        'Review queue depends on the recent reel feed and is currently unavailable.',
+    };
+  }
+
+  const priority: Record<ReviewQueueState, number> = {
+    ready_for_review: 0,
+    qa_failed: 1,
+    posted: 2,
+  };
+
+  const items = dashboard.reels.data
+    .filter((reel) => reel.origin === 'generated')
+    .map((reel) => {
+      const queueState = deriveReviewQueueState(reel);
+      if (queueState === null) {
+        return null;
+      }
+
+      return {
+        id: reel.id,
+        pageId: reel.pageId,
+        pageName: reel.pageName,
+        variantLabel: reel.variantLabel,
+        status: reel.status,
+        queueState,
+        updatedAt: reel.updatedAt,
+        currentStep: reel.currentStep,
+        lastRunId: reel.lastRunId,
+        packageStatus: reel.packageStatus,
+        packageMessage: reel.packageMessage,
+      } satisfies ReviewQueueItem;
+    })
+    .filter((item): item is ReviewQueueItem => item !== null)
+    .sort((left, right) => {
+      const byState = priority[left.queueState] - priority[right.queueState];
+      if (byState !== 0) {
+        return byState;
+      }
+
+      return right.updatedAt.localeCompare(left.updatedAt);
+    });
+
+  if (items.length === 0) {
+    return emptyResource(
+      [],
+      'No generated reels are currently ready for review, blocked by QA, or already posted.',
+    );
+  }
+
+  const readyCount = items.filter((item) => item.queueState === 'ready_for_review').length;
+  const qaFailedCount = items.filter((item) => item.queueState === 'qa_failed').length;
+  const postedCount = items.filter((item) => item.queueState === 'posted').length;
+
+  return readyResource(
+    items,
+    `${readyCount} ready for review, ${qaFailedCount} QA-failed, ${postedCount} posted.`,
+  );
 }

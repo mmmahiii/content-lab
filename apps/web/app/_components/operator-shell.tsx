@@ -74,6 +74,12 @@ export function OperatorShell({ children }: { children: ReactNode }) {
               <Link href="/reels" style={navLinkStyle}>
                 Reels
               </Link>
+              <Link href="/policy" style={navLinkStyle}>
+                Policy
+              </Link>
+              <Link href="/queue" style={navLinkStyle}>
+                Queue
+              </Link>
             </nav>
           </header>
 

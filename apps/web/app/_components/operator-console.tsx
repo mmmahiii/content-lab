@@ -1,12 +1,16 @@
 import Link from 'next/link';
 import React, { type ReactNode } from 'react';
 
+import { PolicyEditor } from './policy-editor';
+import type { PolicyEditorSnapshot } from '../_lib/operator-policy';
 import type {
   CurrentRun,
   OperatorDashboardSnapshot,
   OwnedPage,
   RecentReel,
+  ReviewQueueItem,
 } from '../_lib/operator-dashboard';
+import { buildPackageReviewQueue } from '../_lib/operator-dashboard';
 
 type StatusTone = 'neutral' | 'success' | 'warning' | 'danger';
 
@@ -131,6 +135,22 @@ function toneForPackage(
 
 function formatStatusLabel(value: string): string {
   return value.replaceAll('_', ' ');
+}
+
+function formatQueueLabel(value: ReviewQueueItem['queueState']): string {
+  return value === 'ready_for_review' ? 'ready for review' : formatStatusLabel(value);
+}
+
+function toneForQueueState(value: ReviewQueueItem['queueState']): StatusTone {
+  if (value === 'ready_for_review') {
+    return 'success';
+  }
+
+  if (value === 'qa_failed') {
+    return 'danger';
+  }
+
+  return 'neutral';
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: StatusTone }) {
@@ -356,6 +376,77 @@ function ReelsTable({ reels }: { reels: RecentReel[] }) {
   );
 }
 
+function QueueTable({ queue, orgId }: { queue: ReviewQueueItem[]; orgId: string | null }) {
+  return (
+    <table style={tableStyle}>
+      <thead>
+        <tr>
+          <th style={cellStyle}>Reel</th>
+          <th style={cellStyle}>Queue state</th>
+          <th style={cellStyle}>Package</th>
+          <th style={cellStyle}>Flow</th>
+          <th style={cellStyle}>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {queue.map((item) => (
+          <tr key={item.id}>
+            <td style={cellStyle}>
+              <strong>{item.variantLabel}</strong>
+              <div style={{ color: '#4f5b65', marginTop: '4px' }}>{item.pageName}</div>
+              {orgId ? (
+                <div style={{ marginTop: '8px' }}>
+                  <Link
+                    href={`/orgs/${orgId}/pages/${item.pageId}/reels/${item.id}`}
+                    style={{ color: '#16202a', fontWeight: 600 }}
+                  >
+                    Open reel detail
+                  </Link>
+                </div>
+              ) : null}
+            </td>
+            <td style={cellStyle}>
+              <StatusBadge
+                label={formatQueueLabel(item.queueState)}
+                tone={toneForQueueState(item.queueState)}
+              />
+              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                Lifecycle: {formatStatusLabel(item.status)}
+              </div>
+            </td>
+            <td style={cellStyle}>
+              <StatusBadge
+                label={`package ${formatStatusLabel(item.packageStatus)}`}
+                tone={toneForPackage(item.packageStatus)}
+              />
+              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                {item.packageMessage ?? 'No package message'}
+              </div>
+            </td>
+            <td style={cellStyle}>
+              <div>{item.currentStep ?? 'No step reported'}</div>
+              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                {item.lastRunId ?? 'No run linked yet'}
+              </div>
+              {orgId && item.lastRunId ? (
+                <div style={{ marginTop: '8px' }}>
+                  <Link
+                    href={`/orgs/${orgId}/runs/${item.lastRunId}`}
+                    style={{ color: '#16202a', fontWeight: 600 }}
+                  >
+                    Open run detail
+                  </Link>
+                </div>
+              ) : null}
+            </td>
+            <td style={cellStyle}>{formatTimestamp(item.updatedAt)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function renderSectionState(
   state: OperatorDashboardSnapshot['pages']['state'],
   message: string | undefined,
@@ -513,6 +604,85 @@ export function ReelsRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
           <ReelsTable reels={dashboard.reels.data} />
         ) : (
           renderSectionState(dashboard.reels.state, dashboard.reels.message)
+        )}
+      </SectionPanel>
+    </main>
+  );
+}
+
+export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }) {
+  return (
+    <main style={pageStyle}>
+      <section style={heroStyle}>
+        <p style={{ color: '#4f5b65', margin: 0 }}>Policy</p>
+        <h2 style={{ margin: '10px 0 0' }}>Phase-1 guardrails editor</h2>
+        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
+          Operators can inspect and patch only the allowed policy schema: mode ratios, budget
+          guardrails, and QA or similarity thresholds.
+        </p>
+      </section>
+
+      <SectionPanel
+        title="Page policy editor"
+        description="This editor stays inside the real page-policy PATCH contract and avoids adding speculative controls."
+        href="/"
+        note={snapshot.policies.state === 'ready' ? snapshot.policies.message : undefined}
+      >
+        {snapshot.policies.state === 'ready' && snapshot.context.orgId ? (
+          <PolicyEditor
+            apiBaseUrl={snapshot.context.apiBaseUrl}
+            orgId={snapshot.context.orgId}
+            records={snapshot.policies.data}
+          />
+        ) : (
+          renderSectionState(snapshot.policies.state, snapshot.policies.message)
+        )}
+      </SectionPanel>
+    </main>
+  );
+}
+
+export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+  const queue = buildPackageReviewQueue(dashboard);
+  const readyCount =
+    queue.state === 'ready'
+      ? queue.data.filter((item) => item.queueState === 'ready_for_review').length
+      : 0;
+  const qaFailedCount =
+    queue.state === 'ready'
+      ? queue.data.filter((item) => item.queueState === 'qa_failed').length
+      : 0;
+  const postedCount =
+    queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'posted').length : 0;
+
+  return (
+    <main style={pageStyle}>
+      <section style={heroStyle}>
+        <p style={{ color: '#4f5b65', margin: 0 }}>Queue</p>
+        <h2 style={{ margin: '10px 0 0' }}>Package-ready working queue</h2>
+        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
+          Generated reels stay visible in one operator queue as soon as they are ready for human
+          review, blocked by QA, or already marked posted.
+        </p>
+        {queue.state === 'ready' ? (
+          <div style={heroMetaStyle}>
+            <span>Ready for review: {readyCount}</span>
+            <span>QA failed: {qaFailedCount}</span>
+            <span>Posted: {postedCount}</span>
+          </div>
+        ) : null}
+      </section>
+
+      <SectionPanel
+        title="Review and posting queue"
+        description="This view keeps phase-1 operator work centered on package readiness and explicit human outcomes."
+        href="/"
+        note={queue.state === 'ready' ? queue.message : undefined}
+      >
+        {queue.state === 'ready' ? (
+          <QueueTable queue={queue.data} orgId={dashboard.context.orgId} />
+        ) : (
+          renderSectionState(queue.state, queue.message)
         )}
       </SectionPanel>
     </main>

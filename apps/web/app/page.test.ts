@@ -2,9 +2,10 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DashboardHomeView } from './_components/operator-console';
+import { DashboardHomeView, QueueRouteView } from './_components/operator-console';
 import type { OperatorDashboardSnapshot } from './_lib/operator-dashboard';
 import HomePage from './page';
+import { createPolicyUpdateSubmission } from './policy-editor.helpers';
 import {
   HUMAN_BOUNDARY_COPY,
   createMarkPostedSubmission,
@@ -148,6 +149,58 @@ describe('HomePage', () => {
   });
 });
 
+describe('queue view', () => {
+  it('renders ready-for-review, QA-failed, and posted states in one working queue', () => {
+    const markup = renderToStaticMarkup(
+      createElement(QueueRouteView, {
+        dashboard: {
+          ...readyDashboard,
+          reels: {
+            state: 'ready',
+            data: [
+              readyDashboard.reels.data[0],
+              {
+                id: 'reel-2',
+                pageId: 'page-1',
+                pageName: 'Northwind Fitness',
+                variantLabel: 'Coach intro B',
+                origin: 'generated',
+                status: 'qa_failed',
+                createdAt: '2026-04-09T09:18:00.000Z',
+                updatedAt: '2026-04-09T09:22:00.000Z',
+                currentStep: 'qa_review',
+                lastRunId: 'run-2',
+                packageStatus: 'failed',
+                packageMessage: 'Package QA failed.',
+              },
+              {
+                id: 'reel-3',
+                pageId: 'page-1',
+                pageName: 'Northwind Fitness',
+                variantLabel: 'Coach intro C',
+                origin: 'generated',
+                status: 'posted',
+                createdAt: '2026-04-09T09:20:00.000Z',
+                updatedAt: '2026-04-09T09:28:00.000Z',
+                currentStep: 'posted',
+                lastRunId: 'run-3',
+                packageStatus: 'ready',
+                packageMessage: 'Package is ready for operator review.',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('Package-ready working queue');
+    expect(markup).toContain('ready for review');
+    expect(markup).toContain('qa failed');
+    expect(markup).toContain('posted');
+    expect(markup).toContain('Open reel detail');
+  });
+});
+
 describe('operator console helpers', () => {
   it('builds a manual run trigger request for the audited route', () => {
     const result = createRunTriggerSubmission({
@@ -286,5 +339,108 @@ describe('operator console helpers', () => {
     expect(feedback.kind).toBe('error');
     expect(feedback.route).toBe(submission.value.actionPath);
     expect(feedback.details).toEqual(['Only ready generated reels can be approved']);
+  });
+});
+
+describe('policy form helpers', () => {
+  it('builds a page-policy PATCH request within the allowed schema', () => {
+    const result = createPolicyUpdateSubmission({
+      orgId: '11111111-1111-4111-8111-111111111111',
+      pageId: '22222222-2222-4222-8222-222222222222',
+      form: {
+        actorId: 'operator:policy-manager',
+        state: {
+          mode_ratios: {
+            exploit: 0.3,
+            explore: 0.4,
+            mutation: 0.2,
+            chaos: 0.1,
+          },
+          budget: {
+            per_run_usd_limit: 12,
+            daily_usd_limit: 45,
+            monthly_usd_limit: 900,
+          },
+          thresholds: {
+            similarity: {
+              warn_at: 0.72,
+              block_at: 0.88,
+            },
+            min_quality_score: 0.62,
+          },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.value.actionPath).toBe(
+      '/orgs/11111111-1111-4111-8111-111111111111/policy/page/22222222-2222-4222-8222-222222222222',
+    );
+    expect(result.value.headers['X-Actor-Id']).toBe('operator:policy-manager');
+    expect(result.value.body).toBe(
+      JSON.stringify({
+        mode_ratios: {
+          exploit: 0.3,
+          explore: 0.4,
+          mutation: 0.2,
+          chaos: 0.1,
+        },
+        budget: {
+          per_run_usd_limit: 12,
+          daily_usd_limit: 45,
+          monthly_usd_limit: 900,
+        },
+        thresholds: {
+          similarity: {
+            warn_at: 0.72,
+            block_at: 0.88,
+          },
+          min_quality_score: 0.62,
+        },
+      }),
+    );
+  });
+
+  it('blocks policy values that violate phase-1 guardrails before PATCH submission', () => {
+    const result = createPolicyUpdateSubmission({
+      orgId: '11111111-1111-4111-8111-111111111111',
+      pageId: '22222222-2222-4222-8222-222222222222',
+      form: {
+        actorId: 'operator:policy-manager',
+        state: {
+          mode_ratios: {
+            exploit: 0.5,
+            explore: 0.4,
+            mutation: 0.2,
+            chaos: 0.1,
+          },
+          budget: {
+            per_run_usd_limit: 60,
+            daily_usd_limit: 45,
+            monthly_usd_limit: 900,
+          },
+          thresholds: {
+            similarity: {
+              warn_at: 0.9,
+              block_at: 0.88,
+            },
+            min_quality_score: 0.62,
+          },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.fieldErrors.mode_ratios).toContain('sum to 1.00');
+    expect(result.fieldErrors.budget).toContain('Per-run budget');
+    expect(result.fieldErrors.thresholds).toContain('warning threshold');
   });
 });

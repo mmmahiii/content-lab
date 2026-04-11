@@ -2,10 +2,8 @@ import type {
   ApiErrorResponse,
   ApiValidationIssue,
   JsonObject,
-  ReelResponse,
   ReelTriggerRequest,
   RunCreateRequest,
-  RunResponse,
   WorkflowKey,
 } from '@shared/types';
 
@@ -444,7 +442,7 @@ function buildSuccessMessage(payload: unknown): string | undefined {
   return undefined;
 }
 
-export async function submitOperatorRequest<TPayload extends ReelResponse | RunResponse>(
+export async function submitOperatorRequest<TPayload>(
   apiBaseUrl: string,
   submission: SubmissionDefinition,
   fetchImpl: FetchLike = fetch,

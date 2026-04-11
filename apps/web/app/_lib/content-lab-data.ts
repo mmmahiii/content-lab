@@ -5,7 +5,7 @@ import type {
   ReelOut,
   RunDetailOut,
   SignedDownloadOut,
-} from '../../../../packages/shared/ts/src/types';
+} from '@shared/types';
 
 export const demoIds = {
   orgId: '7d3d7599-820e-4c8d-9c74-3d3b6d6f2785',
