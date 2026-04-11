@@ -16,9 +16,10 @@ import { getPackageDetail, pagePath, reelPath, runPath } from '../../../../_lib/
 export default async function PackageDetailPage({
   params,
 }: {
-  params: { orgId: string; runId: string };
+  params: Promise<{ orgId: string; runId: string }>;
 }) {
-  const detail = await getPackageDetail(params.orgId, params.runId);
+  const { orgId, runId } = await params;
+  const detail = await getPackageDetail(orgId, runId);
 
   if (detail === null) {
     notFound();

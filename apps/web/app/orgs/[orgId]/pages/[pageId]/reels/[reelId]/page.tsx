@@ -64,9 +64,10 @@ function timelineTone(state: string): string {
 export default async function ReelDetailPage({
   params,
 }: {
-  params: { orgId: string; pageId: string; reelId: string };
+  params: Promise<{ orgId: string; pageId: string; reelId: string }>;
 }) {
-  const detail = await getReelDetail(params.orgId, params.pageId, params.reelId);
+  const { orgId, pageId, reelId } = await params;
+  const detail = await getReelDetail(orgId, pageId, reelId);
 
   if (detail === null) {
     notFound();

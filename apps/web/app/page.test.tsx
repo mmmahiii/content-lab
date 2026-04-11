@@ -31,10 +31,10 @@ describe('operator detail routes', () => {
   it('renders the page detail view with policy summary and recent reels', async () => {
     const markup = await renderRoute(
       PageDetailPage({
-        params: {
+        params: Promise.resolve({
           orgId: demoIds.orgId,
           pageId: demoIds.pageId,
-        },
+        }),
       }),
     );
 
@@ -46,11 +46,11 @@ describe('operator detail routes', () => {
   it('renders the reel detail view with lifecycle and package artifacts', async () => {
     const markup = await renderRoute(
       ReelDetailPage({
-        params: {
+        params: Promise.resolve({
           orgId: demoIds.orgId,
           pageId: demoIds.pageId,
           reelId: demoIds.reelId,
-        },
+        }),
       }),
     );
 
@@ -62,10 +62,10 @@ describe('operator detail routes', () => {
   it('renders the run detail view with task summaries', async () => {
     const markup = await renderRoute(
       RunDetailPage({
-        params: {
+        params: Promise.resolve({
           orgId: demoIds.orgId,
           runId: demoIds.runId,
-        },
+        }),
       }),
     );
 
@@ -77,10 +77,10 @@ describe('operator detail routes', () => {
   it('renders the package detail view with provenance and downloads', async () => {
     const markup = await renderRoute(
       PackageDetailPage({
-        params: {
+        params: Promise.resolve({
           orgId: demoIds.orgId,
           runId: demoIds.runId,
-        },
+        }),
       }),
     );
 

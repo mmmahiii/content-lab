@@ -15,9 +15,10 @@ import { getRunDetail, packagePath, pagePath, reelPath } from '../../../../_lib/
 export default async function RunDetailPage({
   params,
 }: {
-  params: { orgId: string; runId: string };
+  params: Promise<{ orgId: string; runId: string }>;
 }) {
-  const detail = await getRunDetail(params.orgId, params.runId);
+  const { orgId, runId } = await params;
+  const detail = await getRunDetail(orgId, runId);
 
   if (detail === null) {
     notFound();

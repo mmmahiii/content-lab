@@ -33,9 +33,10 @@ function strongestMode(
 export default async function PageDetailPage({
   params,
 }: {
-  params: { orgId: string; pageId: string };
+  params: Promise<{ orgId: string; pageId: string }>;
 }) {
-  const detail = await getPageDetail(params.orgId, params.pageId);
+  const { orgId, pageId } = await params;
+  const detail = await getPageDetail(orgId, pageId);
 
   if (detail === null) {
     notFound();
