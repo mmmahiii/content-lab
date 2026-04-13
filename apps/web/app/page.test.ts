@@ -197,7 +197,8 @@ describe('queue view', () => {
     expect(markup).toContain('ready for review');
     expect(markup).toContain('qa failed');
     expect(markup).toContain('posted');
-    expect(markup).toContain('Open reel detail');
+    expect(markup).toContain('Reel detail');
+    expect(markup).toContain('Row actions');
   });
 });
 

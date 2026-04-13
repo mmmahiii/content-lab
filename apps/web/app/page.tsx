@@ -1,8 +1,8 @@
+import Link from 'next/link';
 import React from 'react';
 
 import {
   DetailFrame,
-  LinkAction,
   MetaGrid,
   SectionCard,
   StatusBadge,
@@ -13,6 +13,7 @@ import {
   getWorkspaceSummary,
   packagePath,
   pagePath,
+  reelPath,
   runPath,
 } from './_lib/content-lab-data';
 import { OperatorConsole } from './operator-console';
@@ -31,7 +32,46 @@ export default async function HomePage() {
         title="Content Lab"
         subtitle="Demo org detail routes wired to the real page, reel, run, policy, and package contracts."
         actions={
-          <LinkAction href={pagePath(demoIds.orgId, demoIds.pageId)} label="Open page detail" />
+          <div className="cl-hero-actions">
+            <details className="cl-dropdown">
+              <summary>
+                Workspace links <span className="cl-chevron" aria-hidden />
+              </summary>
+              <div className="cl-dropdown-menu">
+                <div className="cl-dropdown-hint">Demo org</div>
+                <Link href={pagePath(demoIds.orgId, demoIds.pageId)} className="cl-dropdown-item">
+                  Page detail
+                  <div className="cl-dropdown-item-muted">Policy + recent reels</div>
+                </Link>
+                <Link
+                  href={reelPath(demoIds.orgId, demoIds.pageId, demoIds.reelId)}
+                  className="cl-dropdown-item"
+                >
+                  Reel detail
+                  <div className="cl-dropdown-item-muted">Lifecycle + package</div>
+                </Link>
+                <Link href={runPath(demoIds.orgId, demoIds.runId)} className="cl-dropdown-item">
+                  Run detail
+                  <div className="cl-dropdown-item-muted">Tasks + payloads</div>
+                </Link>
+                <Link
+                  href={packagePath(demoIds.orgId, demoIds.runId)}
+                  className="cl-dropdown-item"
+                >
+                  Package detail
+                  <div className="cl-dropdown-item-muted">Artifacts + downloads</div>
+                </Link>
+                <div className="cl-dropdown-divider" />
+                <Link href="/ui-demo" className="cl-dropdown-item">
+                  UI demo
+                  <div className="cl-dropdown-item-muted">Review shell and table menus</div>
+                </Link>
+                <Link href="/#operator-actions" className="cl-dropdown-item">
+                  Operator API actions
+                </Link>
+              </div>
+            </details>
+          </div>
         }
       >
         <SectionCard
@@ -96,11 +136,21 @@ export default async function HomePage() {
                   <StatusBadge status={page.ownership} />
                 </div>
                 <div style={{ color: '#55627a' }}>{page.handle ?? 'No handle recorded'}</div>
-                <div>
-                  <LinkAction
-                    href={pagePath(page.org_id, page.id)}
-                    label={`Inspect page ${formatShortId(page.id)}`}
-                  />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                  <details className="cl-dropdown">
+                    <summary>
+                      Page menu <span className="cl-chevron" aria-hidden />
+                    </summary>
+                    <div className="cl-dropdown-menu">
+                      <Link href={pagePath(page.org_id, page.id)} className="cl-dropdown-item">
+                        Inspect page
+                        <div className="cl-dropdown-item-muted">{formatShortId(page.id)}</div>
+                      </Link>
+                      <Link href="/pages" className="cl-dropdown-item">
+                        All pages route
+                      </Link>
+                    </div>
+                  </details>
                 </div>
               </article>
             ))}
@@ -159,17 +209,35 @@ export default async function HomePage() {
                     .map(([status, count]) => `${status}: ${count}`)
                     .join(', ')}
                 </div>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <LinkAction
-                    href={runPath(run.org_id, run.id)}
-                    label={`Open run ${formatShortId(run.id)}`}
-                  />
-                  {workspace.packages.some((currentPackage) => currentPackage.run_id === run.id) ? (
-                    <LinkAction
-                      href={packagePath(run.org_id, run.id)}
-                      label="Open package detail"
-                    />
-                  ) : null}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                  <details className="cl-dropdown">
+                    <summary>
+                      Run menu <span className="cl-chevron" aria-hidden />
+                    </summary>
+                    <div className="cl-dropdown-menu">
+                      <Link href={runPath(run.org_id, run.id)} className="cl-dropdown-item">
+                        Open run detail
+                        <div className="cl-dropdown-item-muted">{formatShortId(run.id)}</div>
+                      </Link>
+                      {workspace.packages.some((currentPackage) => currentPackage.run_id === run.id) ? (
+                        <Link
+                          href={packagePath(run.org_id, run.id)}
+                          className="cl-dropdown-item"
+                        >
+                          Open package detail
+                          <div className="cl-dropdown-item-muted">Same run id</div>
+                        </Link>
+                      ) : (
+                        <span className="cl-dropdown-item" style={{ cursor: 'default' }}>
+                          No package for this run
+                          <div className="cl-dropdown-item-muted">Link appears when present</div>
+                        </span>
+                      )}
+                      <Link href="/runs" className="cl-dropdown-item">
+                        Runs list route
+                      </Link>
+                    </div>
+                  </details>
                 </div>
               </article>
             ))}

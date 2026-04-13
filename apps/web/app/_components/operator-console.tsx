@@ -2,6 +2,7 @@ import Link from 'next/link';
 import React, { type ReactNode } from 'react';
 
 import { PolicyEditor } from './policy-editor';
+import { packagePath, pagePath, reelPath, runPath } from '../_lib/content-lab-data';
 import type { PolicyEditorSnapshot } from '../_lib/operator-policy';
 import type {
   CurrentRun,
@@ -218,14 +219,69 @@ function SectionPanel({
           <p style={{ color: '#4f5b65', margin: '6px 0 0' }}>{description}</p>
         </div>
 
-        <Link href={href} style={{ color: '#16202a', fontWeight: 600 }}>
-          Open view
-        </Link>
+        <div className="cl-section-actions">
+          <details className="cl-dropdown">
+            <summary>
+              View <span className="cl-chevron" aria-hidden />
+            </summary>
+            <div className="cl-dropdown-menu">
+              <div className="cl-dropdown-hint">This section</div>
+              <Link href={href} className="cl-dropdown-item">
+                Open focused route
+                <div className="cl-dropdown-item-muted">Dedicated page for this dataset</div>
+              </Link>
+              <Link href="/ui-demo" className="cl-dropdown-item">
+                UI demo
+                <div className="cl-dropdown-item-muted">Layout reference for review</div>
+              </Link>
+            </div>
+          </details>
+        </div>
       </div>
 
       {children}
       {note ? <p style={noteStyle}>{note}</p> : null}
     </section>
+  );
+}
+
+function RowActionsMenu({
+  orgId,
+  items,
+}: {
+  orgId: string | null;
+  items: { href: string; label: string; hint?: string }[];
+}) {
+  if (!orgId) {
+    return (
+      <span
+        style={{ color: '#9ca3af', fontSize: 13 }}
+        title="Set CONTENT_LAB_OPERATOR_ORG_ID (or NEXT_PUBLIC_) to enable deep links"
+      >
+        —
+      </span>
+    );
+  }
+
+  if (items.length === 0) {
+    return <span style={{ color: '#9ca3af', fontSize: 13 }}>—</span>;
+  }
+
+  return (
+    <details className="cl-row-dropdown">
+      <summary className="cl-actions-trigger" aria-label="Row actions">
+        ⋯
+      </summary>
+      <div className="cl-dropdown-menu">
+        <div className="cl-dropdown-hint">Open in console</div>
+        {items.map((item) => (
+          <Link key={item.href} href={item.href} className="cl-dropdown-item">
+            {item.label}
+            {item.hint ? <div className="cl-dropdown-item-muted">{item.hint}</div> : null}
+          </Link>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -251,7 +307,7 @@ function OverviewMetrics({ dashboard }: { dashboard: OperatorDashboardSnapshot }
   );
 }
 
-function PagesTable({ pages }: { pages: OwnedPage[] }) {
+function PagesTable({ pages, orgId }: { pages: OwnedPage[]; orgId: string | null }) {
   return (
     <table style={tableStyle}>
       <thead>
@@ -260,6 +316,7 @@ function PagesTable({ pages }: { pages: OwnedPage[] }) {
           <th style={cellStyle}>Platform</th>
           <th style={cellStyle}>Ownership</th>
           <th style={cellStyle}>Updated</th>
+          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -276,6 +333,18 @@ function PagesTable({ pages }: { pages: OwnedPage[] }) {
               <StatusBadge label={page.ownership} tone={toneForStatus(page.ownership)} />
             </td>
             <td style={cellStyle}>{formatTimestamp(page.updatedAt)}</td>
+            <td style={{ ...cellStyle, textAlign: 'right' }}>
+              <RowActionsMenu
+                orgId={orgId}
+                items={[
+                  {
+                    href: pagePath(orgId ?? '', page.id),
+                    label: 'Page detail',
+                    hint: 'Policy, reels, metadata',
+                  },
+                ]}
+              />
+            </td>
           </tr>
         ))}
       </tbody>
@@ -283,7 +352,7 @@ function PagesTable({ pages }: { pages: OwnedPage[] }) {
   );
 }
 
-function RunsTable({ runs }: { runs: CurrentRun[] }) {
+function RunsTable({ runs, orgId }: { runs: CurrentRun[]; orgId: string | null }) {
   return (
     <table style={tableStyle}>
       <thead>
@@ -293,6 +362,7 @@ function RunsTable({ runs }: { runs: CurrentRun[] }) {
           <th style={cellStyle}>Package</th>
           <th style={cellStyle}>Activity</th>
           <th style={cellStyle}>Updated</th>
+          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -321,6 +391,23 @@ function RunsTable({ runs }: { runs: CurrentRun[] }) {
               </div>
             </td>
             <td style={cellStyle}>{formatTimestamp(run.updatedAt)}</td>
+            <td style={{ ...cellStyle, textAlign: 'right' }}>
+              <RowActionsMenu
+                orgId={orgId}
+                items={[
+                  {
+                    href: runPath(orgId ?? '', run.id),
+                    label: 'Run detail',
+                    hint: 'Tasks, payloads, lineage',
+                  },
+                  {
+                    href: packagePath(orgId ?? '', run.id),
+                    label: 'Package detail',
+                    hint: 'Artifacts tied to this run',
+                  },
+                ]}
+              />
+            </td>
           </tr>
         ))}
       </tbody>
@@ -328,7 +415,7 @@ function RunsTable({ runs }: { runs: CurrentRun[] }) {
   );
 }
 
-function ReelsTable({ reels }: { reels: RecentReel[] }) {
+function ReelsTable({ reels, orgId }: { reels: RecentReel[]; orgId: string | null }) {
   return (
     <table style={tableStyle}>
       <thead>
@@ -338,39 +425,64 @@ function ReelsTable({ reels }: { reels: RecentReel[] }) {
           <th style={cellStyle}>Package</th>
           <th style={cellStyle}>Run</th>
           <th style={cellStyle}>Updated</th>
+          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
         </tr>
       </thead>
       <tbody>
-        {reels.map((reel) => (
-          <tr key={reel.id}>
-            <td style={cellStyle}>
-              <strong>{reel.variantLabel}</strong>
-              <div style={{ color: '#4f5b65', marginTop: '4px' }}>{reel.pageName}</div>
-            </td>
-            <td style={cellStyle}>
-              <StatusBadge label={reel.status} tone={toneForStatus(reel.status)} />
-              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                {formatStatusLabel(reel.origin)}
-              </div>
-            </td>
-            <td style={cellStyle}>
-              <StatusBadge
-                label={`package ${formatStatusLabel(reel.packageStatus)}`}
-                tone={toneForPackage(reel.packageStatus)}
-              />
-              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                {reel.packageMessage ?? 'No package message'}
-              </div>
-            </td>
-            <td style={cellStyle}>
-              <div>{reel.lastRunId ?? 'No run linked yet'}</div>
-              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                {reel.currentStep ?? 'No step reported'}
-              </div>
-            </td>
-            <td style={cellStyle}>{formatTimestamp(reel.updatedAt)}</td>
-          </tr>
-        ))}
+        {reels.map((reel) => {
+          const items: { href: string; label: string; hint?: string }[] = [
+            {
+              href: reelPath(orgId ?? '', reel.pageId, reel.id),
+              label: 'Reel detail',
+              hint: 'Lifecycle, assets, posting',
+            },
+          ];
+          if (reel.lastRunId) {
+            items.push({
+              href: runPath(orgId ?? '', reel.lastRunId),
+              label: 'Linked run',
+              hint: 'Orchestration context',
+            });
+            items.push({
+              href: packagePath(orgId ?? '', reel.lastRunId),
+              label: 'Linked package',
+              hint: 'Downloadable bundle',
+            });
+          }
+          return (
+            <tr key={reel.id}>
+              <td style={cellStyle}>
+                <strong>{reel.variantLabel}</strong>
+                <div style={{ color: '#4f5b65', marginTop: '4px' }}>{reel.pageName}</div>
+              </td>
+              <td style={cellStyle}>
+                <StatusBadge label={reel.status} tone={toneForStatus(reel.status)} />
+                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                  {formatStatusLabel(reel.origin)}
+                </div>
+              </td>
+              <td style={cellStyle}>
+                <StatusBadge
+                  label={`package ${formatStatusLabel(reel.packageStatus)}`}
+                  tone={toneForPackage(reel.packageStatus)}
+                />
+                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                  {reel.packageMessage ?? 'No package message'}
+                </div>
+              </td>
+              <td style={cellStyle}>
+                <div>{reel.lastRunId ?? 'No run linked yet'}</div>
+                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                  {reel.currentStep ?? 'No step reported'}
+                </div>
+              </td>
+              <td style={cellStyle}>{formatTimestamp(reel.updatedAt)}</td>
+              <td style={{ ...cellStyle, textAlign: 'right' }}>
+                <RowActionsMenu orgId={orgId} items={items} />
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -386,62 +498,67 @@ function QueueTable({ queue, orgId }: { queue: ReviewQueueItem[]; orgId: string 
           <th style={cellStyle}>Package</th>
           <th style={cellStyle}>Flow</th>
           <th style={cellStyle}>Updated</th>
+          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
         </tr>
       </thead>
       <tbody>
-        {queue.map((item) => (
-          <tr key={item.id}>
-            <td style={cellStyle}>
-              <strong>{item.variantLabel}</strong>
-              <div style={{ color: '#4f5b65', marginTop: '4px' }}>{item.pageName}</div>
-              {orgId ? (
-                <div style={{ marginTop: '8px' }}>
-                  <Link
-                    href={`/orgs/${orgId}/pages/${item.pageId}/reels/${item.id}`}
-                    style={{ color: '#16202a', fontWeight: 600 }}
-                  >
-                    Open reel detail
-                  </Link>
+        {queue.map((item) => {
+          const items: { href: string; label: string; hint?: string }[] = [
+            {
+              href: reelPath(orgId ?? '', item.pageId, item.id),
+              label: 'Reel detail',
+              hint: 'Review or posting context',
+            },
+          ];
+          if (item.lastRunId) {
+            items.push({
+              href: runPath(orgId ?? '', item.lastRunId),
+              label: 'Run detail',
+              hint: 'Tasks and orchestration',
+            });
+            items.push({
+              href: packagePath(orgId ?? '', item.lastRunId),
+              label: 'Package detail',
+              hint: 'Artifacts for this run',
+            });
+          }
+          return (
+            <tr key={item.id}>
+              <td style={cellStyle}>
+                <strong>{item.variantLabel}</strong>
+                <div style={{ color: '#4f5b65', marginTop: '4px' }}>{item.pageName}</div>
+              </td>
+              <td style={cellStyle}>
+                <StatusBadge
+                  label={formatQueueLabel(item.queueState)}
+                  tone={toneForQueueState(item.queueState)}
+                />
+                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                  Lifecycle: {formatStatusLabel(item.status)}
                 </div>
-              ) : null}
-            </td>
-            <td style={cellStyle}>
-              <StatusBadge
-                label={formatQueueLabel(item.queueState)}
-                tone={toneForQueueState(item.queueState)}
-              />
-              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                Lifecycle: {formatStatusLabel(item.status)}
-              </div>
-            </td>
-            <td style={cellStyle}>
-              <StatusBadge
-                label={`package ${formatStatusLabel(item.packageStatus)}`}
-                tone={toneForPackage(item.packageStatus)}
-              />
-              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                {item.packageMessage ?? 'No package message'}
-              </div>
-            </td>
-            <td style={cellStyle}>
-              <div>{item.currentStep ?? 'No step reported'}</div>
-              <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                {item.lastRunId ?? 'No run linked yet'}
-              </div>
-              {orgId && item.lastRunId ? (
-                <div style={{ marginTop: '8px' }}>
-                  <Link
-                    href={`/orgs/${orgId}/runs/${item.lastRunId}`}
-                    style={{ color: '#16202a', fontWeight: 600 }}
-                  >
-                    Open run detail
-                  </Link>
+              </td>
+              <td style={cellStyle}>
+                <StatusBadge
+                  label={`package ${formatStatusLabel(item.packageStatus)}`}
+                  tone={toneForPackage(item.packageStatus)}
+                />
+                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                  {item.packageMessage ?? 'No package message'}
                 </div>
-              ) : null}
-            </td>
-            <td style={cellStyle}>{formatTimestamp(item.updatedAt)}</td>
-          </tr>
-        ))}
+              </td>
+              <td style={cellStyle}>
+                <div>{item.currentStep ?? 'No step reported'}</div>
+                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
+                  {item.lastRunId ?? 'No run linked yet'}
+                </div>
+              </td>
+              <td style={cellStyle}>{formatTimestamp(item.updatedAt)}</td>
+              <td style={{ ...cellStyle, textAlign: 'right' }}>
+                <RowActionsMenu orgId={orgId} items={items} />
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -496,7 +613,7 @@ export function DashboardHomeView({ dashboard }: { dashboard: OperatorDashboardS
         note={dashboard.pages.state === 'ready' ? dashboard.pages.message : undefined}
       >
         {dashboard.pages.state === 'ready' ? (
-          <PagesTable pages={dashboard.pages.data.slice(0, 5)} />
+          <PagesTable pages={dashboard.pages.data.slice(0, 5)} orgId={dashboard.context.orgId} />
         ) : (
           renderSectionState(dashboard.pages.state, dashboard.pages.message)
         )}
@@ -509,7 +626,7 @@ export function DashboardHomeView({ dashboard }: { dashboard: OperatorDashboardS
         note={dashboard.runs.state === 'ready' ? dashboard.runs.message : undefined}
       >
         {dashboard.runs.state === 'ready' ? (
-          <RunsTable runs={dashboard.runs.data} />
+          <RunsTable runs={dashboard.runs.data} orgId={dashboard.context.orgId} />
         ) : (
           renderSectionState(dashboard.runs.state, dashboard.runs.message)
         )}
@@ -522,7 +639,7 @@ export function DashboardHomeView({ dashboard }: { dashboard: OperatorDashboardS
         note={dashboard.reels.state === 'ready' ? dashboard.reels.message : undefined}
       >
         {dashboard.reels.state === 'ready' ? (
-          <ReelsTable reels={dashboard.reels.data} />
+          <ReelsTable reels={dashboard.reels.data} orgId={dashboard.context.orgId} />
         ) : (
           renderSectionState(dashboard.reels.state, dashboard.reels.message)
         )}
@@ -548,7 +665,7 @@ export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
         href="/"
       >
         {dashboard.pages.state === 'ready' ? (
-          <PagesTable pages={dashboard.pages.data} />
+          <PagesTable pages={dashboard.pages.data} orgId={dashboard.context.orgId} />
         ) : (
           renderSectionState(dashboard.pages.state, dashboard.pages.message)
         )}
@@ -575,7 +692,7 @@ export function RunsRouteView({ dashboard }: { dashboard: OperatorDashboardSnaps
         href="/"
       >
         {dashboard.runs.state === 'ready' ? (
-          <RunsTable runs={dashboard.runs.data} />
+          <RunsTable runs={dashboard.runs.data} orgId={dashboard.context.orgId} />
         ) : (
           renderSectionState(dashboard.runs.state, dashboard.runs.message)
         )}
@@ -601,7 +718,7 @@ export function ReelsRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
         href="/"
       >
         {dashboard.reels.state === 'ready' ? (
-          <ReelsTable reels={dashboard.reels.data} />
+          <ReelsTable reels={dashboard.reels.data} orgId={dashboard.context.orgId} />
         ) : (
           renderSectionState(dashboard.reels.state, dashboard.reels.message)
         )}

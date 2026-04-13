@@ -408,7 +408,7 @@ export function OperatorConsole() {
   }
 
   return (
-    <main style={pageStyle}>
+    <main id="operator-actions" style={pageStyle}>
       <div style={shellStyle}>
         <section style={heroStyle}>
           <p
