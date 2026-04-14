@@ -5,13 +5,10 @@ RUN pip install --no-cache-dir poetry && \
 
 WORKDIR /app
 
-COPY packages/shared/py /app/packages/shared/py
-
-COPY apps/worker/pyproject.toml apps/worker/poetry.lock /app/apps/worker/
-WORKDIR /app/apps/worker
-RUN poetry install --no-interaction --no-root
-
+COPY packages /app/packages
 COPY apps/worker /app/apps/worker
+
+WORKDIR /app/apps/worker
 RUN poetry install --no-interaction
 
 CMD ["poetry", "run", "dramatiq", "content_lab_worker.worker"]

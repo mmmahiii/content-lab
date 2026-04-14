@@ -23,8 +23,9 @@ describe('operator detail routes', () => {
   it('renders the home page with org-safe entry points', async () => {
     const markup = await renderRoute(HomePage());
 
-    expect(markup).toContain('Workspace summary');
-    expect(markup).toContain('Operational runs');
+    expect(markup).toContain('A guided operator workspace for Content Lab');
+    expect(markup).toContain('Start here today');
+    expect(markup).toContain('Workspace map');
     expect(markup).toContain(`/orgs/${demoIds.orgId}/pages/${demoIds.pageId}`);
   });
 

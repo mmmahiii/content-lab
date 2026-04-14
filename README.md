@@ -33,6 +33,43 @@ Local-first MVP for **ready-to-post reel packages** (MP4 + cover + captions + po
 >
 > See `docs/RUN_LOCAL.md` for the full walkthrough.
 
+### One-command console startup
+
+If you want the stack to come up and open the web console for you, use:
+
+```powershell
+powershell -NoProfile -File .\open-console.ps1
+```
+
+Or through `pnpm`:
+
+```powershell
+pnpm run console:open
+```
+
+That launcher will:
+
+- ensure `.env` exists;
+- start Docker infra;
+- apply API migrations;
+- start API, worker, orchestrator, and web in Docker;
+- wait for the API and web console to be ready;
+- open `http://127.0.0.1:3000`.
+
+The first run may take longer because Docker needs to build the app images once.
+Later runs reuse those images by default. If you want to force a fresh rebuild,
+run:
+
+```powershell
+powershell -NoProfile -File .\open-console.ps1 -Rebuild
+```
+
+Stop everything later with:
+
+```powershell
+powershell -NoProfile -File .\stop-console.ps1
+```
+
 ### 1. Environment variables
 
 ```bash

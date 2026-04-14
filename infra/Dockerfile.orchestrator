@@ -5,13 +5,12 @@ RUN pip install --no-cache-dir poetry && \
 
 WORKDIR /app
 
-COPY packages/shared/py /app/packages/shared/py
-
-COPY apps/orchestrator/pyproject.toml apps/orchestrator/poetry.lock /app/apps/orchestrator/
-WORKDIR /app/apps/orchestrator
-RUN poetry install --no-interaction --no-root
-
+COPY packages /app/packages
+COPY apps/api /app/apps/api
+COPY apps/worker /app/apps/worker
 COPY apps/orchestrator /app/apps/orchestrator
+
+WORKDIR /app/apps/orchestrator
 RUN poetry install --no-interaction
 
 CMD ["poetry", "run", "python", "-m", "content_lab_orchestrator.cli", "run", "--name", "world"]

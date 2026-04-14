@@ -2,8 +2,16 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('next/navigation', () => ({
+  useSearchParams: () =>
+    new URLSearchParams(
+      'orgId=11111111-1111-4111-8111-111111111111&pageId=22222222-2222-4222-8222-222222222222&reelId=33333333-3333-4333-8333-333333333333',
+    ),
+}));
+
 import { DashboardHomeView, QueueRouteView } from './_components/operator-console';
 import type { OperatorDashboardSnapshot } from './_lib/operator-dashboard';
+import { OperatorConsole } from './operator-console';
 import HomePage from './page';
 import { createPolicyUpdateSubmission } from './policy-editor.helpers';
 import {
@@ -20,6 +28,7 @@ const readyDashboard: OperatorDashboardSnapshot = {
   context: {
     apiBaseUrl: 'http://127.0.0.1:8000',
     orgId: 'f67e1d69-2190-468c-b14d-6306f282f9d6',
+    source: 'env',
   },
   pages: {
     state: 'ready',
@@ -89,12 +98,12 @@ describe('HomePage', () => {
       createElement(DashboardHomeView, { dashboard: readyDashboard }),
     );
 
-    expect(markup).toContain('Production visibility for pages, runs, reels, and packages');
-    expect(markup).toContain('Owned pages');
-    expect(markup).toContain('Current runs');
-    expect(markup).toContain('Recent reels');
+    expect(markup).toContain('A guided operator workspace for Content Lab');
+    expect(markup).toContain('Daily workflow');
+    expect(markup).toContain('Start here today');
+    expect(markup).toContain('Workspace map');
     expect(markup).toContain('Northwind Fitness');
-    expect(markup).toContain('package ready');
+    expect(markup).toContain('Open Actions');
   });
 
   it('renders configuration and empty-state messaging when data is unavailable', () => {
@@ -104,6 +113,7 @@ describe('HomePage', () => {
           context: {
             apiBaseUrl: 'http://127.0.0.1:8000',
             orgId: null,
+            source: 'unconfigured',
             configurationMessage:
               'Set CONTENT_LAB_OPERATOR_ORG_ID to an org UUID so the operator dashboard can load API data.',
           },
@@ -127,25 +137,23 @@ describe('HomePage', () => {
       }),
     );
 
+    expect(markup).toContain('Connect your workspace');
     expect(markup).toContain('Set CONTENT_LAB_OPERATOR_ORG_ID');
-    expect(markup).toContain('Runs will appear after the first reel workflow starts.');
-    expect(markup).toContain('Recent reels depend on the owned page feed');
+    expect(markup).toContain('Open sample page');
+    expect(markup).toContain('Workspace map');
   });
 
-  it('renders explicit human-review and human-posting controls on the home route', async () => {
-    const html = await renderRoute(HomePage());
+  it('renders a dedicated actions workspace with task-based operator controls', () => {
+    const html = renderToStaticMarkup(createElement(OperatorConsole));
 
-    expect(html).toContain('Trigger Run');
-    expect(html).toContain('Trigger Reel');
-    expect(html).toContain('Approve Reel');
-    expect(html).toContain('Archive Reel');
-    expect(html).toContain('Mark Posted');
-    expect(html).toContain('Human Review');
-    expect(html).toContain('Human Posting');
+    expect(html).toContain('Start a workflow');
+    expect(html).toContain('Process a specific reel');
+    expect(html).toContain('Approve or archive');
+    expect(html).toContain('Record manual posting');
     expect(html).toContain(HUMAN_BOUNDARY_COPY);
-    expect(html).toContain('/approve');
-    expect(html).toContain('/archive');
-    expect(html).toContain('/mark-posted');
+    expect(html).toContain('11111111-1111-4111-8111-111111111111');
+    expect(html).toContain('22222222-2222-4222-8222-222222222222');
+    expect(html).toContain('33333333-3333-4333-8333-333333333333');
   });
 });
 
@@ -193,12 +201,12 @@ describe('queue view', () => {
       }),
     );
 
-    expect(markup).toContain('Package-ready working queue');
+    expect(markup).toContain('The human review workspace');
     expect(markup).toContain('ready for review');
     expect(markup).toContain('qa failed');
     expect(markup).toContain('posted');
-    expect(markup).toContain('Reel detail');
-    expect(markup).toContain('Row actions');
+    expect(markup).toContain('Review in Actions');
+    expect(markup).toContain('Open reel detail');
   });
 });
 

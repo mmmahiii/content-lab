@@ -53,12 +53,12 @@ function timelineForStatus(origin: string, currentStatus: string) {
 
 function timelineTone(state: string): string {
   if (state === 'current') {
-    return '#a04a2d';
+    return 'current';
   }
   if (state === 'complete') {
-    return '#1f6a4d';
+    return 'complete';
   }
-  return '#6d7483';
+  return 'upcoming';
 }
 
 export default async function ReelDetailPage({
@@ -78,57 +78,54 @@ export default async function ReelDetailPage({
 
   return (
     <DetailFrame
+      breadcrumbs={[
+        { label: 'Home', href: '/' },
+        { label: 'Pages', href: '/pages' },
+        { label: page.display_name, href: pagePath(page.org_id, page.id) },
+        { label: reel.variant_label ?? `Reel ${reel.id.slice(0, 8)}` },
+      ]}
       eyebrow={`${reel.origin} reel`}
       title={reel.variant_label ?? `Reel ${reel.id.slice(0, 8)}`}
-      subtitle="Reel detail combines lifecycle status, operator review history, and package visibility before any autopost ambitions."
+      subtitle="This screen explains where the reel is in its lifecycle, what happened during review, and whether its package is ready to inspect."
       actions={
         <>
           <LinkAction href={pagePath(page.org_id, page.id)} label="Back to page" />
+          <LinkAction
+            href={`/actions?orgId=${page.org_id}&pageId=${page.id}&reelId=${reel.id}`}
+            label="Open in Actions"
+            tone="primary"
+          />
           <StatusBadge status={reel.status} />
         </>
       }
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Understand one reel from lifecycle to package without bouncing between routes.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Review lifecycle state, confirm approval or posting history, and inspect package artifacts.',
+        },
+        {
+          label: 'What comes next',
+          value: 'If the reel needs a decision, move into Actions or Queue. If the package is ready, inspect downloads.',
+        },
+      ]}
     >
       <SectionCard
         title="Lifecycle timeline"
-        description="Generated reels follow the factory pipeline while observed reels stay on their external visibility states."
+        description="Read this top to bottom to understand what has already happened and what state the reel is currently in."
       >
-        <div style={{ display: 'grid', gap: 12 }}>
+        <div className="cl-stack-sm">
           {timeline.map((item) => (
             <div
               key={item.status}
-              style={{
-                display: 'grid',
-                gap: 6,
-                padding: 16,
-                borderRadius: 18,
-                border: '1px solid rgba(23, 32, 51, 0.12)',
-                background:
-                  item.state === 'current'
-                    ? 'rgba(160, 74, 45, 0.08)'
-                    : 'rgba(255, 255, 255, 0.75)',
-              }}
+              className={`cl-step-card${item.state === 'current' ? ' is-current' : ''}`}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ fontWeight: 700, color: timelineTone(item.state) }}>
-                  {formatStatus(item.status)}
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: '#55627a',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                  }}
-                >
-                  {item.state}
-                </div>
+              <div className="cl-split">
+                <div className="cl-entity-title">{formatStatus(item.status)}</div>
+                <div className={`cl-step-state is-${timelineTone(item.state)}`}>{item.state}</div>
               </div>
             </div>
           ))}
@@ -137,7 +134,7 @@ export default async function ReelDetailPage({
 
       <SectionCard
         title="Operator detail"
-        description="Review timestamps, posting timestamps, and the raw reel metadata stay close to the headline status."
+        description="These fields explain who reviewed or posted the reel and when those human steps happened."
       >
         <MetaGrid
           items={[
@@ -156,10 +153,10 @@ export default async function ReelDetailPage({
 
       <SectionCard
         title="Package artifacts"
-        description="Package visibility is surfaced directly on the reel so operators can confirm the output set before any publishing workflow."
+        description="Use this section to confirm whether the output set is ready and inspect each downloadable artifact."
       >
         {packageDetail ? (
-          <div style={{ display: 'grid', gap: 14 }}>
+          <div className="cl-stack-md">
             <MetaGrid
               items={[
                 { label: 'Package run', value: relatedRun?.id.slice(0, 8) ?? 'Not linked' },
@@ -171,10 +168,15 @@ export default async function ReelDetailPage({
                 { label: 'Root uri', value: packageDetail.package_root_uri ?? 'Not recorded' },
               ]}
             />
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div className="cl-button-row">
               {relatedRun ? (
                 <LinkAction href={runPath(page.org_id, relatedRun.id)} label="Open related run" />
               ) : null}
+              <LinkAction
+                href={`/actions?orgId=${page.org_id}&pageId=${page.id}&reelId=${reel.id}`}
+                label="Open in Actions"
+                tone="secondary"
+              />
               <LinkAction
                 href={packagePath(page.org_id, packageDetail.run_id)}
                 label="Open package detail"
@@ -192,28 +194,11 @@ export default async function ReelDetailPage({
                 />
               ) : null}
             </div>
-            <div style={{ display: 'grid', gap: 12 }}>
+            <div className="cl-stack-sm">
               {packageDetail.artifacts.map((artifact) => (
-                <article
-                  key={artifact.name}
-                  style={{
-                    display: 'grid',
-                    gap: 10,
-                    padding: 16,
-                    borderRadius: 18,
-                    border: '1px solid rgba(23, 32, 51, 0.12)',
-                    background: 'rgba(255, 255, 255, 0.75)',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, color: '#172033' }}>{artifact.name}</div>
+                <article key={artifact.name} className="cl-artifact-card">
+                  <div className="cl-split">
+                    <div className="cl-entity-title">{artifact.name}</div>
                     <StatusBadge status={artifact.kind ?? 'artifact'} />
                   </div>
                   <MetaGrid
@@ -231,7 +216,7 @@ export default async function ReelDetailPage({
             </div>
           </div>
         ) : (
-          <p style={{ margin: 0, color: '#55627a' }}>
+          <p className="cl-panel-description">
             No package output is linked to this reel yet. The detail view stays ready for package
             visibility as soon as a process run completes.
           </p>

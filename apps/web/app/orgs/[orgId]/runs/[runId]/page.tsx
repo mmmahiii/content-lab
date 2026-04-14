@@ -28,12 +28,22 @@ export default async function RunDetailPage({
 
   return (
     <DetailFrame
+      breadcrumbs={[
+        { label: 'Home', href: '/' },
+        { label: 'Runs', href: '/runs' },
+        { label: `Run ${run.id.slice(0, 8)}` },
+      ]}
       eyebrow={run.workflow_key}
       title={`Run ${run.id.slice(0, 8)}`}
-      subtitle="Run detail exposes trigger context, orchestration metadata, and task-level progress in one operator view."
+      subtitle="This run detail explains what started the workflow, where it is now, and how the tasks and payloads fit together."
       actions={
         <>
           <StatusBadge status={run.status} />
+          <LinkAction
+            href={`/actions?orgId=${run.org_id}${reel ? `&pageId=${page?.id ?? ''}&reelId=${reel.id}` : ''}`}
+            label="Open in Actions"
+            tone="primary"
+          />
           {page ? <LinkAction href={pagePath(run.org_id, page.id)} label="Open page" /> : null}
           {page && reel ? (
             <LinkAction href={reelPath(run.org_id, page.id, reel.id)} label="Open reel" />
@@ -43,10 +53,24 @@ export default async function RunDetailPage({
           ) : null}
         </>
       }
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Explain a single workflow run without making you read raw payloads first.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'See timing, task-level progress, linked content, and the output package in one place.',
+        },
+        {
+          label: 'What comes next',
+          value: 'If the run is still moving, return to Runs later. If it finished, inspect the reel or package.',
+        },
+      ]}
     >
       <SectionCard
         title="Run summary"
-        description="Workflow key, trigger source, idempotency, and timing remain visible without digging through raw payloads."
+        description="Start with this summary to understand the run before looking at individual tasks or raw metadata."
       >
         <MetaGrid
           items={[
@@ -69,48 +93,15 @@ export default async function RunDetailPage({
 
       <SectionCard
         title="Task summaries"
-        description="Task-level payloads and results help operators understand which part of a workflow is blocked or complete."
+        description="Use these task summaries to understand what part of the workflow finished, failed, or is still running."
       >
-        <div style={{ display: 'grid', gap: 14 }}>
+        <div className="cl-stack-md">
           {run.tasks.map((task) => (
-            <article
-              key={task.id}
-              style={{
-                display: 'grid',
-                gap: 14,
-                padding: 18,
-                borderRadius: 18,
-                border: '1px solid rgba(23, 32, 51, 0.12)',
-                background: 'rgba(255, 255, 255, 0.78)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                }}
-              >
+            <article key={task.id} className="cl-entity-card">
+              <div className="cl-split">
                 <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.12em',
-                      color: '#6d7483',
-                    }}
-                  >
-                    {task.idempotency_key}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 20,
-                      fontFamily: 'Georgia, Cambria, "Times New Roman", Times, serif',
-                    }}
-                  >
-                    {task.task_type}
-                  </div>
+                  <div className="cl-step-label">{task.idempotency_key}</div>
+                  <div className="cl-entity-title">{task.task_type}</div>
                 </div>
                 <StatusBadge status={task.status} />
               </div>
@@ -120,7 +111,7 @@ export default async function RunDetailPage({
                   { label: 'Updated', value: formatTimestamp(task.updated_at) },
                 ]}
               />
-              <div style={{ display: 'grid', gap: 14 }}>
+              <div className="cl-stack-md">
                 <JsonPanel title="Task payload" value={task.payload} />
                 <JsonPanel title="Task result" value={task.result} />
               </div>
@@ -131,9 +122,9 @@ export default async function RunDetailPage({
 
       <SectionCard
         title="Run payloads"
-        description="The raw input, output, and metadata match the API contracts so operators can correlate UI state with backend behavior."
+        description="These raw payloads are secondary diagnostics when you need to correlate the UI with backend behavior."
       >
-        <div style={{ display: 'grid', gap: 14 }}>
+        <div className="cl-stack-md">
           <JsonPanel title="Input params" value={run.input_params} />
           <JsonPanel title="Run metadata" value={run.run_metadata} />
           <JsonPanel title="Output payload" value={run.output_payload} />

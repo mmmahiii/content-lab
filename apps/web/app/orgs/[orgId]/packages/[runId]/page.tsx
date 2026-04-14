@@ -29,12 +29,24 @@ export default async function PackageDetailPage({
 
   return (
     <DetailFrame
+      breadcrumbs={[
+        { label: 'Home', href: '/' },
+        { label: 'Runs', href: '/runs' },
+        { label: `Package ${packageDetail.run_id.slice(0, 8)}` },
+      ]}
       eyebrow="Package output"
       title={`Package ${packageDetail.run_id.slice(0, 8)}`}
-      subtitle="Package detail shows provenance, signed downloads, and the ready-to-post artifact set for a single org-scoped run."
+      subtitle="This package detail shows the files, provenance, and download links produced for a single org-scoped run."
       actions={
         <>
           <StatusBadge status={packageDetail.status} />
+          {page && reel ? (
+            <LinkAction
+              href={`/actions?orgId=${packageDetail.org_id}&pageId=${page.id}&reelId=${reel.id}`}
+              label="Open in Actions"
+              tone="primary"
+            />
+          ) : null}
           <LinkAction href={runPath(packageDetail.org_id, run.id)} label="Open run" />
           {page ? (
             <LinkAction href={pagePath(packageDetail.org_id, page.id)} label="Open page" />
@@ -44,10 +56,24 @@ export default async function PackageDetailPage({
           ) : null}
         </>
       }
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Confirm what was packaged, where it came from, and what is ready to hand off.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Download artifacts, inspect provenance, and move back to the linked run, page, or reel.',
+        },
+        {
+          label: 'What comes next',
+          value: 'After verifying the package, continue review in Queue or record manual posting in Actions.',
+        },
+      ]}
     >
       <SectionCard
         title="Package summary"
-        description="Operators can confirm which reel and run produced the package, when it was created, and where it lives in storage."
+        description="Start here to see which run and reel produced the package and where it lives."
       >
         <MetaGrid
           items={[
@@ -63,9 +89,9 @@ export default async function PackageDetailPage({
 
       <SectionCard
         title="Provenance"
-        description="Support artifacts remain separate from the publishable assets so audit and QA data stay visible before any autopost workflow."
+        description="Use provenance and manifest files to confirm audit context before this package is handed off."
       >
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div className="cl-button-row">
           {packageDetail.manifest_download ? (
             <ExternalAction href={packageDetail.manifest_download.url} label="Download manifest" />
           ) : null}
@@ -102,37 +128,13 @@ export default async function PackageDetailPage({
 
       <SectionCard
         title="Downloadable artifacts"
-        description="The artifact list stays focused on ready-to-use outputs: video, cover, captions, and posting plan."
+        description="These are the publishable or handoff-ready files the operator usually cares about first."
       >
-        <div style={{ display: 'grid', gap: 14 }}>
+        <div className="cl-stack-md">
           {packageDetail.artifacts.map((artifact) => (
-            <article
-              key={artifact.name}
-              style={{
-                display: 'grid',
-                gap: 12,
-                padding: 18,
-                borderRadius: 18,
-                border: '1px solid rgba(23, 32, 51, 0.12)',
-                background: 'rgba(255, 255, 255, 0.78)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 20,
-                    fontFamily: 'Georgia, Cambria, "Times New Roman", Times, serif',
-                  }}
-                >
-                  {artifact.name}
-                </div>
+            <article key={artifact.name} className="cl-artifact-card">
+              <div className="cl-split">
+                <div className="cl-entity-title">{artifact.name}</div>
                 <StatusBadge status={artifact.kind ?? 'artifact'} />
               </div>
               <MetaGrid

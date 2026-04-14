@@ -59,48 +59,43 @@ export default async function PageDetailPage({
 
   return (
     <DetailFrame
+      breadcrumbs={[
+        { label: 'Home', href: '/' },
+        { label: 'Pages', href: '/pages' },
+        { label: page.display_name },
+      ]}
       eyebrow={`${page.platform} page`}
       title={page.display_name}
-      subtitle="Page detail keeps policy, persona constraints, and recent reel activity in one org-scoped view."
-      actions={<StatusBadge status={page.ownership} />}
+      subtitle="This page explains what this account is, what rules shape it, and where to go next when you want to review recent reels or start new work."
+      actions={
+        <>
+          <StatusBadge status={page.ownership} />
+          <LinkAction href="/pages" label="Back to Pages" />
+          <LinkAction
+            href={`/actions?orgId=${page.org_id}&pageId=${page.id}`}
+            label="Open in Actions"
+            tone="primary"
+          />
+        </>
+      }
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Understand the page context before you trigger work or review related content.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'See persona and constraints, inspect recent reels, and jump into actions with the correct page ID.',
+        },
+        {
+          label: 'What comes next',
+          value: 'Review a reel from this page or move into Actions to start or process work.',
+        },
+      ]}
     >
       <SectionCard
-        title="Policy summary"
-        description="Page-level policy stays visible alongside creative constraints so operators can judge risk before triggering new work."
-      >
-        {policy ? (
-          <MetaGrid
-            items={[
-              { label: 'Policy scope', value: `${policy.scope_type}:${policy.scope_id}` },
-              { label: 'Primary mode', value: strongestMode(policy) },
-              {
-                label: 'Per-run budget',
-                value: `$${policy.state.budget.per_run_usd_limit.toFixed(2)}`,
-              },
-              {
-                label: 'Daily budget',
-                value: `$${policy.state.budget.daily_usd_limit.toFixed(2)}`,
-              },
-              {
-                label: 'Similarity guardrail',
-                value: `${policy.state.thresholds.similarity.warn_at} / ${policy.state.thresholds.similarity.block_at}`,
-              },
-              {
-                label: 'Min QA score',
-                value: policy.state.thresholds.min_quality_score.toFixed(2),
-              },
-            ]}
-          />
-        ) : (
-          <p style={{ margin: 0, color: '#55627a' }}>
-            No page policy is recorded yet for this page.
-          </p>
-        )}
-      </SectionCard>
-
-      <SectionCard
-        title="Page profile"
-        description="The page contract carries persona, CTA posture, disclosures, and operator-safe scoping metadata."
+        title="Page overview"
+        description="Use this summary to understand the account before you touch reels, runs, or policy."
       >
         <MetaGrid
           items={[
@@ -130,50 +125,19 @@ export default async function PageDetailPage({
 
       <SectionCard
         title="Recent reels"
-        description="Operators can jump from the page into individual reels, related runs, and published packages without leaving the org namespace."
+        description="Start here if you want to understand what is already in flight or review a specific piece of content."
       >
-        <div style={{ display: 'grid', gap: 14 }}>
+        <div className="cl-stack-md">
           {recentReels.map((reel) =>
             (() => {
               const related = reelRelations.find((candidate) => candidate.reelId === reel.id);
 
               return (
-                <article
-                  key={reel.id}
-                  style={{
-                    display: 'grid',
-                    gap: 12,
-                    padding: 18,
-                    borderRadius: 18,
-                    border: '1px solid rgba(23, 32, 51, 0.12)',
-                    background: 'rgba(255, 255, 255, 0.72)',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      flexWrap: 'wrap',
-                    }}
-                  >
+                <article key={reel.id} className="cl-entity-card">
+                  <div className="cl-split">
                     <div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.12em',
-                          color: '#6d7483',
-                        }}
-                      >
-                        {reel.origin}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 20,
-                          fontFamily: 'Georgia, Cambria, "Times New Roman", Times, serif',
-                        }}
-                      >
+                      <div className="cl-step-label">{reel.origin}</div>
+                      <div className="cl-entity-title">
                         {reel.variant_label ?? `Observed reel ${formatShortId(reel.id)}`}
                       </div>
                     </div>
@@ -193,10 +157,15 @@ export default async function PageDetailPage({
                       },
                     ]}
                   />
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <div className="cl-button-row">
                     <LinkAction
                       href={reelPath(page.org_id, page.id, reel.id)}
                       label="Open reel detail"
+                    />
+                    <LinkAction
+                      href={`/actions?orgId=${page.org_id}&pageId=${page.id}&reelId=${reel.id}`}
+                      label="Open in Actions"
+                      tone="secondary"
                     />
                     {related?.relatedRun ? (
                       <LinkAction
@@ -216,6 +185,38 @@ export default async function PageDetailPage({
             })(),
           )}
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Policy summary"
+        description="Page-level guardrails stay visible here so you can judge whether the account is set up safely before you trigger new work."
+      >
+        {policy ? (
+          <MetaGrid
+            items={[
+              { label: 'Policy scope', value: `${policy.scope_type}:${policy.scope_id}` },
+              { label: 'Primary mode', value: strongestMode(policy) },
+              {
+                label: 'Per-run budget',
+                value: `$${policy.state.budget.per_run_usd_limit.toFixed(2)}`,
+              },
+              {
+                label: 'Daily budget',
+                value: `$${policy.state.budget.daily_usd_limit.toFixed(2)}`,
+              },
+              {
+                label: 'Similarity guardrail',
+                value: `${policy.state.thresholds.similarity.warn_at} / ${policy.state.thresholds.similarity.block_at}`,
+              },
+              {
+                label: 'Min QA score',
+                value: policy.state.thresholds.min_quality_score.toFixed(2),
+              },
+            ]}
+          />
+        ) : (
+          <p className="cl-panel-description">No page policy is recorded yet for this page.</p>
+        )}
       </SectionCard>
     </DetailFrame>
   );

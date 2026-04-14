@@ -1,807 +1,977 @@
-import Link from 'next/link';
-import React, { type ReactNode } from 'react';
+import React from 'react';
+import type { ReactNode } from 'react';
 
+import {
+  DetailFrame,
+  LinkAction,
+  MetaGrid,
+  SectionCard,
+  StatusBadge,
+  formatStatus,
+  formatTimestamp,
+} from './detail-ui';
 import { PolicyEditor } from './policy-editor';
-import { packagePath, pagePath, reelPath, runPath } from '../_lib/content-lab-data';
+import {
+  demoIds,
+  packagePath,
+  pagePath,
+  reelPath,
+  runPath,
+} from '../_lib/content-lab-data';
+import { buildPackageReviewQueue } from '../_lib/operator-dashboard';
 import type { PolicyEditorSnapshot } from '../_lib/operator-policy';
 import type {
   CurrentRun,
   OperatorDashboardSnapshot,
   OwnedPage,
   RecentReel,
+  ResourceState,
   ReviewQueueItem,
 } from '../_lib/operator-dashboard';
-import { buildPackageReviewQueue } from '../_lib/operator-dashboard';
 
 type StatusTone = 'neutral' | 'success' | 'warning' | 'danger';
 
-const pageStyle = {
-  display: 'grid',
-  gap: '20px',
-} as const;
+type LinkItem = {
+  href: string;
+  label: string;
+  tone?: 'default' | 'primary' | 'secondary';
+};
 
-const heroStyle = {
-  backgroundColor: '#ffffff',
-  border: '1px solid #d9ddd4',
-  borderRadius: '16px',
-  padding: '20px',
-} as const;
+function buildActionPath(values: Record<string, string | null | undefined>): string {
+  const params = new URLSearchParams();
 
-const heroMetaStyle = {
-  color: '#4f5b65',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '12px',
-  marginTop: '14px',
-} as const;
+  Object.entries(values).forEach(([key, value]) => {
+    if (typeof value === 'string' && value.length > 0) {
+      params.set(key, value);
+    }
+  });
 
-const metricGridStyle = {
-  display: 'grid',
-  gap: '12px',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-} as const;
-
-const metricCardStyle = {
-  backgroundColor: '#ffffff',
-  border: '1px solid #d9ddd4',
-  borderRadius: '16px',
-  padding: '16px',
-} as const;
-
-const panelStyle = {
-  backgroundColor: '#ffffff',
-  border: '1px solid #d9ddd4',
-  borderRadius: '16px',
-  padding: '18px',
-} as const;
-
-const sectionHeaderStyle = {
-  alignItems: 'baseline',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '10px',
-  justifyContent: 'space-between',
-  marginBottom: '14px',
-} as const;
-
-const tableStyle = {
-  borderCollapse: 'collapse',
-  width: '100%',
-} as const;
-
-const cellStyle = {
-  borderTop: '1px solid #e7e9e2',
-  fontSize: '0.95rem',
-  padding: '12px 10px',
-  textAlign: 'left',
-  verticalAlign: 'top',
-} as const;
-
-const noteStyle = {
-  color: '#4f5b65',
-  fontSize: '0.92rem',
-  margin: '12px 0 0',
-} as const;
-
-const emptyStateStyle = {
-  backgroundColor: '#fbfbf9',
-  border: '1px dashed #c4cbc0',
-  borderRadius: '12px',
-  color: '#3c4750',
-  padding: '16px',
-} as const;
-
-function formatTimestamp(value: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
-}
-
-function toneForStatus(status: string): StatusTone {
-  const normalized = status.toLowerCase();
-
-  if (['ready', 'posted', 'succeeded', 'success', 'owned'].includes(normalized)) {
-    return 'success';
-  }
-
-  if (['failed', 'archived', 'error'].includes(normalized)) {
-    return 'danger';
-  }
-
-  if (['running', 'queued', 'pending', 'draft'].includes(normalized)) {
-    return 'warning';
-  }
-
-  return 'neutral';
-}
-
-function toneForPackage(
-  status: CurrentRun['packageStatus'] | RecentReel['packageStatus'],
-): StatusTone {
-  if (status === 'ready') {
-    return 'success';
-  }
-
-  if (status === 'failed') {
-    return 'danger';
-  }
-
-  if (status === 'pending') {
-    return 'warning';
-  }
-
-  return 'neutral';
-}
-
-function formatStatusLabel(value: string): string {
-  return value.replaceAll('_', ' ');
+  const query = params.toString();
+  return query.length > 0 ? `/actions?${query}` : '/actions';
 }
 
 function formatQueueLabel(value: ReviewQueueItem['queueState']): string {
-  return value === 'ready_for_review' ? 'ready for review' : formatStatusLabel(value);
+  return value === 'ready_for_review' ? 'ready for review' : formatStatus(value);
 }
 
-function toneForQueueState(value: ReviewQueueItem['queueState']): StatusTone {
-  if (value === 'ready_for_review') {
-    return 'success';
+function toneForState(state: ResourceState): StatusTone {
+  if (state === 'error') {
+    return 'danger';
   }
 
-  if (value === 'qa_failed') {
-    return 'danger';
+  if (state === 'unconfigured') {
+    return 'warning';
   }
 
   return 'neutral';
 }
 
-function StatusBadge({ label, tone }: { label: string; tone: StatusTone }) {
-  const colors: Record<StatusTone, { background: string; border: string; color: string }> = {
-    neutral: { background: '#eef1ec', border: '#d5dbd1', color: '#34404a' },
-    success: { background: '#e7f4e3', border: '#bbd9b7', color: '#204c25' },
-    warning: { background: '#fff0d6', border: '#ebca8f', color: '#6d4a06' },
-    danger: { background: '#fde4e1', border: '#edb7b0', color: '#7d2d23' },
-  };
+function EmptyState({
+  title,
+  message,
+  tone = 'neutral',
+  actions,
+}: {
+  title: string;
+  message: string;
+  tone?: StatusTone;
+  actions?: ReactNode;
+}) {
+  const className =
+    tone === 'danger' ? 'cl-empty is-danger' : tone === 'warning' ? 'cl-empty is-warning' : 'cl-empty';
 
   return (
-    <span
-      style={{
-        backgroundColor: colors[tone].background,
-        border: `1px solid ${colors[tone].border}`,
-        borderRadius: '999px',
-        color: colors[tone].color,
-        display: 'inline-flex',
-        fontSize: '0.85rem',
-        gap: '6px',
-        padding: '4px 10px',
-        textTransform: 'capitalize',
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function ResourceMessage({ message, tone }: { message: string; tone: StatusTone }) {
-  const borderColor =
-    tone === 'danger'
-      ? '#edb7b0'
-      : tone === 'warning'
-        ? '#ebca8f'
-        : tone === 'success'
-          ? '#bbd9b7'
-          : '#c4cbc0';
-
-  return (
-    <div style={{ ...emptyStateStyle, borderColor }}>
-      <p style={{ margin: 0 }}>{message}</p>
+    <div className={className}>
+      <strong>{title}</strong>
+      <p className="cl-panel-description">{message}</p>
+      {actions ? <div className="cl-button-row">{actions}</div> : null}
     </div>
   );
 }
 
-function SectionPanel({
-  title,
-  description,
-  href,
-  children,
-  note,
-}: {
-  title: string;
-  description: string;
-  href: string;
-  children: ReactNode;
-  note?: string;
-}) {
+function ActionCluster({ items }: { items: LinkItem[] }) {
   return (
-    <section style={panelStyle}>
-      <div style={sectionHeaderStyle}>
-        <div>
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          <p style={{ color: '#4f5b65', margin: '6px 0 0' }}>{description}</p>
-        </div>
-
-        <div className="cl-section-actions">
-          <details className="cl-dropdown">
-            <summary>
-              View <span className="cl-chevron" aria-hidden />
-            </summary>
-            <div className="cl-dropdown-menu">
-              <div className="cl-dropdown-hint">This section</div>
-              <Link href={href} className="cl-dropdown-item">
-                Open focused route
-                <div className="cl-dropdown-item-muted">Dedicated page for this dataset</div>
-              </Link>
-              <Link href="/ui-demo" className="cl-dropdown-item">
-                UI demo
-                <div className="cl-dropdown-item-muted">Layout reference for review</div>
-              </Link>
-            </div>
-          </details>
-        </div>
-      </div>
-
-      {children}
-      {note ? <p style={noteStyle}>{note}</p> : null}
-    </section>
+    <div className="cl-button-row">
+      {items.map((item) => (
+        <LinkAction key={`${item.href}-${item.label}`} href={item.href} label={item.label} tone={item.tone} />
+      ))}
+    </div>
   );
 }
 
-function RowActionsMenu({
-  orgId,
-  items,
-}: {
-  orgId: string | null;
-  items: { href: string; label: string; hint?: string }[];
-}) {
-  if (!orgId) {
-    return (
-      <span
-        style={{ color: '#9ca3af', fontSize: 13 }}
-        title="Set CONTENT_LAB_OPERATOR_ORG_ID (or NEXT_PUBLIC_) to enable deep links"
-      >
-        —
-      </span>
-    );
-  }
-
-  if (items.length === 0) {
-    return <span style={{ color: '#9ca3af', fontSize: 13 }}>—</span>;
-  }
-
-  return (
-    <details className="cl-row-dropdown">
-      <summary className="cl-actions-trigger" aria-label="Row actions">
-        ⋯
-      </summary>
-      <div className="cl-dropdown-menu">
-        <div className="cl-dropdown-hint">Open in console</div>
-        {items.map((item) => (
-          <Link key={item.href} href={item.href} className="cl-dropdown-item">
-            {item.label}
-            {item.hint ? <div className="cl-dropdown-item-muted">{item.hint}</div> : null}
-          </Link>
-        ))}
-      </div>
-    </details>
-  );
-}
-
-function OverviewMetrics({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
-  const metrics = [
-    { label: 'Owned pages', value: dashboard.pages.data.length, state: dashboard.pages.state },
-    { label: 'Current runs', value: dashboard.runs.data.length, state: dashboard.runs.state },
-    { label: 'Recent reels', value: dashboard.reels.data.length, state: dashboard.reels.state },
+function FeatureDirectory() {
+  const features = [
+    {
+      title: 'Pages',
+      description: 'See which accounts you manage, what constraints they carry, and where to drill in.',
+      href: '/pages',
+    },
+    {
+      title: 'Runs',
+      description: 'Track workflow progress, current step, and output readiness in one place.',
+      href: '/runs',
+    },
+    {
+      title: 'Reels',
+      description: 'Understand content lifecycle, origin, and whether the package is ready for review.',
+      href: '/reels',
+    },
+    {
+      title: 'Queue',
+      description: 'Handle the human review and posting workflow without missing items that need attention.',
+      href: '/queue',
+    },
+    {
+      title: 'Policy',
+      description: 'Adjust safe ranges for budget, similarity, and quality without touching backend contracts.',
+      href: '/policy',
+    },
+    {
+      title: 'Actions',
+      description: 'Start workflows, process a reel, approve or archive, and record manual posting.',
+      href: '/actions',
+    },
   ];
 
   return (
-    <section style={metricGridStyle}>
-      {metrics.map((metric) => (
-        <article key={metric.label} style={metricCardStyle}>
-          <p style={{ color: '#4f5b65', margin: 0 }}>{metric.label}</p>
-          <p style={{ fontSize: '1.8rem', margin: '8px 0 0' }}>{metric.value}</p>
-          <p style={{ color: '#4f5b65', margin: '6px 0 0', textTransform: 'capitalize' }}>
-            {metric.state.replace('_', ' ')}
-          </p>
+    <div className="cl-card-grid">
+      {features.map((feature) => (
+        <article key={feature.title} className="cl-card cl-card-compact">
+          <div className="cl-kicker">Feature</div>
+          <h3 className="cl-card-title">{feature.title}</h3>
+          <p className="cl-card-description">{feature.description}</p>
+          <LinkAction href={feature.href} label={`Open ${feature.title}`} />
         </article>
       ))}
-    </section>
+    </div>
+  );
+}
+
+function GlossaryPanel() {
+  return (
+    <div className="cl-glossary">
+      <dl>
+        <div>
+          <dt>Page</dt>
+          <dd>The social account Content Lab is planning and producing content for.</dd>
+        </div>
+        <div>
+          <dt>Run</dt>
+          <dd>A workflow execution that moves content from planning through packaging.</dd>
+        </div>
+        <div>
+          <dt>Reel</dt>
+          <dd>A piece of content being generated, reviewed, observed, or marked as posted.</dd>
+        </div>
+        <div>
+          <dt>Package</dt>
+          <dd>The ready-to-use output set: video, cover, captions, posting plan, and provenance.</dd>
+        </div>
+        <div>
+          <dt>Queue</dt>
+          <dd>The human working list for review-ready, QA-failed, and posted generated reels.</dd>
+        </div>
+        <div>
+          <dt>Policy</dt>
+          <dd>The allowed guardrails that shape budget, novelty, and quality thresholds for a page.</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function NewHerePanel() {
+  return (
+    <div className="cl-card-grid">
+      <article className="cl-card cl-card-compact">
+        <div className="cl-kicker">If you are new</div>
+        <h3 className="cl-card-title">Start with Pages</h3>
+        <p className="cl-card-description">
+          Choose the account you are working on first. That gives you the right page, reel, and
+          policy context before you take action.
+        </p>
+        <LinkAction href="/pages" label="Open Pages" />
+      </article>
+      <article className="cl-card cl-card-compact">
+        <div className="cl-kicker">Then move to</div>
+        <h3 className="cl-card-title">Queue or Actions</h3>
+        <p className="cl-card-description">
+          Go to Queue if you are reviewing existing work. Go to Actions if you are starting
+          something new or recording a human step.
+        </p>
+        <div className="cl-button-row">
+          <LinkAction href="/queue" label="Open Queue" />
+          <LinkAction href="/actions" label="Open Actions" tone="secondary" />
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function WorkflowSteps() {
+  const steps = [
+    {
+      label: '1. Choose a page',
+      copy: 'Open Pages to confirm which account you are working on and inspect its context.',
+      href: '/pages',
+    },
+    {
+      label: '2. Start work',
+      copy: 'Open Actions to launch a workflow or process a specific reel with explicit audited inputs.',
+      href: '/actions',
+    },
+    {
+      label: '3. Monitor progress',
+      copy: 'Use Runs and Reels to see current step, task activity, and package readiness.',
+      href: '/runs',
+    },
+    {
+      label: '4. Review output',
+      copy: 'Use Queue to approve, archive, or investigate items that need human attention.',
+      href: '/queue',
+    },
+    {
+      label: '5. Inspect the package',
+      copy: 'Open reel or package detail to confirm downloads, provenance, and publishable files.',
+      href: packagePath(demoIds.orgId, demoIds.runId),
+    },
+    {
+      label: '6. Record posting',
+      copy: 'After a human posts externally, record the outcome in Actions without autoposting.',
+      href: buildActionPath({ orgId: demoIds.orgId, pageId: demoIds.pageId, reelId: demoIds.reelId }),
+    },
+  ];
+
+  return (
+    <div className="cl-card-grid">
+      {steps.map((step) => (
+        <article key={step.label} className="cl-card cl-card-compact">
+          <div className="cl-kicker">Daily workflow</div>
+          <h3 className="cl-card-title">{step.label}</h3>
+          <p className="cl-card-description">{step.copy}</p>
+          <LinkAction href={step.href} label="Open step" />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DashboardMetrics({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+  const queue = buildPackageReviewQueue(dashboard);
+
+  const items = [
+    { label: 'Pages in scope', value: dashboard.pages.state === 'ready' ? dashboard.pages.data.length : 'Not connected' },
+    { label: 'Current runs', value: dashboard.runs.state === 'ready' ? dashboard.runs.data.length : 'Not available' },
+    { label: 'Recent reels', value: dashboard.reels.state === 'ready' ? dashboard.reels.data.length : 'Not available' },
+    { label: 'Queue items', value: queue.state === 'ready' ? queue.data.length : 'Not available' },
+  ];
+
+  return (
+    <div className="cl-stat-grid">
+      {items.map((item) => (
+        <article key={item.label} className="cl-stat-card">
+          <div className="cl-meta-label">{item.label}</div>
+          <div className="cl-stat-value">{item.value}</div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function QueueSummaryCards({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+  const queue = buildPackageReviewQueue(dashboard);
+  const items =
+    queue.state === 'ready'
+      ? [
+          {
+            label: 'Ready for review',
+            value: queue.data.filter((item) => item.queueState === 'ready_for_review').length,
+          },
+          {
+            label: 'QA failed',
+            value: queue.data.filter((item) => item.queueState === 'qa_failed').length,
+          },
+          {
+            label: 'Posted',
+            value: queue.data.filter((item) => item.queueState === 'posted').length,
+          },
+        ]
+      : [
+          { label: 'Ready for review', value: 'Not loaded' },
+          { label: 'QA failed', value: 'Not loaded' },
+          { label: 'Posted', value: 'Not loaded' },
+        ];
+
+  return <MetaGrid items={items} />;
+}
+
+function cueSummaryForRoute(copy: string): string {
+  return copy;
+}
+
+function ResourceStateBlock({
+  title,
+  state,
+  message,
+  action,
+}: {
+  title: string;
+  state: ResourceState;
+  message: string | undefined;
+  action?: ReactNode;
+}) {
+  return (
+    <EmptyState
+      title={title}
+      message={message ?? 'This data is not available yet.'}
+      tone={toneForState(state)}
+      actions={action}
+    />
   );
 }
 
 function PagesTable({ pages, orgId }: { pages: OwnedPage[]; orgId: string | null }) {
   return (
-    <table style={tableStyle}>
-      <thead>
-        <tr>
-          <th style={cellStyle}>Page</th>
-          <th style={cellStyle}>Platform</th>
-          <th style={cellStyle}>Ownership</th>
-          <th style={cellStyle}>Updated</th>
-          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {pages.map((page) => (
-          <tr key={page.id}>
-            <td style={cellStyle}>
-              <strong>{page.displayName}</strong>
-              <div style={{ color: '#4f5b65', marginTop: '4px' }}>
-                {page.handle ?? 'Handle not set'}
-              </div>
-            </td>
-            <td style={cellStyle}>{page.platform}</td>
-            <td style={cellStyle}>
-              <StatusBadge label={page.ownership} tone={toneForStatus(page.ownership)} />
-            </td>
-            <td style={cellStyle}>{formatTimestamp(page.updatedAt)}</td>
-            <td style={{ ...cellStyle, textAlign: 'right' }}>
-              <RowActionsMenu
-                orgId={orgId}
-                items={[
-                  {
-                    href: pagePath(orgId ?? '', page.id),
-                    label: 'Page detail',
-                    hint: 'Policy, reels, metadata',
-                  },
-                ]}
-              />
-            </td>
+    <div className="cl-table-wrap">
+      <table className="cl-table">
+        <thead>
+          <tr>
+            <th>Page</th>
+            <th>What it means</th>
+            <th>Updated</th>
+            <th>Next actions</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {pages.map((page) => (
+            <tr key={page.id}>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{page.displayName}</strong>
+                  <span className="cl-resource-meta">{page.handle ?? 'Handle not set'}</span>
+                </div>
+              </td>
+              <td>
+                <div className="cl-inline-list">
+                  <StatusBadge status={page.ownership} />
+                  <span className="cl-resource-meta">
+                    {page.ownership === 'owned'
+                      ? 'This page is in your production scope.'
+                      : 'This page is visible for competitor context.'}
+                  </span>
+                </div>
+              </td>
+              <td>{formatTimestamp(page.updatedAt)}</td>
+              <td>
+                <ActionCluster
+                  items={[
+                    { href: pagePath(orgId ?? demoIds.orgId, page.id), label: 'Open page detail' },
+                    {
+                      href: buildActionPath({ orgId: orgId ?? demoIds.orgId, pageId: page.id }),
+                      label: 'Open in Actions',
+                      tone: 'secondary',
+                    },
+                  ]}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function RunsTable({ runs, orgId }: { runs: CurrentRun[]; orgId: string | null }) {
   return (
-    <table style={tableStyle}>
-      <thead>
-        <tr>
-          <th style={cellStyle}>Run</th>
-          <th style={cellStyle}>Status</th>
-          <th style={cellStyle}>Package</th>
-          <th style={cellStyle}>Activity</th>
-          <th style={cellStyle}>Updated</th>
-          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {runs.map((run) => (
-          <tr key={run.id}>
-            <td style={cellStyle}>
-              <strong>{run.workflowKey}</strong>
-              <div style={{ color: '#4f5b65', marginTop: '4px' }}>
-                {run.pageName ?? 'Unknown page'} - {formatStatusLabel(run.flowTrigger)}
-              </div>
-              <div style={{ color: '#4f5b65', marginTop: '4px' }}>{run.externalRef ?? run.id}</div>
-            </td>
-            <td style={cellStyle}>
-              <StatusBadge label={run.status} tone={toneForStatus(run.status)} />
-            </td>
-            <td style={cellStyle}>
-              <StatusBadge
-                label={`package ${formatStatusLabel(run.packageStatus)}`}
-                tone={toneForPackage(run.packageStatus)}
-              />
-            </td>
-            <td style={cellStyle}>
-              <div>{run.taskSummary}</div>
-              <div style={{ color: '#4f5b65', marginTop: '4px' }}>
-                {run.currentStep ?? 'No active step'}
-              </div>
-            </td>
-            <td style={cellStyle}>{formatTimestamp(run.updatedAt)}</td>
-            <td style={{ ...cellStyle, textAlign: 'right' }}>
-              <RowActionsMenu
-                orgId={orgId}
-                items={[
-                  {
-                    href: runPath(orgId ?? '', run.id),
-                    label: 'Run detail',
-                    hint: 'Tasks, payloads, lineage',
-                  },
-                  {
-                    href: packagePath(orgId ?? '', run.id),
-                    label: 'Package detail',
-                    hint: 'Artifacts tied to this run',
-                  },
-                ]}
-              />
-            </td>
+    <div className="cl-table-wrap">
+      <table className="cl-table">
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Status</th>
+            <th>What is happening</th>
+            <th>Updated</th>
+            <th>Next actions</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {runs.map((run) => (
+            <tr key={run.id}>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{run.workflowKey}</strong>
+                  <span className="cl-resource-meta">{run.externalRef ?? run.id}</span>
+                </div>
+              </td>
+              <td>
+                <div className="cl-inline-list">
+                  <StatusBadge status={run.status} />
+                  <StatusBadge status={`package ${run.packageStatus}`} />
+                </div>
+              </td>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{run.currentStep ?? 'Waiting for the next reported step'}</strong>
+                  <span className="cl-resource-meta">
+                    {run.pageName ?? 'Unknown page'} - {formatStatus(run.flowTrigger)} -{' '}
+                    {run.taskSummary}
+                  </span>
+                </div>
+              </td>
+              <td>{formatTimestamp(run.updatedAt)}</td>
+              <td>
+                <ActionCluster
+                  items={[
+                    { href: runPath(orgId ?? demoIds.orgId, run.id), label: 'Open run detail' },
+                    { href: packagePath(orgId ?? demoIds.orgId, run.id), label: 'Open package' },
+                    run.reelId
+                      ? {
+                          href: buildActionPath({ orgId: orgId ?? demoIds.orgId, reelId: run.reelId }),
+                          label: 'Open in Actions',
+                          tone: 'secondary',
+                        }
+                      : { href: '/actions', label: 'Open in Actions', tone: 'secondary' },
+                  ]}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function ReelsTable({ reels, orgId }: { reels: RecentReel[]; orgId: string | null }) {
   return (
-    <table style={tableStyle}>
-      <thead>
-        <tr>
-          <th style={cellStyle}>Reel</th>
-          <th style={cellStyle}>Lifecycle</th>
-          <th style={cellStyle}>Package</th>
-          <th style={cellStyle}>Run</th>
-          <th style={cellStyle}>Updated</th>
-          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {reels.map((reel) => {
-          const items: { href: string; label: string; hint?: string }[] = [
-            {
-              href: reelPath(orgId ?? '', reel.pageId, reel.id),
-              label: 'Reel detail',
-              hint: 'Lifecycle, assets, posting',
-            },
-          ];
-          if (reel.lastRunId) {
-            items.push({
-              href: runPath(orgId ?? '', reel.lastRunId),
-              label: 'Linked run',
-              hint: 'Orchestration context',
-            });
-            items.push({
-              href: packagePath(orgId ?? '', reel.lastRunId),
-              label: 'Linked package',
-              hint: 'Downloadable bundle',
-            });
-          }
-          return (
+    <div className="cl-table-wrap">
+      <table className="cl-table">
+        <thead>
+          <tr>
+            <th>Reel</th>
+            <th>Lifecycle</th>
+            <th>Package readiness</th>
+            <th>Linked run</th>
+            <th>Next actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reels.map((reel) => (
             <tr key={reel.id}>
-              <td style={cellStyle}>
-                <strong>{reel.variantLabel}</strong>
-                <div style={{ color: '#4f5b65', marginTop: '4px' }}>{reel.pageName}</div>
-              </td>
-              <td style={cellStyle}>
-                <StatusBadge label={reel.status} tone={toneForStatus(reel.status)} />
-                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                  {formatStatusLabel(reel.origin)}
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{reel.variantLabel}</strong>
+                  <span className="cl-resource-meta">{reel.pageName}</span>
                 </div>
               </td>
-              <td style={cellStyle}>
-                <StatusBadge
-                  label={`package ${formatStatusLabel(reel.packageStatus)}`}
-                  tone={toneForPackage(reel.packageStatus)}
+              <td>
+                <div className="cl-inline-list">
+                  <StatusBadge status={reel.status} />
+                  <span className="cl-resource-meta">{formatStatus(reel.origin)}</span>
+                </div>
+              </td>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{formatStatus(reel.packageStatus)}</strong>
+                  <span className="cl-resource-meta">{reel.packageMessage ?? 'No package message yet.'}</span>
+                </div>
+              </td>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{reel.lastRunId ?? 'No linked run yet'}</strong>
+                  <span className="cl-resource-meta">{reel.currentStep ?? 'No current step reported'}</span>
+                </div>
+              </td>
+              <td>
+                <ActionCluster
+                  items={[
+                    { href: reelPath(orgId ?? demoIds.orgId, reel.pageId, reel.id), label: 'Open reel detail' },
+                    reel.lastRunId
+                      ? { href: packagePath(orgId ?? demoIds.orgId, reel.lastRunId), label: 'Open package' }
+                      : { href: '/queue', label: 'Open queue' },
+                    {
+                      href: buildActionPath({
+                        orgId: orgId ?? demoIds.orgId,
+                        pageId: reel.pageId,
+                        reelId: reel.id,
+                      }),
+                      label: 'Open in Actions',
+                      tone: 'secondary',
+                    },
+                  ]}
                 />
-                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                  {reel.packageMessage ?? 'No package message'}
-                </div>
-              </td>
-              <td style={cellStyle}>
-                <div>{reel.lastRunId ?? 'No run linked yet'}</div>
-                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                  {reel.currentStep ?? 'No step reported'}
-                </div>
-              </td>
-              <td style={cellStyle}>{formatTimestamp(reel.updatedAt)}</td>
-              <td style={{ ...cellStyle, textAlign: 'right' }}>
-                <RowActionsMenu orgId={orgId} items={items} />
               </td>
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function QueueTable({ queue, orgId }: { queue: ReviewQueueItem[]; orgId: string | null }) {
   return (
-    <table style={tableStyle}>
-      <thead>
-        <tr>
-          <th style={cellStyle}>Reel</th>
-          <th style={cellStyle}>Queue state</th>
-          <th style={cellStyle}>Package</th>
-          <th style={cellStyle}>Flow</th>
-          <th style={cellStyle}>Updated</th>
-          <th style={{ ...cellStyle, textAlign: 'right' }}>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {queue.map((item) => {
-          const items: { href: string; label: string; hint?: string }[] = [
-            {
-              href: reelPath(orgId ?? '', item.pageId, item.id),
-              label: 'Reel detail',
-              hint: 'Review or posting context',
-            },
-          ];
-          if (item.lastRunId) {
-            items.push({
-              href: runPath(orgId ?? '', item.lastRunId),
-              label: 'Run detail',
-              hint: 'Tasks and orchestration',
-            });
-            items.push({
-              href: packagePath(orgId ?? '', item.lastRunId),
-              label: 'Package detail',
-              hint: 'Artifacts for this run',
-            });
-          }
-          return (
+    <div className="cl-table-wrap">
+      <table className="cl-table">
+        <thead>
+          <tr>
+            <th>Queue item</th>
+            <th>Why it is here</th>
+            <th>Package state</th>
+            <th>Linked workflow</th>
+            <th>Next actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {queue.map((item) => (
             <tr key={item.id}>
-              <td style={cellStyle}>
-                <strong>{item.variantLabel}</strong>
-                <div style={{ color: '#4f5b65', marginTop: '4px' }}>{item.pageName}</div>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{item.variantLabel}</strong>
+                  <span className="cl-resource-meta">{item.pageName}</span>
+                </div>
               </td>
-              <td style={cellStyle}>
-                <StatusBadge
-                  label={formatQueueLabel(item.queueState)}
-                  tone={toneForQueueState(item.queueState)}
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{formatQueueLabel(item.queueState)}</strong>
+                  <span className="cl-resource-meta">Lifecycle state: {formatStatus(item.status)}</span>
+                </div>
+              </td>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{formatStatus(item.packageStatus)}</strong>
+                  <span className="cl-resource-meta">{item.packageMessage ?? 'No package message yet.'}</span>
+                </div>
+              </td>
+              <td>
+                <div className="cl-resource-title">
+                  <strong>{item.lastRunId ?? 'No linked run yet'}</strong>
+                  <span className="cl-resource-meta">{item.currentStep ?? 'No current step reported'}</span>
+                </div>
+              </td>
+              <td>
+                <ActionCluster
+                  items={[
+                    { href: reelPath(orgId ?? demoIds.orgId, item.pageId, item.id), label: 'Open reel detail' },
+                    {
+                      href: buildActionPath({
+                        orgId: orgId ?? demoIds.orgId,
+                        pageId: item.pageId,
+                        reelId: item.id,
+                      }),
+                      label: 'Review in Actions',
+                      tone: 'primary',
+                    },
+                    item.lastRunId
+                      ? { href: packagePath(orgId ?? demoIds.orgId, item.lastRunId), label: 'Open package' }
+                      : { href: '/actions', label: 'Open actions' },
+                  ]}
                 />
-                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                  Lifecycle: {formatStatusLabel(item.status)}
-                </div>
-              </td>
-              <td style={cellStyle}>
-                <StatusBadge
-                  label={`package ${formatStatusLabel(item.packageStatus)}`}
-                  tone={toneForPackage(item.packageStatus)}
-                />
-                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                  {item.packageMessage ?? 'No package message'}
-                </div>
-              </td>
-              <td style={cellStyle}>
-                <div>{item.currentStep ?? 'No step reported'}</div>
-                <div style={{ color: '#4f5b65', marginTop: '6px' }}>
-                  {item.lastRunId ?? 'No run linked yet'}
-                </div>
-              </td>
-              <td style={cellStyle}>{formatTimestamp(item.updatedAt)}</td>
-              <td style={{ ...cellStyle, textAlign: 'right' }}>
-                <RowActionsMenu orgId={orgId} items={items} />
               </td>
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-function renderSectionState(
-  state: OperatorDashboardSnapshot['pages']['state'],
-  message: string | undefined,
-) {
-  if (!message) {
-    return null;
-  }
+function RecentActivity({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+  const queue = buildPackageReviewQueue(dashboard);
 
-  if (state === 'error') {
-    return <ResourceMessage message={message} tone="danger" />;
-  }
+  return (
+    <div className="cl-card-grid">
+      <article className="cl-card">
+        <div className="cl-kicker">Pages</div>
+        <h3 className="cl-card-title">
+          {dashboard.pages.state === 'ready' ? dashboard.pages.data[0]?.displayName ?? 'No pages yet' : 'Pages unavailable'}
+        </h3>
+        <p className="cl-card-description">
+          {dashboard.pages.state === 'ready'
+            ? 'Start from the page you manage, then move into its reels, policy, and detail routes.'
+            : dashboard.pages.message ?? 'Connect an org to begin loading pages.'}
+        </p>
+        <LinkAction href="/pages" label="Open Pages" />
+      </article>
+      <article className="cl-card">
+        <div className="cl-kicker">Runs</div>
+        <h3 className="cl-card-title">
+          {dashboard.runs.state === 'ready' ? dashboard.runs.data[0]?.workflowKey ?? 'No runs yet' : 'Runs unavailable'}
+        </h3>
+        <p className="cl-card-description">
+          {dashboard.runs.state === 'ready'
+            ? 'Use Runs to understand progress, blockers, and when outputs are ready.'
+            : dashboard.runs.message ?? 'Runs will appear once work has been started.'}
+        </p>
+        <LinkAction href="/runs" label="Open Runs" />
+      </article>
+      <article className="cl-card">
+        <div className="cl-kicker">Queue</div>
+        <h3 className="cl-card-title">
+          {queue.state === 'ready' ? `${queue.data.length} items need attention` : 'Queue unavailable'}
+        </h3>
+        <p className="cl-card-description">
+          {queue.state === 'ready'
+            ? 'Queue brings review-ready, QA-failed, and posted reels into one operator workflow.'
+            : queue.message ?? 'Queue items appear when generated reels reach a human step.'}
+        </p>
+        <LinkAction href="/queue" label="Open Queue" />
+      </article>
+    </div>
+  );
+}
 
-  if (state === 'unconfigured') {
-    return <ResourceMessage message={message} tone="warning" />;
-  }
+export function HomeRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+  const configured = dashboard.context.orgId !== null;
 
-  return <ResourceMessage message={message} tone="neutral" />;
+  return (
+    <DetailFrame
+      breadcrumbs={[{ label: 'Home' }]}
+      eyebrow="Start here"
+      title="A guided operator workspace for Content Lab"
+      subtitle="This UI is designed for someone who has never used the system before: every major feature is visible in navigation, every page explains what it does, and every workflow step points to the next safe action."
+      cuesSummary="Open this quick guide if you want the short version of what this workspace does and where to go next."
+      actions={
+        <ActionCluster
+          items={[
+            { href: '/actions', label: 'Open Actions', tone: 'primary' },
+            { href: '/queue', label: 'Go to Queue' },
+            { href: pagePath(demoIds.orgId, demoIds.pageId), label: 'Open sample detail', tone: 'secondary' },
+          ]}
+        />
+      }
+      cues={[
+        {
+          label: 'What this workspace is for',
+          value: 'Operate the reel workflow from page selection through human review and manual posting records.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Navigate every feature, understand the language of the system, and jump into the next recommended action.',
+        },
+        {
+          label: 'What comes next',
+          value: configured
+            ? 'Choose a page or open the Actions workspace to start work.'
+            : 'Choose a workspace org in the sidebar to load live data, or use the sample detail links while onboarding.',
+        },
+      ]}
+    >
+      {!configured ? (
+        <SectionCard
+          title="Connect your workspace"
+          description="The shell is ready, but live org-scoped data needs a workspace org before it can load pages, runs, reels, queue items, and policy."
+          actions={<LinkAction href="/actions" label="Open Actions anyway" />}
+        >
+          <EmptyState
+            title="Live data is not connected yet"
+            message={
+              dashboard.context.configurationMessage ??
+              'Use the workspace org control in the sidebar so the primary routes can load live API data.'
+            }
+            tone="warning"
+            actions={
+              <>
+                <LinkAction href={pagePath(demoIds.orgId, demoIds.pageId)} label="Open sample page" />
+                <LinkAction href={reelPath(demoIds.orgId, demoIds.pageId, demoIds.reelId)} label="Open sample reel" />
+              </>
+            }
+          />
+        </SectionCard>
+      ) : null}
+
+      <SectionCard
+        title="Start here today"
+        description="This is the shortest path to understanding the workspace and acting on current work."
+      >
+        <DashboardMetrics dashboard={dashboard} />
+        <QueueSummaryCards dashboard={dashboard} />
+        <NewHerePanel />
+        <RecentActivity dashboard={dashboard} />
+      </SectionCard>
+
+      <SectionCard
+        title="Workspace map"
+        description="Keep every feature visible, but grouped into the two questions operators usually have: where do I go, and in what order?"
+      >
+        <div className="cl-form-columns">
+          <div className="cl-stack-md">
+            <WorkflowSteps />
+          </div>
+          <div className="cl-stack-md">
+            <FeatureDirectory />
+          </div>
+        </div>
+      </SectionCard>
+
+      <details className="cl-panel cl-disclosure-panel">
+        <summary className="cl-disclosure-summary">
+          <span>
+            <span className="cl-kicker">Reference</span>
+            <strong className="cl-disclosure-title">Glossary and orientation</strong>
+          </span>
+          <span className="cl-disclosure-hint">Show</span>
+        </summary>
+        <GlossaryPanel />
+      </details>
+    </DetailFrame>
+  );
 }
 
 export function DashboardHomeView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
-  return (
-    <main style={pageStyle}>
-      <section style={heroStyle}>
-        <p style={{ color: '#4f5b65', margin: 0 }}>
-          Thin operator surface backed directly by the API.
-        </p>
-        <h2 style={{ fontSize: '2rem', margin: '10px 0 0' }}>
-          Production visibility for pages, runs, reels, and packages
-        </h2>
-        <div style={heroMetaStyle}>
-          <span>API: {dashboard.context.apiBaseUrl}</span>
-          <span>Org: {dashboard.context.orgId ?? 'Not configured'}</span>
-        </div>
-        {dashboard.context.configurationMessage ? (
-          <p style={{ ...noteStyle, marginTop: '12px' }}>
-            {dashboard.context.configurationMessage}
-          </p>
-        ) : null}
-      </section>
-
-      <OverviewMetrics dashboard={dashboard} />
-
-      <SectionPanel
-        title="Owned pages"
-        description="Registered production accounts the operator team is responsible for."
-        href="/pages"
-        note={dashboard.pages.state === 'ready' ? dashboard.pages.message : undefined}
-      >
-        {dashboard.pages.state === 'ready' ? (
-          <PagesTable pages={dashboard.pages.data.slice(0, 5)} orgId={dashboard.context.orgId} />
-        ) : (
-          renderSectionState(dashboard.pages.state, dashboard.pages.message)
-        )}
-      </SectionPanel>
-
-      <SectionPanel
-        title="Current runs"
-        description="Recent reel-linked workflow activity pulled from existing run detail endpoints."
-        href="/runs"
-        note={dashboard.runs.state === 'ready' ? dashboard.runs.message : undefined}
-      >
-        {dashboard.runs.state === 'ready' ? (
-          <RunsTable runs={dashboard.runs.data} orgId={dashboard.context.orgId} />
-        ) : (
-          renderSectionState(dashboard.runs.state, dashboard.runs.message)
-        )}
-      </SectionPanel>
-
-      <SectionPanel
-        title="Recent reels"
-        description="Latest reel lifecycle changes, including package-readiness signals."
-        href="/reels"
-        note={dashboard.reels.state === 'ready' ? dashboard.reels.message : undefined}
-      >
-        {dashboard.reels.state === 'ready' ? (
-          <ReelsTable reels={dashboard.reels.data} orgId={dashboard.context.orgId} />
-        ) : (
-          renderSectionState(dashboard.reels.state, dashboard.reels.message)
-        )}
-      </SectionPanel>
-    </main>
-  );
+  return <HomeRouteView dashboard={dashboard} />;
 }
 
 export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
   return (
-    <main style={pageStyle}>
-      <section style={heroStyle}>
-        <p style={{ color: '#4f5b65', margin: 0 }}>Pages</p>
-        <h2 style={{ margin: '10px 0 0' }}>Owned portfolio</h2>
-        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
-          Operators use this view to confirm which production accounts are in scope.
-        </p>
-      </section>
-
-      <SectionPanel
-        title="Owned pages"
-        description="Direct API view of the org page registry."
-        href="/"
+    <DetailFrame
+      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Pages' }]}
+      eyebrow="Pages"
+      title="Your production page directory"
+      subtitle="Start here when you need to find the right account, understand its setup, and move into reels, policy, or actions."
+      cuesSummary={cueSummaryForRoute('See which accounts you manage, what they mean, and where to go next from each row.')}
+      actions={<ActionCluster items={[{ href: '/actions', label: 'Open Actions', tone: 'primary' }]} />}
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'See which social accounts you are responsible for and which ones are just reference accounts.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Open page detail, move into reel history, or start work with the right page context.',
+        },
+        {
+          label: 'What comes next',
+          value: 'After choosing a page, go to Actions to start work or open reel detail from that page.',
+        },
+      ]}
+    >
+      <SectionCard
+        title="Pages in scope"
+        description="Each row tells you what the page is, why it matters, and where to go next."
+        note={dashboard.pages.state === 'ready' ? dashboard.pages.message : undefined}
       >
         {dashboard.pages.state === 'ready' ? (
           <PagesTable pages={dashboard.pages.data} orgId={dashboard.context.orgId} />
         ) : (
-          renderSectionState(dashboard.pages.state, dashboard.pages.message)
+          <ResourceStateBlock
+            title="Pages are not available yet"
+            state={dashboard.pages.state}
+            message={dashboard.pages.message}
+            action={<LinkAction href="/" label="Back to Home" />}
+          />
         )}
-      </SectionPanel>
-    </main>
+      </SectionCard>
+    </DetailFrame>
   );
 }
 
 export function RunsRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
   return (
-    <main style={pageStyle}>
-      <section style={heroStyle}>
-        <p style={{ color: '#4f5b65', margin: 0 }}>Runs</p>
-        <h2 style={{ margin: '10px 0 0' }}>Workflow activity</h2>
-        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
-          This route follows recent reel-linked runs and surfaces workflow and package state in one
-          place.
-        </p>
-      </section>
-
-      <SectionPanel
-        title="Current runs"
-        description="Run detail compiled from reel metadata and run endpoints."
-        href="/"
+    <DetailFrame
+      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Runs' }]}
+      eyebrow="Runs"
+      title="Track workflow progress and blockers"
+      subtitle="Use this route to check work that is already in motion: what started, what step it is on, and whether it is blocked or ready."
+      cuesSummary={cueSummaryForRoute('Track in-flight work, open the linked package, and spot blockers without reading raw payloads first.')}
+      actions={<ActionCluster items={[{ href: '/actions', label: 'Start a workflow', tone: 'primary' }]} />}
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'See workflow activity at a glance instead of reading raw task payloads first.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Spot blockers, open detailed run payloads, or jump into the linked package and actions workspace.',
+        },
+        {
+          label: 'What comes next',
+          value: 'If a run finishes, open the linked package or queue item to continue human review.',
+        },
+      ]}
+    >
+      <SectionCard
+        title="Current run tracker"
+        description="Each run summarizes progress, package state, and what the operator should inspect next."
+        note={dashboard.runs.state === 'ready' ? dashboard.runs.message : undefined}
       >
         {dashboard.runs.state === 'ready' ? (
           <RunsTable runs={dashboard.runs.data} orgId={dashboard.context.orgId} />
         ) : (
-          renderSectionState(dashboard.runs.state, dashboard.runs.message)
+          <ResourceStateBlock
+            title="Runs are not available yet"
+            state={dashboard.runs.state}
+            message={dashboard.runs.message}
+            action={<LinkAction href="/actions" label="Open Actions" />}
+          />
         )}
-      </SectionPanel>
-    </main>
+      </SectionCard>
+    </DetailFrame>
   );
 }
 
 export function ReelsRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
   return (
-    <main style={pageStyle}>
-      <section style={heroStyle}>
-        <p style={{ color: '#4f5b65', margin: 0 }}>Reels</p>
-        <h2 style={{ margin: '10px 0 0' }}>Recent content state</h2>
-        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
-          Recent reel updates with operator-facing lifecycle and package readiness badges.
-        </p>
-      </section>
-
-      <SectionPanel
+    <DetailFrame
+      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Reels' }]}
+      eyebrow="Reels"
+      title="See content readiness without guessing"
+      subtitle="Use this route when you want a simple answer to what happened to a piece of content and whether it is ready for the next step."
+      cuesSummary={cueSummaryForRoute('Check lifecycle, package readiness, and jump straight into review or detail from the same table.')}
+      actions={<ActionCluster items={[{ href: '/queue', label: 'Open Queue', tone: 'primary' }]} />}
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Understand whether a reel is observed, generated, ready for review, blocked, or already posted.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Open reel detail, inspect packages, or jump straight into the action workspace with reel IDs filled in.',
+        },
+        {
+          label: 'What comes next',
+          value: 'If a reel is ready, move to Queue or Actions for the human review step.',
+        },
+      ]}
+    >
+      <SectionCard
         title="Recent reels"
-        description="Latest reel activity across owned pages."
-        href="/"
+        description="Every reel row explains state in plain language and links to the next relevant workspace."
+        note={dashboard.reels.state === 'ready' ? dashboard.reels.message : undefined}
       >
         {dashboard.reels.state === 'ready' ? (
           <ReelsTable reels={dashboard.reels.data} orgId={dashboard.context.orgId} />
         ) : (
-          renderSectionState(dashboard.reels.state, dashboard.reels.message)
-        )}
-      </SectionPanel>
-    </main>
-  );
-}
-
-export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }) {
-  return (
-    <main style={pageStyle}>
-      <section style={heroStyle}>
-        <p style={{ color: '#4f5b65', margin: 0 }}>Policy</p>
-        <h2 style={{ margin: '10px 0 0' }}>Phase-1 guardrails editor</h2>
-        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
-          Operators can inspect and patch only the allowed policy schema: mode ratios, budget
-          guardrails, and QA or similarity thresholds.
-        </p>
-      </section>
-
-      <SectionPanel
-        title="Page policy editor"
-        description="This editor stays inside the real page-policy PATCH contract and avoids adding speculative controls."
-        href="/"
-        note={snapshot.policies.state === 'ready' ? snapshot.policies.message : undefined}
-      >
-        {snapshot.policies.state === 'ready' && snapshot.context.orgId ? (
-          <PolicyEditor
-            apiBaseUrl={snapshot.context.apiBaseUrl}
-            orgId={snapshot.context.orgId}
-            records={snapshot.policies.data}
+          <ResourceStateBlock
+            title="Reels are not available yet"
+            state={dashboard.reels.state}
+            message={dashboard.reels.message}
+            action={<LinkAction href="/pages" label="Open Pages" />}
           />
-        ) : (
-          renderSectionState(snapshot.policies.state, snapshot.policies.message)
         )}
-      </SectionPanel>
-    </main>
+      </SectionCard>
+    </DetailFrame>
   );
 }
 
 export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
   const queue = buildPackageReviewQueue(dashboard);
-  const readyCount =
-    queue.state === 'ready'
-      ? queue.data.filter((item) => item.queueState === 'ready_for_review').length
-      : 0;
-  const qaFailedCount =
-    queue.state === 'ready'
-      ? queue.data.filter((item) => item.queueState === 'qa_failed').length
-      : 0;
-  const postedCount =
-    queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'posted').length : 0;
+  const readyCount = queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'ready_for_review').length : 0;
+  const qaFailedCount = queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'qa_failed').length : 0;
+  const postedCount = queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'posted').length : 0;
 
   return (
-    <main style={pageStyle}>
-      <section style={heroStyle}>
-        <p style={{ color: '#4f5b65', margin: 0 }}>Queue</p>
-        <h2 style={{ margin: '10px 0 0' }}>Package-ready working queue</h2>
-        <p style={{ color: '#4f5b65', margin: '10px 0 0' }}>
-          Generated reels stay visible in one operator queue as soon as they are ready for human
-          review, blocked by QA, or already marked posted.
-        </p>
-        {queue.state === 'ready' ? (
-          <div style={heroMetaStyle}>
-            <span>Ready for review: {readyCount}</span>
-            <span>QA failed: {qaFailedCount}</span>
-            <span>Posted: {postedCount}</span>
-          </div>
-        ) : null}
-      </section>
+    <DetailFrame
+      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Queue' }]}
+      eyebrow="Queue"
+      title="The human review workspace"
+      subtitle="Use Queue when a person needs to make a decision: review content, investigate a failure, or record that something was already posted."
+      cuesSummary={cueSummaryForRoute('Keep review-ready, QA-failed, and posted reels in one working list, then jump into the next safe action.')}
+      actions={<ActionCluster items={[{ href: '/actions', label: 'Review in Actions', tone: 'primary' }, { href: '/reels', label: 'Browse Reels' }]} />}
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Collect every generated reel that needs human attention into one working list.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Open a reel, inspect its package, approve or archive it, or record manual posting with the right IDs in place.',
+        },
+        {
+          label: 'What comes next',
+          value: 'Move from Queue into Actions or reel detail depending on whether you are reviewing or investigating.',
+        },
+      ]}
+    >
+      <SectionCard title="Queue summary" description="These counts show how much human work is waiting right now.">
+        <MetaGrid
+          items={[
+            { label: 'Ready for review', value: readyCount },
+            { label: 'QA failed', value: qaFailedCount },
+            { label: 'Posted', value: postedCount },
+            { label: 'Source', value: 'Generated reels only' },
+          ]}
+        />
+      </SectionCard>
 
-      <SectionPanel
+      <SectionCard
         title="Review and posting queue"
-        description="This view keeps phase-1 operator work centered on package readiness and explicit human outcomes."
-        href="/"
+        description="Each item explains why it is here and offers direct links to the next safe action."
         note={queue.state === 'ready' ? queue.message : undefined}
       >
         {queue.state === 'ready' ? (
           <QueueTable queue={queue.data} orgId={dashboard.context.orgId} />
         ) : (
-          renderSectionState(queue.state, queue.message)
+          <ResourceStateBlock
+            title="Queue items are not available yet"
+            state={queue.state}
+            message={queue.message}
+            action={<LinkAction href="/actions" label="Open Actions" />}
+          />
         )}
-      </SectionPanel>
-    </main>
+      </SectionCard>
+    </DetailFrame>
+  );
+}
+
+export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }) {
+  const records = snapshot.policies.state === 'ready' ? snapshot.policies.data : [];
+  const defaultsCount = records.filter((record) => record.source === 'default').length;
+
+  return (
+    <DetailFrame
+      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Policy' }]}
+      eyebrow="Policy"
+      title="Guardrails that shape what the system is allowed to do"
+      subtitle="Use Policy when you need to change how adventurous, expensive, or strict the system is allowed to be for a page."
+      cuesSummary={cueSummaryForRoute('Adjust safe ranges for each page without leaving the allowed phase-1 schema.')}
+      actions={<ActionCluster items={[{ href: '/pages', label: 'Open Pages' }, { href: '/actions', label: 'Open Actions', tone: 'secondary' }]} />}
+      cues={[
+        {
+          label: 'What this page is for',
+          value: 'Adjust page-level budgets, mode ratios, and thresholds without leaving the allowed schema.',
+        },
+        {
+          label: 'What you can do here',
+          value: 'Understand current policy source, compare default versus saved values, and patch safe ranges through the audited route.',
+        },
+        {
+          label: 'What comes next',
+          value: 'After updating policy, return to Pages or Actions to start new work under the new guardrails.',
+        },
+      ]}
+    >
+      <SectionCard
+        title="What these controls affect"
+        description="Policy does not create content by itself. It shapes how the system budgets work, how exploratory it is, and when similarity or quality thresholds should stop a reel."
+      >
+        <MetaGrid
+          items={[
+            { label: 'Mode ratios', value: 'Control the balance between safer exploitation and more exploratory generation.' },
+            { label: 'Budget guardrails', value: 'Set upper bounds on spend per run, per day, and per month.' },
+            { label: 'Thresholds', value: 'Define when similarity warns or blocks and the minimum QA score that work should meet.' },
+            { label: 'Pages on defaults', value: snapshot.policies.state === 'ready' ? defaultsCount : 'Unknown' },
+          ]}
+        />
+      </SectionCard>
+
+      <SectionCard
+        title="Page policy editor"
+        description="Edit one page at a time with inline guidance about safe ranges and the effect of each section."
+        note={snapshot.policies.state === 'ready' ? snapshot.policies.message : undefined}
+      >
+        {snapshot.policies.state === 'ready' && snapshot.context.orgId ? (
+          <PolicyEditor apiBaseUrl={snapshot.context.apiBaseUrl} orgId={snapshot.context.orgId} records={snapshot.policies.data} />
+        ) : (
+          <ResourceStateBlock
+            title="Policy is not available yet"
+            state={snapshot.policies.state}
+            message={snapshot.policies.message}
+            action={<LinkAction href="/pages" label="Open Pages" />}
+          />
+        )}
+      </SectionCard>
+    </DetailFrame>
   );
 }

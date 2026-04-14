@@ -1,0 +1,16 @@
+FROM node:24-bookworm-slim AS base
+
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json /app/
+COPY apps/web /app/apps/web
+COPY packages/shared/ts /app/packages/shared/ts
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter web build
+
+EXPOSE 3000
+
+CMD ["pnpm", "--filter", "web", "start"]

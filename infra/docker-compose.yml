@@ -94,7 +94,18 @@ services:
       DATABASE_URL: postgresql+psycopg://contentlab:contentlab@postgres:5432/contentlab
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
-    profiles: [app]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; response = urllib.request.urlopen('http://127.0.0.1:8000/health'); payload = json.loads(response.read().decode()); raise SystemExit(0 if payload.get('status') == 'ok' else 1)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    profiles: [app, web]
 
   worker:
     build:
@@ -128,6 +139,34 @@ services:
       DATABASE_URL: postgresql+psycopg://contentlab:contentlab@postgres:5432/contentlab
       REDIS_URL: redis://redis:6379/0
     profiles: [app]
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    ports:
+      - "3000:3000"
+    env_file: ../.env
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      CONTENT_LAB_API_BASE_URL: http://api:8000
+      NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+      NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL: http://127.0.0.1:8000
+      NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID: ${CONTENT_LAB_OPERATOR_ORG_ID:-}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then((response) => { process.exit(response.ok ? 0 : 1); }).catch(() => process.exit(1));",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    profiles: [web]
 
 volumes:
   postgres_data:

@@ -94,12 +94,12 @@ async function fetchPagePolicy(
 }
 
 export async function loadPolicyEditorSnapshot(): Promise<PolicyEditorSnapshot> {
-  const context = resolveOperatorContext();
+  const context = await resolveOperatorContext();
 
   if (!context.orgId) {
     const message =
       context.configurationMessage ??
-      'Set CONTENT_LAB_OPERATOR_ORG_ID to an org UUID so page policy can be loaded.';
+      'Choose a workspace org in the console sidebar so page policy can be loaded.';
 
     return {
       context,

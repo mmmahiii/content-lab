@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, type CSSProperties, type ChangeEvent } from 'react';
+import React, { useState, type ChangeEvent } from 'react';
 
 import type { PolicyStateOut } from '@shared/types';
 
@@ -15,108 +15,6 @@ import {
   type SubmissionFeedback,
 } from '../operator-console.helpers';
 import type { PolicyEditorRecord } from '../_lib/operator-policy';
-
-const shellStyle: CSSProperties = {
-  display: 'grid',
-  gap: 18,
-};
-
-const pickerStyle: CSSProperties = {
-  display: 'grid',
-  gap: 12,
-  padding: 16,
-  borderRadius: 14,
-  border: '1px solid #d9ddd4',
-  backgroundColor: '#fbfbf9',
-};
-
-const metaGridStyle: CSSProperties = {
-  display: 'grid',
-  gap: 12,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
-};
-
-const metaCardStyle: CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
-  border: '1px solid #e7e9e2',
-  backgroundColor: '#ffffff',
-};
-
-const formGridStyle: CSSProperties = {
-  display: 'grid',
-  gap: 16,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
-};
-
-const sectionStyle: CSSProperties = {
-  display: 'grid',
-  gap: 12,
-  padding: 16,
-  borderRadius: 14,
-  border: '1px solid #d9ddd4',
-  backgroundColor: '#ffffff',
-};
-
-const labelStyle: CSSProperties = {
-  display: 'grid',
-  gap: 6,
-  fontSize: '0.94rem',
-  fontWeight: 600,
-};
-
-const fieldStyle: CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  borderRadius: 10,
-  border: '1px solid #c4cbc0',
-  fontSize: '0.95rem',
-};
-
-const helpTextStyle: CSSProperties = {
-  color: '#4f5b65',
-  fontSize: '0.88rem',
-  lineHeight: 1.5,
-  margin: 0,
-};
-
-const errorTextStyle: CSSProperties = {
-  color: '#7d2d23',
-  fontSize: '0.88rem',
-  lineHeight: 1.5,
-  margin: 0,
-};
-
-const actionRowStyle: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 10,
-};
-
-const primaryButtonStyle: CSSProperties = {
-  border: 'none',
-  borderRadius: '999px',
-  backgroundColor: '#16202a',
-  color: '#ffffff',
-  cursor: 'pointer',
-  fontWeight: 700,
-  padding: '10px 16px',
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  ...primaryButtonStyle,
-  backgroundColor: '#f0f3ee',
-  border: '1px solid #c4cbc0',
-  color: '#16202a',
-};
-
-const feedbackStyle: CSSProperties = {
-  display: 'grid',
-  gap: 8,
-  padding: 14,
-  borderRadius: 14,
-  border: '1px solid #d9ddd4',
-};
 
 function formatTimestamp(value: string | null): string {
   if (!value) {
@@ -134,22 +32,22 @@ function FeedbackPanel({ feedback }: { feedback: SubmissionFeedback<PolicyStateO
     return null;
   }
 
-  const tone =
+  const className =
     feedback.kind === 'success'
-      ? { backgroundColor: '#e7f4e3', borderColor: '#bbd9b7' }
+      ? 'cl-feedback is-success'
       : feedback.kind === 'error'
-        ? { backgroundColor: '#fde4e1', borderColor: '#edb7b0' }
-        : { backgroundColor: '#fff0d6', borderColor: '#ebca8f' };
+        ? 'cl-feedback is-error'
+        : 'cl-feedback is-pending';
 
   return (
-    <div style={{ ...feedbackStyle, ...tone }}>
+    <div className={className}>
       {feedback.title ? <strong>{feedback.title}</strong> : null}
-      {feedback.message ? <p style={helpTextStyle}>{feedback.message}</p> : null}
-      {feedback.route ? <p style={helpTextStyle}>Audited route: PATCH {feedback.route}</p> : null}
+      {feedback.message ? <p className="cl-field-note">{feedback.message}</p> : null}
+      {feedback.route ? <p className="cl-field-note">Audited route: PATCH {feedback.route}</p> : null}
       {feedback.details && feedback.details.length > 0 ? (
-        <ul style={{ margin: 0, paddingLeft: 18 }}>
+        <ul className="cl-compact">
           {feedback.details.map((detail) => (
-            <li key={detail} style={helpTextStyle}>
+            <li key={detail} className="cl-field-note">
               {detail}
             </li>
           ))}
@@ -167,7 +65,7 @@ function SectionError({
   field: PolicyEditorField;
 }) {
   const message = errors[field];
-  return message ? <p style={errorTextStyle}>{message}</p> : null;
+  return message ? <p className="cl-field-error">{message}</p> : null;
 }
 
 export function PolicyEditor({
@@ -269,12 +167,11 @@ export function PolicyEditor({
   }
 
   return (
-    <div style={shellStyle}>
-      <div style={pickerStyle}>
-        <label style={labelStyle}>
+    <div className="cl-policy-shell">
+      <div className="cl-highlight-card cl-policy-picker">
+        <label className="cl-label">
           Page
           <select
-            style={fieldStyle}
             value={selectedRecord.page.id}
             onChange={(event) => {
               setSelectedPageId(event.target.value);
@@ -291,64 +188,58 @@ export function PolicyEditor({
           </select>
         </label>
 
-        <div style={metaGridStyle}>
-          <div style={metaCardStyle}>
+        <div className="cl-meta-grid">
+          <article className="cl-meta-card">
             <strong>{selectedRecord.page.displayName}</strong>
-            <p style={helpTextStyle}>{selectedRecord.page.handle ?? 'Handle not set'}</p>
-          </div>
-          <div style={metaCardStyle}>
+            <p className="cl-field-note">{selectedRecord.page.handle ?? 'Handle not set'}</p>
+          </article>
+          <article className="cl-meta-card">
             <strong>Policy source</strong>
-            <p style={helpTextStyle}>
+            <p className="cl-field-note">
               {selectedRecord.source === 'saved'
                 ? 'Loaded from the page policy route.'
                 : 'Default phase-1 guardrails ready to save.'}
             </p>
-          </div>
-          <div style={metaCardStyle}>
+          </article>
+          <article className="cl-meta-card">
             <strong>Last saved</strong>
-            <p style={helpTextStyle}>
-              {formatTimestamp(selectedRecord.policy?.updated_at ?? null)}
-            </p>
-          </div>
-          <div style={metaCardStyle}>
+            <p className="cl-field-note">{formatTimestamp(selectedRecord.policy?.updated_at ?? null)}</p>
+          </article>
+          <article className="cl-meta-card">
             <strong>Scope</strong>
-            <p style={helpTextStyle}>page:{selectedRecord.page.id}</p>
-          </div>
+            <p className="cl-field-note">page:{selectedRecord.page.id}</p>
+          </article>
         </div>
       </div>
 
-      <form style={shellStyle} onSubmit={handleSubmit}>
-        <label style={labelStyle}>
+      <form className="cl-policy-shell" onSubmit={handleSubmit}>
+        <label className="cl-label">
           Operator Actor ID
           <input
-            style={fieldStyle}
             value={actorId}
             onChange={(event) => setActorId(event.target.value)}
             placeholder="operator:policy-manager"
           />
-          <p style={helpTextStyle}>
-            The save action uses the audited <code>X-Actor-Id</code> header on the page-policy PATCH
-            route.
+          <p className="cl-field-note">
+            The save action uses the audited <code className="cl-code">X-Actor-Id</code> header on the
+            page-policy PATCH route.
           </p>
           <SectionError errors={fieldErrors} field="actorId" />
         </label>
 
-        <div style={formGridStyle}>
-          <section style={sectionStyle}>
-            <div>
-              <h3 style={{ margin: 0 }}>Mode ratios</h3>
-              <p style={helpTextStyle}>
-                These values must stay within 0.00 to 1.00 and sum to 1.00.
-              </p>
+        <div className="cl-policy-grid">
+          <section className="cl-policy-section">
+            <div className="cl-policy-head">
+              <h3 className="cl-compact">Mode ratios</h3>
+              <p className="cl-field-note">These values must stay within 0.00 to 1.00 and sum to 1.00.</p>
             </div>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Exploit
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.mode_ratios.exploit}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -364,13 +255,12 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Explore
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.mode_ratios.explore}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -386,13 +276,12 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Mutation
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.mode_ratios.mutation}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -408,13 +297,12 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Chaos
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.mode_ratios.chaos}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -433,20 +321,17 @@ export function PolicyEditor({
             <SectionError errors={fieldErrors} field="mode_ratios" />
           </section>
 
-          <section style={sectionStyle}>
-            <div>
-              <h3 style={{ margin: 0 }}>Budget guardrails</h3>
-              <p style={helpTextStyle}>
-                Per-run must stay below daily, and daily must stay below monthly.
-              </p>
+          <section className="cl-policy-section">
+            <div className="cl-policy-head">
+              <h3 className="cl-compact">Budget guardrails</h3>
+              <p className="cl-field-note">Per-run must stay below daily, and daily must stay below monthly.</p>
             </div>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Per-run USD limit
               <input
                 min="0"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.budget.per_run_usd_limit}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -462,12 +347,11 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Daily USD limit
               <input
                 min="0"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.budget.daily_usd_limit}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -483,12 +367,11 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Monthly USD limit
               <input
                 min="0"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.budget.monthly_usd_limit}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -507,22 +390,20 @@ export function PolicyEditor({
             <SectionError errors={fieldErrors} field="budget" />
           </section>
 
-          <section style={sectionStyle}>
-            <div>
-              <h3 style={{ margin: 0 }}>Thresholds</h3>
-              <p style={helpTextStyle}>
-                Similarity warning must stay below the block threshold, and QA stays in the unit
-                range.
+          <section className="cl-policy-section">
+            <div className="cl-policy-head">
+              <h3 className="cl-compact">Thresholds</h3>
+              <p className="cl-field-note">
+                Similarity warning must stay below the block threshold, and QA stays in the unit range.
               </p>
             </div>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Similarity warn at
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.thresholds.similarity.warn_at}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -541,13 +422,12 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Similarity block at
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.thresholds.similarity.block_at}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -566,13 +446,12 @@ export function PolicyEditor({
               />
             </label>
 
-            <label style={labelStyle}>
+            <label className="cl-label">
               Minimum QA score
               <input
                 min="0"
                 max="1"
                 step="0.01"
-                style={fieldStyle}
                 type="number"
                 value={selectedRecord.draft.thresholds.min_quality_score}
                 onChange={handleNumberChange((current, nextValue) => ({
@@ -592,16 +471,11 @@ export function PolicyEditor({
           </section>
         </div>
 
-        <div style={actionRowStyle}>
-          <button disabled={pending} style={primaryButtonStyle} type="submit">
+        <div className="cl-button-row">
+          <button disabled={pending} className="cl-button is-primary" type="submit">
             {pending ? 'Saving...' : 'Save policy'}
           </button>
-          <button
-            disabled={pending}
-            style={secondaryButtonStyle}
-            type="button"
-            onClick={resetSelectedDraft}
-          >
+          <button disabled={pending} className="cl-button" type="button" onClick={resetSelectedDraft}>
             Reset
           </button>
         </div>

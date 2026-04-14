@@ -27,6 +27,47 @@ Copy-Item infra/.env.example .env   # PowerShell
 
 See `infra/.env.example` for the full variable list and comments.
 
+## One-command console startup
+
+If you want the system to boot the full stack and open the operator console for you, run:
+
+```powershell
+powershell -NoProfile -File .\open-console.ps1
+```
+
+Or:
+
+```powershell
+pnpm run console:open
+```
+
+This launcher will:
+
+1. ensure `.env` exists;
+2. start Postgres, Redis, MinIO, and bucket init;
+3. run Alembic migrations;
+4. start API, worker, orchestrator, and web in Docker;
+5. wait until `http://127.0.0.1:8000/health` and `http://127.0.0.1:3000` are ready;
+6. open the web console in your browser.
+
+The first run may take a while because Docker has to build the app images once.
+After that, the launcher reuses those images by default so opening the console is
+much faster. If you want to rebuild after changing Dockerfiles or app
+dependencies, use:
+
+```powershell
+powershell -NoProfile -File .\open-console.ps1 -Rebuild
+```
+
+Stop the stack with:
+
+```powershell
+powershell -NoProfile -File .\stop-console.ps1
+```
+
+If you want the policy and queue views to load immediately, set `CONTENT_LAB_OPERATOR_ORG_ID`
+in `.env` to an org UUID before launching.
+
 ## 2. Infrastructure
 
 Start Postgres 16 (with pgvector), Redis 7, and MinIO:

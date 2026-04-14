@@ -7,6 +7,8 @@
   },
   "scripts": {
     "dev": "pnpm --filter web dev",
+    "console:open": "powershell -NoProfile -File open-console.ps1",
+    "console:stop": "powershell -NoProfile -File stop-console.ps1",
     "lint": "pnpm --filter web lint && pnpm --filter @content-lab/shared-ts lint",
     "format": "pnpm --filter web format && pnpm --filter @content-lab/shared-ts format",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter @content-lab/shared-ts typecheck",

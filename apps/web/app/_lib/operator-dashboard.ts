@@ -1,4 +1,12 @@
+import { cookies } from 'next/headers';
+
 import type { ReviewQueueState } from '@shared/types';
+
+import {
+  OPERATOR_ORG_COOKIE,
+  resolveOperatorOrgId,
+  type OperatorContextSource,
+} from './operator-context';
 
 export type ResourceState = 'ready' | 'empty' | 'error' | 'unconfigured';
 export type PackageStatus = 'ready' | 'failed' | 'pending' | 'not_started';
@@ -13,6 +21,7 @@ export type Resource<T> = {
 export type OperatorContext = {
   apiBaseUrl: string;
   orgId: string | null;
+  source: OperatorContextSource;
   configurationMessage?: string;
 };
 
@@ -159,25 +168,39 @@ function readBoolean(record: JsonRecord | null, key: string): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
-export function resolveOperatorContext(): OperatorContext {
+export async function resolveOperatorContext(): Promise<OperatorContext> {
   const apiBaseUrl = (
     process.env.CONTENT_LAB_API_BASE_URL ??
     process.env.NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL ??
     DEFAULT_API_BASE_URL
   ).replace(/\/$/, '');
-  const orgId =
-    process.env.CONTENT_LAB_OPERATOR_ORG_ID ?? process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID;
+  let cookieOrgId: string | undefined;
 
-  if (!orgId) {
+  try {
+    const cookieStore = await cookies();
+    cookieOrgId = cookieStore.get(OPERATOR_ORG_COOKIE)?.value;
+  } catch {
+    cookieOrgId = undefined;
+  }
+
+  const selection = resolveOperatorOrgId({
+    cookieOrgId,
+    envOrgId:
+      process.env.CONTENT_LAB_OPERATOR_ORG_ID ??
+      process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID,
+  });
+
+  if (!selection.orgId) {
     return {
       apiBaseUrl,
+      source: 'unconfigured',
       orgId: null,
       configurationMessage:
-        'Set CONTENT_LAB_OPERATOR_ORG_ID to an org UUID so the operator dashboard can load API data.',
+        'Choose a workspace org in the console sidebar, or set CONTENT_LAB_OPERATOR_ORG_ID, so the operator dashboard can load live API data.',
     };
   }
 
-  return { apiBaseUrl, orgId };
+  return { apiBaseUrl, orgId: selection.orgId, source: selection.source };
 }
 
 function buildUrl(context: OperatorContext, path: string): string {
@@ -431,12 +454,12 @@ async function loadCurrentRuns(
 }
 
 export async function loadOperatorDashboard(): Promise<OperatorDashboardSnapshot> {
-  const context = resolveOperatorContext();
+  const context = await resolveOperatorContext();
 
   if (!context.orgId) {
     const message =
       context.configurationMessage ??
-      'Set CONTENT_LAB_OPERATOR_ORG_ID to an org UUID so the operator dashboard can load API data.';
+      'Choose a workspace org in the console sidebar so the operator dashboard can load live API data.';
 
     return {
       context,

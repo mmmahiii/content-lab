@@ -3,125 +3,131 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const DEMO_ORG_ID = '7d3d7599-820e-4c8d-9c74-3d3b6d6f2785';
-const DEMO_PAGE_ID = '495d0d7e-acde-4c1d-b7ef-e5bc0d8ba3f4';
+import type { OperatorContextSource } from '../_lib/operator-context';
+import { WorkspaceOrgSwitcher } from './workspace-org-switcher';
 
-function shortOrg(value: string): string {
-  return `${value.slice(0, 8)}…`;
-}
+type NavItem = {
+  href: string;
+  label: string;
+  hint: string;
+};
 
-type NavItem = { href: string; label: string; hint?: string };
+const navItems: NavItem[] = [
+  { href: '/', label: 'Home', hint: 'Start here' },
+  { href: '/pages', label: 'Pages', hint: 'Accounts you manage' },
+  { href: '/runs', label: 'Runs', hint: 'Track active work' },
+  { href: '/reels', label: 'Reels', hint: 'See content status' },
+  { href: '/queue', label: 'Queue', hint: 'Handle review work' },
+  { href: '/policy', label: 'Policy', hint: 'Set safe limits' },
+  { href: '/actions', label: 'Actions', hint: 'Start or record work' },
+];
 
-const browseItems: NavItem[] = [
-  { href: '/', label: 'Dashboard', hint: 'Workspace + API console' },
-  { href: '/pages', label: 'Pages', hint: 'Owned portfolio' },
-  { href: '/runs', label: 'Runs', hint: 'Workflow activity' },
-  { href: '/reels', label: 'Reels', hint: 'Recent content state' },
-  { href: '/queue', label: 'Queue', hint: 'Review & posting' },
-  { href: '/policy', label: 'Policy', hint: 'Guardrails editor' },
+const flowItems = [
+  {
+    title: 'Choose a page',
+    description: 'Find the account you are managing and confirm its constraints.',
+  },
+  {
+    title: 'Start work',
+    description: 'Trigger a run or a reel-processing job from the Actions workspace.',
+  },
+  {
+    title: 'Track progress',
+    description: 'Use Runs and Reels to understand status, blockers, and outputs.',
+  },
+  {
+    title: 'Review output',
+    description: 'Use Queue and reel detail to approve, archive, or inspect packages.',
+  },
+  {
+    title: 'Record posting',
+    description: 'After a human posts externally, record that outcome without autoposting.',
+  },
 ];
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+
   return (
-    <Link
-      href={item.href}
-      className={`cl-dropdown-item${active ? ' is-active' : ''}`}
-      aria-current={active ? 'page' : undefined}
-    >
-      <span>{item.label}</span>
-      {item.hint ? <div className="cl-dropdown-item-muted">{item.hint}</div> : null}
+    <Link href={item.href} className="cl-nav-link" aria-current={active ? 'page' : undefined}>
+      <span className="cl-nav-label">{item.label}</span>
+      <span className="cl-nav-hint">{item.hint}</span>
     </Link>
   );
 }
 
-export function OperatorTopBar() {
+export function OperatorTopBar({
+  context,
+}: {
+  context: { orgId: string | null; source: OperatorContextSource };
+}) {
   const pathname = usePathname();
-  const orgId =
-    typeof process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID === 'string' &&
-    process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID.length > 0
-      ? process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID
-      : DEMO_ORG_ID;
 
   return (
-    <header className="cl-topbar">
-      <div className="cl-topbar-inner">
+    <aside className="cl-sidebar" aria-label="Primary workspace navigation">
+      <div className="cl-sidebar-card">
         <Link href="/" className="cl-brand">
           <span className="cl-brand-mark" aria-hidden />
           <span className="cl-brand-text">
             <span className="cl-brand-kicker">Content Lab</span>
-            <span className="cl-brand-title">Operator console</span>
+            <span className="cl-brand-title">Operator Workspace</span>
+            <span className="cl-brand-subtitle">Compact control surface for daily reel operations</span>
           </span>
         </Link>
-
-        <div className="cl-topbar-tools">
-          <label className="cl-search">
-            <span className="visually-hidden">Search (preview)</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path
-                d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-              <path d="M16 16 21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            <input type="search" placeholder="Search pages, runs, reels…" readOnly tabIndex={-1} />
-          </label>
-
-          <details className="cl-dropdown">
-            <summary>
-              Workspace <span className="cl-chevron" aria-hidden />
-            </summary>
-            <div className="cl-dropdown-menu">
-              <div className="cl-dropdown-hint">Active org</div>
-              <div className="cl-dropdown-item" style={{ cursor: 'default' }}>
-                <span style={{ fontFamily: 'var(--cl-mono)', fontSize: 13 }}>{shortOrg(orgId)}</span>
-                <div className="cl-dropdown-item-muted">Set via CONTENT_LAB_OPERATOR_ORG_ID</div>
-              </div>
-              <div className="cl-dropdown-divider" />
-              <Link href="/" className="cl-dropdown-item">
-                Workspace home
-              </Link>
-              <Link
-                href={`/orgs/${orgId}/pages/${DEMO_PAGE_ID}`}
-                className="cl-dropdown-item"
-              >
-                Sample page detail
-              </Link>
-            </div>
-          </details>
-
-          <details className="cl-dropdown">
-            <summary>
-              Browse <span className="cl-chevron" aria-hidden />
-            </summary>
-            <div className="cl-dropdown-menu">
-              <div className="cl-dropdown-hint">Navigate</div>
-              {browseItems.map((item) => (
-                <NavLink key={item.href} item={item} pathname={pathname} />
-              ))}
-            </div>
-          </details>
-
-          <details className="cl-dropdown">
-            <summary>
-              Help <span className="cl-chevron" aria-hidden />
-            </summary>
-            <div className="cl-dropdown-menu">
-              <div className="cl-dropdown-hint">Review</div>
-              <Link href="/ui-demo" className="cl-dropdown-item">
-                UI demo & patterns
-                <div className="cl-dropdown-item-muted">Shell, menus, tables</div>
-              </Link>
-              <div className="cl-dropdown-divider" />
-              <Link href="/#operator-actions" className="cl-dropdown-item">
-                Operator API actions
-                <div className="cl-dropdown-item-muted">Forms at the bottom of the home route</div>
-              </Link>
-            </div>
-          </details>
-        </div>
+        <p className="cl-compact cl-help-text">
+          Pick a workspace org once here, then move between pages, queue, policy, and actions
+          without re-entering it everywhere.
+        </p>
+        <WorkspaceOrgSwitcher initialOrgId={context.orgId} source={context.source} />
       </div>
-    </header>
+
+      <nav className="cl-sidebar-card cl-nav" aria-label="Primary">
+        {navItems.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} />
+        ))}
+      </nav>
+
+      <details className="cl-sidebar-card cl-disclosure">
+        <summary className="cl-disclosure-summary">
+          <span>
+            <span className="cl-kicker">How Content Lab Works</span>
+            <strong className="cl-disclosure-title">Workflow map</strong>
+          </span>
+          <span className="cl-disclosure-hint">Show</span>
+        </summary>
+        <ol className="cl-flow-list">
+          {flowItems.map((item, index) => (
+            <li key={item.title} className="cl-flow-item">
+              <span className="cl-flow-step">{index + 1}</span>
+              <div className="cl-flow-copy">
+                <strong>{item.title}</strong>
+                <span>{item.description}</span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </details>
+
+      <details className="cl-sidebar-card cl-disclosure">
+        <summary className="cl-disclosure-summary">
+          <span>
+            <span className="cl-kicker">Need A Reference?</span>
+            <strong className="cl-disclosure-title">Help and preview</strong>
+          </span>
+          <span className="cl-disclosure-hint">Show</span>
+        </summary>
+        <p className="cl-compact cl-help-text">
+          Use the sample route if you want to explore the UI patterns before working with live data.
+        </p>
+        <div className="cl-button-row">
+          <Link href="/ui-demo" className="cl-link-button">
+            Open UI demo
+          </Link>
+          <Link href="/actions" className="cl-link-button is-secondary">
+            Open actions
+          </Link>
+        </div>
+      </details>
+    </aside>
   );
 }
