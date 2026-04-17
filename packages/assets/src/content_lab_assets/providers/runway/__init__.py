@@ -12,6 +12,7 @@ from typing import Any, Protocol, cast
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+from uuid import NAMESPACE_URL, uuid5
 
 from content_lab_assets.providers.runway.jobs import (
     RUNWAY_PROVIDER,
@@ -23,6 +24,7 @@ from content_lab_assets.providers.runway.jobs import (
     normalize_runway_job_status,
     sanitize_provider_payload,
 )
+from content_lab_assets.providers.runway.mock_fixture import MOCK_RUNWAY_VIDEO_MP4
 from content_lab_shared.settings import Settings
 
 RUNWAY_API_BASE_URL = "https://api.dev.runwayml.com"
@@ -174,8 +176,10 @@ class HTTPRunwayClient:
             raise ValueError("Runway API key must not be blank")
 
     @classmethod
-    def from_settings(cls, settings: Settings | None = None) -> HTTPRunwayClient:
+    def from_settings(cls, settings: Settings | None = None) -> RunwayClient:
         resolved = settings or Settings()
+        if resolved.runway_api_mode.strip().lower() == "mock":
+            return MockRunwayClient()
         return cls(
             api_key=resolved.runway_api_key.get_secret_value(),
             base_url=resolved.runway_api_base_url,
@@ -247,6 +251,74 @@ class HTTPRunwayClient:
         if with_json:
             headers["Content-Type"] = "application/json"
         return headers
+
+
+class MockRunwayClient:
+    """Deterministic in-memory Runway client for scaffolded smoke flows."""
+
+    def __init__(
+        self,
+        *,
+        output_bytes: bytes = MOCK_RUNWAY_VIDEO_MP4,
+        content_type: str = "video/mp4",
+    ) -> None:
+        self._output_bytes = output_bytes
+        self._content_type = content_type
+        self._poll_counts: dict[str, int] = {}
+
+    def submit_generation(
+        self,
+        *,
+        task_payload: Mapping[str, Any],
+        canonical_params: Mapping[str, Any],
+        idempotency_key: str,
+    ) -> RunwaySubmittedTask:
+        _ = task_payload
+        _ = canonical_params
+        task_id = str(uuid5(NAMESPACE_URL, f"content-lab-mock-runway:{idempotency_key}"))
+        return RunwaySubmittedTask(
+            id=task_id,
+            raw_response={
+                "id": task_id,
+                "provider": RUNWAY_PROVIDER,
+                "status": RunwayJobStatus.SUBMITTED.value.upper(),
+            },
+        )
+
+    def get_task(self, external_ref: str) -> RunwayTaskSnapshot:
+        poll_count = self._poll_counts.get(external_ref, 0) + 1
+        self._poll_counts[external_ref] = poll_count
+        if poll_count == 1:
+            return RunwayTaskSnapshot(
+                id=external_ref,
+                status=RunwayJobStatus.RUNNING.value.upper(),
+                raw_response={
+                    "id": external_ref,
+                    "status": RunwayJobStatus.RUNNING.value.upper(),
+                    "provider": RUNWAY_PROVIDER,
+                    "mock": True,
+                },
+            )
+        output_url = f"https://mock.runway.local/tasks/{external_ref}/final_video.mp4"
+        return RunwayTaskSnapshot(
+            id=external_ref,
+            status=RunwayJobStatus.SUCCEEDED.value.upper(),
+            output=(output_url,),
+            raw_response={
+                "id": external_ref,
+                "status": RunwayJobStatus.SUCCEEDED.value.upper(),
+                "output": [output_url],
+                "provider": RUNWAY_PROVIDER,
+                "mock": True,
+            },
+        )
+
+    def download_output(self, task: RunwayTaskSnapshot) -> RunwayDownloadedAsset:
+        return RunwayDownloadedAsset(
+            url=task.primary_output_url(),
+            body=self._output_bytes,
+            content_type=self._content_type,
+        )
 
 
 def _runway_error_body_indicates_insufficient_credits(body: str) -> bool:
@@ -359,6 +431,7 @@ __all__ = [
     "RunwayJobStatus",
     "RunwaySubmittedTask",
     "RunwayTaskSnapshot",
+    "MockRunwayClient",
     "build_runway_job_external_ref",
     "build_runway_poll_snapshot",
     "build_runway_result_snapshot",

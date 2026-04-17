@@ -42,6 +42,8 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+psycopg://contentlab:contentlab@localhost:5432/contentlab
+      CONTENT_LAB_RUN_API_HEALTH_SMOKE: "0"
+      CONTENT_LAB_RUN_ORCHESTRATOR_SMOKE: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,5 +58,5 @@ jobs:
           cd apps/api
           poetry install --no-interaction
           poetry run alembic upgrade head
-      - name: Python checks
+      - name: Python checks across Poetry projects
         run: bash ./scripts/py_check.sh

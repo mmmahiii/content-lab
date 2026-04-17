@@ -163,40 +163,106 @@ Python apps.
 
 ## MVP smoke path
 
-The intended order for bootstrapping a full local session:
-
-```
-1. cp infra/.env.example .env      →  environment configured
-2. make infra-up                   →  Postgres, Redis, MinIO healthy
-3. make migrate                    →  DB schema up to date
-4. make api                        →  FastAPI on :8000
-5. make worker                     →  Dramatiq consuming from Redis
-6. make orch                       →  Prefect orchestrator running
-7. make web                        →  Admin UI on :3000
-```
-
-Steps 4–7 each need their own terminal. Alternatively, run everything in
-Docker:
+The credential-free golden path is:
 
 ```bash
-make infra-app
-# or: docker compose -f infra/docker-compose.yml --profile app up -d --build
+./scripts/e2e_mvp_smoke.sh
 ```
 
-## Real Manual Reel Smoke
+This wrapper keeps one obvious boot order for the mock-backed MVP flow:
 
-Run the end-to-end one-reel happy path with:
+1. ensure `.env` exists;
+2. start Postgres, Redis, MinIO, and bucket init;
+3. run Alembic migrations;
+4. start the API on a free local port;
+5. run `scripts/e2e_mvp_smoke.py`, which seeds an org/page/policy/family/reel,
+   queues the real trigger route, executes `process_reel`, and verifies API,
+   Postgres, outbox, and MinIO package state.
+
+The smoke path exports `RUNWAY_API_MODE=mock`, so it stays on the real Runway
+provider boundary without requiring production credentials. The current
+`process_reel` implementation calls the Runway worker path in-process, so a
+separate long-running worker process is not required for this MVP check.
+
+If you already have infra, migrations, and the API running, the direct Python
+entrypoint is:
+
+```bash
+RUNWAY_API_MODE=mock python scripts/e2e_mvp_smoke.py
+```
+
+Optional flags:
+
+- `--api-base-url http://127.0.0.1:8000` to point at an existing API.
+- `--org-id <uuid>` and `--page-id <uuid>` to reuse seeded records.
+- `--policy-scope global` to smoke the global policy path instead of the page override.
+
+On success the script prints the created IDs plus the final `run_status`,
+`reel_status`, and `package_root_uri`. On failure it raises step-scoped errors
+that include the relevant IDs, URIs, or rows that were checked.
+
+## No-regeneration regression
+
+The exact-reuse cost-control contract has its own repo-level regression script:
+
+```bash
+./scripts/e2e_no_regen.sh
+```
+
+This wrapper keeps the path deterministic and intentionally narrower than the
+full MVP smoke:
+
+1. ensure `.env` exists;
+2. start Postgres, Redis, MinIO, and bucket init;
+3. run Alembic migrations;
+4. start the API on a free local port;
+5. run `scripts/e2e_no_regen.py`, which:
+   resolves one generation request,
+   verifies exactly one provider submission record exists,
+   marks the staged asset `ready` directly in Postgres,
+   resolves the identical request again,
+   and proves the second response is `reuse_exact` without a second provider submission.
+
+If you already have infra, migrations, and the API running, the direct Python
+entrypoint is:
+
+```bash
+python scripts/e2e_no_regen.py
+```
+
+On success the script prints a JSON summary like:
+
+```json
+{
+  "asset_id": "<uuid>",
+  "asset_key_hash": "<hash>",
+  "first_decision": "generate",
+  "org_id": "<uuid>",
+  "provider_job_count": 1,
+  "provider_submission_history_entries": 1,
+  "second_decision": "reuse_exact",
+  "storage_uri": "s3://content-lab/assets/derived/<uuid>.mp4",
+  "task_count": 1
+}
+```
+
+That output means the same request generated once, transitioned to a ready
+asset, and then reused that exact asset on the second resolve without recording
+another provider submission.
+
+## Real provider reel smoke
+
+The real-Runway manual path remains available separately:
 
 ```powershell
 powershell -NoProfile -File scripts/manual-smoke-reel.ps1
 ```
 
-This script creates or reuses the test org/page, upserts policy, creates a
-reel family and generated reel, queues the real trigger route, runs the real
-`process_reel` flow with the queued `run_id`, and verifies Postgres, MinIO,
-and outbox state.
+That script now delegates to `scripts/e2e_mvp_smoke.py --provider-mode live`, so
+the seeding and assertions stay aligned with the mock-backed MVP path.
 
-Before running it:
+Use that path only when you intentionally want to exercise live provider
+credentials. Before running it:
 
 - infra must already be up;
 - Alembic migrations must already be applied;

@@ -28,6 +28,7 @@ class TestSettingsDefaults:
         assert s.runway_api_key.get_secret_value() == "changeme"
         assert s.runway_api_base_url == "https://api.dev.runwayml.com"
         assert s.runway_api_version == "2024-11-06"
+        assert s.runway_api_mode == "live"
 
     def test_security_defaults(self) -> None:
         s = Settings()
@@ -61,6 +62,7 @@ class TestSettingsEnvOverride:
             "MONTHLY_BUDGET_USD": "250.0",
             "ENVIRONMENT": "staging",
             "LOG_LEVEL": "DEBUG",
+            "RUNWAY_API_MODE": "mock",
         }
         with patch.dict(os.environ, overrides, clear=False):
             s = Settings()
@@ -70,6 +72,7 @@ class TestSettingsEnvOverride:
         assert s.monthly_budget_usd == 250.0
         assert s.environment == "staging"
         assert s.log_level == "DEBUG"
+        assert s.runway_api_mode == "mock"
 
 
 class TestSecretStrFields:
