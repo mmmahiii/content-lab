@@ -72,10 +72,12 @@ export function PolicyEditor({
   apiBaseUrl,
   orgId,
   records,
+  showPagePicker = true,
 }: {
   apiBaseUrl: string;
   orgId: string;
   records: PolicyEditorRecord[];
+  showPagePicker?: boolean;
 }) {
   const [policyRecords, setPolicyRecords] = useState(records);
   const [selectedPageId, setSelectedPageId] = useState(records[0]?.page.id ?? '');
@@ -169,24 +171,26 @@ export function PolicyEditor({
   return (
     <div className="cl-policy-shell">
       <div className="cl-highlight-card cl-policy-picker">
-        <label className="cl-label">
-          Page
-          <select
-            value={selectedRecord.page.id}
-            onChange={(event) => {
-              setSelectedPageId(event.target.value);
-              setFieldErrors({});
-              setFeedback({ kind: 'idle' });
-            }}
-          >
-            {policyRecords.map((record) => (
-              <option key={record.page.id} value={record.page.id}>
-                {record.page.displayName} (
-                {record.source === 'saved' ? 'saved policy' : 'default guardrails'})
-              </option>
-            ))}
-          </select>
-        </label>
+        {showPagePicker ? (
+          <label className="cl-label">
+            Page
+            <select
+              value={selectedRecord.page.id}
+              onChange={(event) => {
+                setSelectedPageId(event.target.value);
+                setFieldErrors({});
+                setFeedback({ kind: 'idle' });
+              }}
+            >
+              {policyRecords.map((record) => (
+                <option key={record.page.id} value={record.page.id}>
+                  {record.page.displayName} (
+                  {record.source === 'saved' ? 'saved policy' : 'default guardrails'})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         <div className="cl-meta-grid">
           <article className="cl-meta-card">

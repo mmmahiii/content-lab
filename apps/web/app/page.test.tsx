@@ -6,7 +6,10 @@ import HomePage from './page';
 import { demoIds } from './_lib/content-lab-data';
 import PackageDetailPage from './orgs/[orgId]/packages/[runId]/page';
 import PageDetailPage from './orgs/[orgId]/pages/[pageId]/page';
+import PagePolicyPage from './orgs/[orgId]/pages/[pageId]/policy/page';
+import PageReelsPage from './orgs/[orgId]/pages/[pageId]/reels/page';
 import ReelDetailPage from './orgs/[orgId]/pages/[pageId]/reels/[reelId]/page';
+import PageRunsPage from './orgs/[orgId]/pages/[pageId]/runs/page';
 import RunDetailPage from './orgs/[orgId]/runs/[runId]/page';
 
 async function renderRoute(
@@ -29,7 +32,7 @@ describe('operator detail routes', () => {
     expect(markup).toContain(`/orgs/${demoIds.orgId}/pages/${demoIds.pageId}`);
   });
 
-  it('renders the page detail view with policy summary and recent reels', async () => {
+  it('renders the page overview with page-scoped sections', async () => {
     const markup = await renderRoute(
       PageDetailPage({
         params: Promise.resolve({
@@ -39,9 +42,54 @@ describe('operator detail routes', () => {
       }),
     );
 
-    expect(markup).toContain('Policy summary');
-    expect(markup).toContain('Recent reels');
+    expect(markup).toContain('Page workspace');
+    expect(markup).toContain('Continue from this page');
     expect(markup).toContain('Operator diary A');
+  });
+
+  it('renders the page reels tab with page-scoped actions', async () => {
+    const markup = await renderRoute(
+      PageReelsPage({
+        params: Promise.resolve({
+          orgId: demoIds.orgId,
+          pageId: demoIds.pageId,
+        }),
+      }),
+    );
+
+    expect(markup).toContain('Page reels');
+    expect(markup).toContain('Open reel detail');
+    expect(markup).toContain('Open in Actions');
+  });
+
+  it('renders the page runs tab with page-scoped actions', async () => {
+    const markup = await renderRoute(
+      PageRunsPage({
+        params: Promise.resolve({
+          orgId: demoIds.orgId,
+          pageId: demoIds.pageId,
+        }),
+      }),
+    );
+
+    expect(markup).toContain('Page runs');
+    expect(markup).toContain('Open run detail');
+    expect(markup).toContain('Open package');
+  });
+
+  it('renders the page policy tab inside the page workspace', async () => {
+    const markup = await renderRoute(
+      PagePolicyPage({
+        params: Promise.resolve({
+          orgId: demoIds.orgId,
+          pageId: demoIds.pageId,
+        }),
+      }),
+    );
+
+    expect(markup).toContain('Page policy editor');
+    expect(markup).toContain('Save policy');
+    expect(markup).not.toContain('<select');
   });
 
   it('renders the reel detail view with lifecycle and package artifacts', async () => {
@@ -57,6 +105,7 @@ describe('operator detail routes', () => {
 
     expect(markup).toContain('Lifecycle timeline');
     expect(markup).toContain('Package artifacts');
+    expect(markup).toContain('Back to page reels');
     expect(markup).toContain('Download final_video');
   });
 
@@ -72,6 +121,7 @@ describe('operator detail routes', () => {
 
     expect(markup).toContain('Task summaries');
     expect(markup).toContain('qa_review');
+    expect(markup).toContain('Back to page runs');
     expect(markup).toContain('Run payloads');
   });
 
@@ -87,6 +137,7 @@ describe('operator detail routes', () => {
 
     expect(markup).toContain('Provenance');
     expect(markup).toContain('Download manifest');
+    expect(markup).toContain('Back to page runs');
     expect(markup).toContain('Downloadable artifacts');
   });
 });

@@ -11,7 +11,28 @@ import {
   StatusBadge,
   formatTimestamp,
 } from '../../../../_components/detail-ui';
-import { getPackageDetail, pagePath, reelPath, runPath } from '../../../../_lib/content-lab-data';
+import {
+  pagePath,
+  pageRunsPath,
+  reelPath,
+  runPath,
+} from '../../../../_lib/content-lab-data';
+import { loadOperatorPackageDetail } from '../../../../_lib/operator-page-workspace';
+
+function buildActionPath(orgId: string, pageId: string | null, reelId: string | null): string {
+  const params = new URLSearchParams({
+    orgId,
+  });
+
+  if (pageId) {
+    params.set('pageId', pageId);
+  }
+  if (reelId) {
+    params.set('reelId', reelId);
+  }
+
+  return `/actions?${params.toString()}`;
+}
 
 export default async function PackageDetailPage({
   params,
@@ -19,7 +40,7 @@ export default async function PackageDetailPage({
   params: Promise<{ orgId: string; runId: string }>;
 }) {
   const { orgId, runId } = await params;
-  const detail = await getPackageDetail(orgId, runId);
+  const detail = await loadOperatorPackageDetail(orgId, runId);
 
   if (detail === null) {
     notFound();
@@ -29,30 +50,45 @@ export default async function PackageDetailPage({
 
   return (
     <DetailFrame
-      breadcrumbs={[
-        { label: 'Home', href: '/' },
-        { label: 'Runs', href: '/runs' },
-        { label: `Package ${packageDetail.run_id.slice(0, 8)}` },
-      ]}
+      breadcrumbs={
+        page
+          ? [
+              { label: 'Home', href: '/' },
+              { label: 'Pages', href: '/pages' },
+              { label: page.display_name, href: pagePath(packageDetail.org_id, page.id) },
+              { label: 'Runs', href: pageRunsPath(packageDetail.org_id, page.id) },
+              { label: `Package ${packageDetail.run_id.slice(0, 8)}` },
+            ]
+          : [
+              { label: 'Home', href: '/' },
+              { label: 'Pages', href: '/pages' },
+              { label: `Package ${packageDetail.run_id.slice(0, 8)}` },
+            ]
+      }
       eyebrow="Package output"
       title={`Package ${packageDetail.run_id.slice(0, 8)}`}
-      subtitle="This package detail shows the files, provenance, and download links produced for a single org-scoped run."
+      subtitle="This package detail stays tied to the owning page and run so handoff checks do not force the operator out into a separate global workflow."
       actions={
         <>
           <StatusBadge status={packageDetail.status} />
-          {page && reel ? (
+          <LinkAction
+            href={buildActionPath(packageDetail.org_id, page?.id ?? null, reel?.id ?? null)}
+            label="Open in Actions"
+            tone="primary"
+          />
+          <LinkAction href={runPath(packageDetail.org_id, run.id)} label="Open run" />
+          {page ? <LinkAction href={pagePath(packageDetail.org_id, page.id)} label="Open page" /> : null}
+          {page ? (
             <LinkAction
-              href={`/actions?orgId=${packageDetail.org_id}&pageId=${page.id}&reelId=${reel.id}`}
-              label="Open in Actions"
-              tone="primary"
+              href={pageRunsPath(packageDetail.org_id, page.id)}
+              label="Back to page runs"
             />
           ) : null}
-          <LinkAction href={runPath(packageDetail.org_id, run.id)} label="Open run" />
-          {page ? (
-            <LinkAction href={pagePath(packageDetail.org_id, page.id)} label="Open page" />
-          ) : null}
           {page && reel ? (
-            <LinkAction href={reelPath(packageDetail.org_id, page.id, reel.id)} label="Open reel" />
+            <LinkAction
+              href={reelPath(packageDetail.org_id, page.id, reel.id)}
+              label="Open reel"
+            />
           ) : null}
         </>
       }
@@ -63,7 +99,7 @@ export default async function PackageDetailPage({
         },
         {
           label: 'What you can do here',
-          value: 'Download artifacts, inspect provenance, and move back to the linked run, page, or reel.',
+          value: 'Download artifacts, inspect provenance, and move back to the linked page, run, or reel.',
         },
         {
           label: 'What comes next',

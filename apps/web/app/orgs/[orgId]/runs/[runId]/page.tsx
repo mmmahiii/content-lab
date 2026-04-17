@@ -10,7 +10,28 @@ import {
   StatusBadge,
   formatTimestamp,
 } from '../../../../_components/detail-ui';
-import { getRunDetail, packagePath, pagePath, reelPath } from '../../../../_lib/content-lab-data';
+import {
+  packagePath,
+  pagePath,
+  pageRunsPath,
+  reelPath,
+} from '../../../../_lib/content-lab-data';
+import { loadOperatorRunDetail } from '../../../../_lib/operator-page-workspace';
+
+function buildActionPath(orgId: string, pageId: string | null, reelId: string | null): string {
+  const params = new URLSearchParams({
+    orgId,
+  });
+
+  if (pageId) {
+    params.set('pageId', pageId);
+  }
+  if (reelId) {
+    params.set('reelId', reelId);
+  }
+
+  return `/actions?${params.toString()}`;
+}
 
 export default async function RunDetailPage({
   params,
@@ -18,7 +39,7 @@ export default async function RunDetailPage({
   params: Promise<{ orgId: string; runId: string }>;
 }) {
   const { orgId, runId } = await params;
-  const detail = await getRunDetail(orgId, runId);
+  const detail = await loadOperatorRunDetail(orgId, runId);
 
   if (detail === null) {
     notFound();
@@ -28,23 +49,36 @@ export default async function RunDetailPage({
 
   return (
     <DetailFrame
-      breadcrumbs={[
-        { label: 'Home', href: '/' },
-        { label: 'Runs', href: '/runs' },
-        { label: `Run ${run.id.slice(0, 8)}` },
-      ]}
+      breadcrumbs={
+        page
+          ? [
+              { label: 'Home', href: '/' },
+              { label: 'Pages', href: '/pages' },
+              { label: page.display_name, href: pagePath(run.org_id, page.id) },
+              { label: 'Runs', href: pageRunsPath(run.org_id, page.id) },
+              { label: `Run ${run.id.slice(0, 8)}` },
+            ]
+          : [
+              { label: 'Home', href: '/' },
+              { label: 'Pages', href: '/pages' },
+              { label: `Run ${run.id.slice(0, 8)}` },
+            ]
+      }
       eyebrow={run.workflow_key}
       title={`Run ${run.id.slice(0, 8)}`}
-      subtitle="This run detail explains what started the workflow, where it is now, and how the tasks and payloads fit together."
+      subtitle="This run detail keeps its page context when available, so operators can move back to the owning page workspace instead of a global runs index."
       actions={
         <>
           <StatusBadge status={run.status} />
           <LinkAction
-            href={`/actions?orgId=${run.org_id}${reel ? `&pageId=${page?.id ?? ''}&reelId=${reel.id}` : ''}`}
+            href={buildActionPath(run.org_id, page?.id ?? null, reel?.id ?? null)}
             label="Open in Actions"
             tone="primary"
           />
           {page ? <LinkAction href={pagePath(run.org_id, page.id)} label="Open page" /> : null}
+          {page ? (
+            <LinkAction href={pageRunsPath(run.org_id, page.id)} label="Back to page runs" />
+          ) : null}
           {page && reel ? (
             <LinkAction href={reelPath(run.org_id, page.id, reel.id)} label="Open reel" />
           ) : null}
@@ -56,7 +90,7 @@ export default async function RunDetailPage({
       cues={[
         {
           label: 'What this page is for',
-          value: 'Explain a single workflow run without making you read raw payloads first.',
+          value: 'Explain a single workflow run without losing the page and reel it belongs to.',
         },
         {
           label: 'What you can do here',
@@ -64,7 +98,7 @@ export default async function RunDetailPage({
         },
         {
           label: 'What comes next',
-          value: 'If the run is still moving, return to Runs later. If it finished, inspect the reel or package.',
+          value: 'Return to the page runs tab when monitoring multiple runs, or open the linked reel/package for deeper review.',
         },
       ]}
     >

@@ -1,10 +1,10 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 
-import { PageOverviewRouteView } from '../../../../_components/page-workspace';
-import { loadPageWorkspaceSnapshot } from '../../../../_lib/operator-page-workspace';
+import { PageRunsRouteView } from '../../../../../_components/page-workspace';
+import { loadPageWorkspaceSnapshot } from '../../../../../_lib/operator-page-workspace';
 
-export default async function PageDetailPage({
+export default async function PageRunsPage({
   params,
 }: {
   params: Promise<{ orgId: string; pageId: string }>;
@@ -16,5 +16,5 @@ export default async function PageDetailPage({
     notFound();
   }
 
-  return <PageOverviewRouteView snapshot={snapshot} />;
+  return <PageRunsRouteView snapshot={snapshot} />;
 }

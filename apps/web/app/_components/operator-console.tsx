@@ -15,6 +15,9 @@ import {
   demoIds,
   packagePath,
   pagePath,
+  pagePolicyPath,
+  pageReelsPath,
+  pageRunsPath,
   reelPath,
   runPath,
 } from '../_lib/content-lab-data';
@@ -103,28 +106,13 @@ function FeatureDirectory() {
   const features = [
     {
       title: 'Pages',
-      description: 'See which accounts you manage, what constraints they carry, and where to drill in.',
+      description: 'Use Pages as the main hub, then move through each page workspace without losing context.',
       href: '/pages',
-    },
-    {
-      title: 'Runs',
-      description: 'Track workflow progress, current step, and output readiness in one place.',
-      href: '/runs',
-    },
-    {
-      title: 'Reels',
-      description: 'Understand content lifecycle, origin, and whether the package is ready for review.',
-      href: '/reels',
     },
     {
       title: 'Queue',
       description: 'Handle the human review and posting workflow without missing items that need attention.',
       href: '/queue',
-    },
-    {
-      title: 'Policy',
-      description: 'Adjust safe ranges for budget, similarity, and quality without touching backend contracts.',
-      href: '/policy',
     },
     {
       title: 'Actions',
@@ -187,8 +175,8 @@ function NewHerePanel() {
         <div className="cl-kicker">If you are new</div>
         <h3 className="cl-card-title">Start with Pages</h3>
         <p className="cl-card-description">
-          Choose the account you are working on first. That gives you the right page, reel, and
-          policy context before you take action.
+          Choose the account you are working on first. That page now carries its own overview,
+          reels, runs, and policy tabs before you take action.
         </p>
         <LinkAction href="/pages" label="Open Pages" />
       </article>
@@ -216,14 +204,14 @@ function WorkflowSteps() {
       href: '/pages',
     },
     {
-      label: '2. Start work',
-      copy: 'Open Actions to launch a workflow or process a specific reel with explicit audited inputs.',
-      href: '/actions',
+      label: '2. Open the page workspace',
+      copy: 'Use the page overview, reels, runs, and policy tabs to stay inside one account context.',
+      href: pagePath(demoIds.orgId, demoIds.pageId),
     },
     {
-      label: '3. Monitor progress',
-      copy: 'Use Runs and Reels to see current step, task activity, and package readiness.',
-      href: '/runs',
+      label: '3. Start work',
+      copy: 'Open Actions to launch a workflow or process a specific reel with explicit audited inputs.',
+      href: '/actions',
     },
     {
       label: '4. Review output',
@@ -365,10 +353,13 @@ function PagesTable({ pages, orgId }: { pages: OwnedPage[]; orgId: string | null
               <td>
                 <ActionCluster
                   items={[
-                    { href: pagePath(orgId ?? demoIds.orgId, page.id), label: 'Open page detail' },
+                    { href: pagePath(orgId ?? demoIds.orgId, page.id), label: 'Overview' },
+                    { href: pageReelsPath(orgId ?? demoIds.orgId, page.id), label: 'Reels' },
+                    { href: pageRunsPath(orgId ?? demoIds.orgId, page.id), label: 'Runs' },
+                    { href: pagePolicyPath(orgId ?? demoIds.orgId, page.id), label: 'Policy' },
                     {
                       href: buildActionPath({ orgId: orgId ?? demoIds.orgId, pageId: page.id }),
-                      label: 'Open in Actions',
+                      label: 'Actions',
                       tone: 'secondary',
                     },
                   ]}
@@ -589,22 +580,29 @@ function RecentActivity({ dashboard }: { dashboard: OperatorDashboardSnapshot })
         </h3>
         <p className="cl-card-description">
           {dashboard.pages.state === 'ready'
-            ? 'Start from the page you manage, then move into its reels, policy, and detail routes.'
+            ? 'Start from the page you manage, then stay inside that page workspace for reels, runs, and policy.'
             : dashboard.pages.message ?? 'Connect an org to begin loading pages.'}
         </p>
         <LinkAction href="/pages" label="Open Pages" />
       </article>
       <article className="cl-card">
-        <div className="cl-kicker">Runs</div>
+        <div className="cl-kicker">Page workspace</div>
         <h3 className="cl-card-title">
-          {dashboard.runs.state === 'ready' ? dashboard.runs.data[0]?.workflowKey ?? 'No runs yet' : 'Runs unavailable'}
+          {dashboard.pages.state === 'ready' ? 'Overview, reels, runs, policy' : 'Workspace unavailable'}
         </h3>
         <p className="cl-card-description">
-          {dashboard.runs.state === 'ready'
-            ? 'Use Runs to understand progress, blockers, and when outputs are ready.'
-            : dashboard.runs.message ?? 'Runs will appear once work has been started.'}
+          {dashboard.pages.state === 'ready'
+            ? 'Every page now groups its own content, automation, and guardrails in one place.'
+            : dashboard.pages.message ?? 'Choose an org to load page workspaces.'}
         </p>
-        <LinkAction href="/runs" label="Open Runs" />
+        <LinkAction
+          href={
+            dashboard.pages.state === 'ready' && dashboard.pages.data[0]
+              ? pagePath(dashboard.context.orgId ?? demoIds.orgId, dashboard.pages.data[0].id)
+              : pagePath(demoIds.orgId, demoIds.pageId)
+          }
+          label="Open a page workspace"
+        />
       </article>
       <article className="cl-card">
         <div className="cl-kicker">Queue</div>
@@ -630,14 +628,15 @@ export function HomeRouteView({ dashboard }: { dashboard: OperatorDashboardSnaps
       breadcrumbs={[{ label: 'Home' }]}
       eyebrow="Start here"
       title="A guided operator workspace for Content Lab"
-      subtitle="This UI is designed for someone who has never used the system before: every major feature is visible in navigation, every page explains what it does, and every workflow step points to the next safe action."
+      subtitle="This UI is now page-first: operators choose a page, stay inside that page workspace for reels, runs, and policy, then use Queue or Actions only when the workflow crosses page boundaries."
       cuesSummary="Open this quick guide if you want the short version of what this workspace does and where to go next."
       actions={
         <ActionCluster
           items={[
-            { href: '/actions', label: 'Open Actions', tone: 'primary' },
+            { href: '/pages', label: 'Open Pages', tone: 'primary' },
+            { href: '/actions', label: 'Open Actions' },
             { href: '/queue', label: 'Go to Queue' },
-            { href: pagePath(demoIds.orgId, demoIds.pageId), label: 'Open sample detail', tone: 'secondary' },
+            { href: pagePath(demoIds.orgId, demoIds.pageId), label: 'Open sample page', tone: 'secondary' },
           ]}
         />
       }
@@ -653,7 +652,7 @@ export function HomeRouteView({ dashboard }: { dashboard: OperatorDashboardSnaps
         {
           label: 'What comes next',
           value: configured
-            ? 'Choose a page or open the Actions workspace to start work.'
+            ? 'Choose a page, then use its tabs to move through reels, runs, and policy.'
             : 'Choose a workspace org in the sidebar to load live data, or use the sample detail links while onboarding.',
         },
       ]}
@@ -729,8 +728,8 @@ export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
       breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Pages' }]}
       eyebrow="Pages"
       title="Your production page directory"
-      subtitle="Start here when you need to find the right account, understand its setup, and move into reels, policy, or actions."
-      cuesSummary={cueSummaryForRoute('See which accounts you manage, what they mean, and where to go next from each row.')}
+      subtitle="Start here whenever you need to choose the right account, then move into that page’s overview, reels, runs, policy, or actions."
+      cuesSummary={cueSummaryForRoute('Every row now opens a page-first workspace, so the next step is always scoped to the account you selected.')}
       actions={<ActionCluster items={[{ href: '/actions', label: 'Open Actions', tone: 'primary' }]} />}
       cues={[
         {
@@ -739,11 +738,11 @@ export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
         },
         {
           label: 'What you can do here',
-          value: 'Open page detail, move into reel history, or start work with the right page context.',
+          value: 'Open the page workspace tabs directly, or jump into Actions with the right page context already filled in.',
         },
         {
           label: 'What comes next',
-          value: 'After choosing a page, go to Actions to start work or open reel detail from that page.',
+          value: 'After choosing a page, stay inside that page workspace for reels, runs, and policy before leaving to Queue or Actions.',
         },
       ]}
     >
@@ -868,7 +867,7 @@ export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
       title="The human review workspace"
       subtitle="Use Queue when a person needs to make a decision: review content, investigate a failure, or record that something was already posted."
       cuesSummary={cueSummaryForRoute('Keep review-ready, QA-failed, and posted reels in one working list, then jump into the next safe action.')}
-      actions={<ActionCluster items={[{ href: '/actions', label: 'Review in Actions', tone: 'primary' }, { href: '/reels', label: 'Browse Reels' }]} />}
+      actions={<ActionCluster items={[{ href: '/actions', label: 'Review in Actions', tone: 'primary' }, { href: '/pages', label: 'Open Pages' }]} />}
       cues={[
         {
           label: 'What this page is for',

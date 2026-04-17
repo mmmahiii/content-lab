@@ -13,35 +13,31 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { href: '/', label: 'Home', hint: 'Start here' },
-  { href: '/pages', label: 'Pages', hint: 'Accounts you manage' },
-  { href: '/runs', label: 'Runs', hint: 'Track active work' },
-  { href: '/reels', label: 'Reels', hint: 'See content status' },
-  { href: '/queue', label: 'Queue', hint: 'Handle review work' },
-  { href: '/policy', label: 'Policy', hint: 'Set safe limits' },
-  { href: '/actions', label: 'Actions', hint: 'Start or record work' },
+  { href: '/pages', label: 'Pages', hint: 'Primary workspace hub' },
+  { href: '/queue', label: 'Queue', hint: 'Cross-page review work' },
+  { href: '/actions', label: 'Actions', hint: 'Audited operator tasks' },
 ];
 
 const flowItems = [
   {
     title: 'Choose a page',
-    description: 'Find the account you are managing and confirm its constraints.',
+    description: 'Open Pages first, then stay inside that page workspace for reels, runs, and policy.',
   },
   {
-    title: 'Start work',
-    description: 'Trigger a run or a reel-processing job from the Actions workspace.',
+    title: 'Inspect page context',
+    description: 'Use the page tabs to review recent reels, page-scoped runs, and current guardrails.',
   },
   {
-    title: 'Track progress',
-    description: 'Use Runs and Reels to understand status, blockers, and outputs.',
+    title: 'Start or review work',
+    description: 'Open Actions when you need to trigger a workflow or complete an audited human step.',
   },
   {
-    title: 'Review output',
-    description: 'Use Queue and reel detail to approve, archive, or inspect packages.',
+    title: 'Track page activity',
+    description: 'Use the page workspace itself to move between reel detail, run detail, and package output.',
   },
   {
-    title: 'Record posting',
-    description: 'After a human posts externally, record that outcome without autoposting.',
+    title: 'Handle cross-page review',
+    description: 'Use Queue when human review work spans multiple pages.',
   },
 ];
 
@@ -75,8 +71,8 @@ export function OperatorTopBar({
           </span>
         </Link>
         <p className="cl-compact cl-help-text">
-          Pick a workspace org once here, then move between pages, queue, policy, and actions
-          without re-entering it everywhere.
+          Pick a workspace org once here, then move from Pages into each page workspace without
+          re-entering org context everywhere.
         </p>
         <WorkspaceOrgSwitcher initialOrgId={context.orgId} source={context.source} />
       </div>
@@ -123,8 +119,8 @@ export function OperatorTopBar({
           <Link href="/ui-demo" className="cl-link-button">
             Open UI demo
           </Link>
-          <Link href="/actions" className="cl-link-button is-secondary">
-            Open actions
+          <Link href="/pages" className="cl-link-button is-secondary">
+            Open pages
           </Link>
         </div>
       </details>

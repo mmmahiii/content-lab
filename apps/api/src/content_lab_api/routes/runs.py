@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import insert
+from sqlalchemy import insert, or_
 from sqlalchemy.orm import Session, selectinload
 
 from content_lab_api.deps import get_db
@@ -402,6 +402,31 @@ def create_run(
 def get_run(org_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db)) -> RunDetailOut:
     run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
     return run_to_detail(run)
+
+
+@router.get("/orgs/{org_id}/pages/{page_id}/runs", response_model=list[RunOut])
+def list_page_runs(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> list[RunOut]:
+    _get_org_or_404(db, org_id)
+    _get_page_or_404(db, org_id, page_id)
+
+    page_id_value = str(page_id)
+    runs = (
+        db.query(Run)
+        .filter(
+            Run.org_id == org_id,
+            or_(
+                Run.input_params["page_id"].astext == page_id_value,
+                Run.run_metadata["target"]["page_id"].astext == page_id_value,
+            ),
+        )
+        .order_by(Run.updated_at.desc(), Run.id.desc())
+        .all()
+    )
+    return [run_to_out(run) for run in runs]
 
 
 @router.post(

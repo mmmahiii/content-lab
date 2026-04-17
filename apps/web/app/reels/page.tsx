@@ -1,8 +1,5 @@
-import { ReelsRouteView } from '../_components/operator-console';
-import { loadOperatorDashboard } from '../_lib/operator-dashboard';
+import { redirect } from 'next/navigation';
 
-export default async function ReelsPage() {
-  const dashboard = await loadOperatorDashboard();
-
-  return <ReelsRouteView dashboard={dashboard} />;
+export default function ReelsPage() {
+  redirect('/pages');
 }

@@ -88,13 +88,19 @@ def seeded_run_scope(db_session: Session) -> dict[str, uuid.UUID]:
         display_name="Primary Page",
         external_page_id="ig-primary-001",
     )
+    sibling_page = _make_page(
+        org_one.id,
+        platform="instagram",
+        display_name="Sibling Page",
+        external_page_id="ig-primary-002",
+    )
     other_page = _make_page(
         org_two.id,
         platform="instagram",
         display_name="Other Page",
         external_page_id="ig-other-001",
     )
-    db_session.add_all([primary_page, other_page])
+    db_session.add_all([primary_page, sibling_page, other_page])
     db_session.flush()
 
     primary_family = ReelFamily(
@@ -103,13 +109,19 @@ def seeded_run_scope(db_session: Session) -> dict[str, uuid.UUID]:
         name="Primary family",
         metadata_={"mode": "explore"},
     )
+    sibling_family = ReelFamily(
+        org_id=org_one.id,
+        page_id=sibling_page.id,
+        name="Sibling family",
+        metadata_={"mode": "exploit"},
+    )
     other_family = ReelFamily(
         org_id=org_two.id,
         page_id=other_page.id,
         name="Other family",
         metadata_={"mode": "exploit"},
     )
-    db_session.add_all([primary_family, other_family])
+    db_session.add_all([primary_family, sibling_family, other_family])
     db_session.flush()
 
     primary_reel = Reel(
@@ -118,13 +130,19 @@ def seeded_run_scope(db_session: Session) -> dict[str, uuid.UUID]:
         variant_label="A",
         metadata_={},
     )
+    sibling_reel = Reel(
+        org_id=org_one.id,
+        reel_family_id=sibling_family.id,
+        variant_label="Sibling",
+        metadata_={},
+    )
     other_reel = Reel(
         org_id=org_two.id,
         reel_family_id=other_family.id,
         variant_label="B",
         metadata_={},
     )
-    db_session.add_all([primary_reel, other_reel])
+    db_session.add_all([primary_reel, sibling_reel, other_reel])
     db_session.flush()
 
     return {
@@ -133,6 +151,8 @@ def seeded_run_scope(db_session: Session) -> dict[str, uuid.UUID]:
         "page_id": primary_page.id,
         "reel_id": primary_reel.id,
         "reel_family_id": primary_family.id,
+        "sibling_page_id": sibling_page.id,
+        "sibling_reel_id": sibling_reel.id,
         "other_page_id": other_page.id,
         "other_reel_id": other_reel.id,
     }
@@ -361,3 +381,77 @@ def test_run_detail_includes_task_summaries(
     assert tasks_by_type["plan_reels"]["result"] == {"planned": 2}
     assert tasks_by_type["qa_review"]["status"] == "running"
     assert tasks_by_type["qa_review"]["result"] is None
+
+
+def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+) -> None:
+    org_id = seeded_run_scope["org_id"]
+    page_id = seeded_run_scope["page_id"]
+    sibling_page_id = seeded_run_scope["sibling_page_id"]
+    other_org_id = seeded_run_scope["other_org_id"]
+    other_page_id = seeded_run_scope["other_page_id"]
+
+    matching_input_run = Run(
+        org_id=org_id,
+        workflow_key="daily_reel_factory",
+        flow_trigger="manual",
+        status="running",
+        input_params={"page_id": str(page_id)},
+        run_metadata={"submitted_via": "api"},
+        external_ref="page-input-run",
+    )
+    matching_target_run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="reel_trigger",
+        status="queued",
+        input_params={},
+        run_metadata={"target": {"page_id": str(page_id)}},
+        external_ref="page-target-run",
+    )
+    sibling_page_run = Run(
+        org_id=org_id,
+        workflow_key="daily_reel_factory",
+        flow_trigger="manual",
+        status="queued",
+        input_params={"page_id": str(sibling_page_id)},
+        run_metadata={"submitted_via": "api"},
+        external_ref="sibling-page-run",
+    )
+    other_org_run = Run(
+        org_id=other_org_id,
+        workflow_key="daily_reel_factory",
+        flow_trigger="manual",
+        status="queued",
+        input_params={"page_id": str(other_page_id)},
+        run_metadata={"submitted_via": "api"},
+        external_ref="other-org-run",
+    )
+    db_session.add_all(
+        [matching_input_run, matching_target_run, sibling_page_run, other_org_run]
+    )
+    db_session.flush()
+
+    matching_input_run.updated_at = matching_input_run.created_at
+    matching_target_run.updated_at = matching_target_run.created_at.replace(second=59)
+    sibling_page_run.updated_at = sibling_page_run.created_at.replace(second=10)
+    other_org_run.updated_at = other_org_run.created_at.replace(second=20)
+    db_session.flush()
+    db_session.expire_all()
+
+    response = runs_client.get(f"/orgs/{org_id}/pages/{page_id}/runs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload] == [
+        str(matching_target_run.id),
+        str(matching_input_run.id),
+    ]
+    assert all(item["org_id"] == str(org_id) for item in payload)
+    assert {item["external_ref"] for item in payload} == {
+        "page-input-run",
+        "page-target-run",
+    }

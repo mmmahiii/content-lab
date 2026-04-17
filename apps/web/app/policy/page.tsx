@@ -1,8 +1,5 @@
-import { PolicyRouteView } from '../_components/operator-console';
-import { loadPolicyEditorSnapshot } from '../_lib/operator-policy';
+import { redirect } from 'next/navigation';
 
-export default async function PolicyPage() {
-  const snapshot = await loadPolicyEditorSnapshot();
-
-  return <PolicyRouteView snapshot={snapshot} />;
+export default function PolicyPage() {
+  redirect('/pages');
 }

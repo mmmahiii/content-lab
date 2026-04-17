@@ -7,13 +7,19 @@ vi.mock('next/navigation', () => ({
     new URLSearchParams(
       'orgId=11111111-1111-4111-8111-111111111111&pageId=22222222-2222-4222-8222-222222222222&reelId=33333333-3333-4333-8333-333333333333',
     ),
+  redirect: (href: string) => {
+    throw new Error(`REDIRECT:${href}`);
+  },
 }));
 
 import { DashboardHomeView, QueueRouteView } from './_components/operator-console';
 import type { OperatorDashboardSnapshot } from './_lib/operator-dashboard';
 import { OperatorConsole } from './operator-console';
 import HomePage from './page';
+import PolicyPage from './policy/page';
 import { createPolicyUpdateSubmission } from './policy-editor.helpers';
+import ReelsPage from './reels/page';
+import RunsPage from './runs/page';
 import {
   HUMAN_BOUNDARY_COPY,
   createMarkPostedSubmission,
@@ -154,6 +160,12 @@ describe('HomePage', () => {
     expect(html).toContain('11111111-1111-4111-8111-111111111111');
     expect(html).toContain('22222222-2222-4222-8222-222222222222');
     expect(html).toContain('33333333-3333-4333-8333-333333333333');
+  });
+
+  it('redirects legacy global routes back to Pages', () => {
+    expect(() => RunsPage()).toThrow('REDIRECT:/pages');
+    expect(() => ReelsPage()).toThrow('REDIRECT:/pages');
+    expect(() => PolicyPage()).toThrow('REDIRECT:/pages');
   });
 });
 

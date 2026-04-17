@@ -13,11 +13,12 @@ import {
   formatTimestamp,
 } from '../../../../../../_components/detail-ui';
 import {
-  getReelDetail,
   packagePath,
   pagePath,
+  pageReelsPath,
   runPath,
 } from '../../../../../../_lib/content-lab-data';
+import { loadOperatorReelDetail } from '../../../../../../_lib/operator-page-workspace';
 
 const generatedTimeline = [
   'draft',
@@ -61,13 +62,23 @@ function timelineTone(state: string): string {
   return 'upcoming';
 }
 
+function buildActionPath(orgId: string, pageId: string, reelId: string): string {
+  const params = new URLSearchParams({
+    orgId,
+    pageId,
+    reelId,
+  });
+
+  return `/actions?${params.toString()}`;
+}
+
 export default async function ReelDetailPage({
   params,
 }: {
   params: Promise<{ orgId: string; pageId: string; reelId: string }>;
 }) {
   const { orgId, pageId, reelId } = await params;
-  const detail = await getReelDetail(orgId, pageId, reelId);
+  const detail = await loadOperatorReelDetail(orgId, pageId, reelId);
 
   if (detail === null) {
     notFound();
@@ -82,16 +93,17 @@ export default async function ReelDetailPage({
         { label: 'Home', href: '/' },
         { label: 'Pages', href: '/pages' },
         { label: page.display_name, href: pagePath(page.org_id, page.id) },
+        { label: 'Reels', href: pageReelsPath(page.org_id, page.id) },
         { label: reel.variant_label ?? `Reel ${reel.id.slice(0, 8)}` },
       ]}
       eyebrow={`${reel.origin} reel`}
       title={reel.variant_label ?? `Reel ${reel.id.slice(0, 8)}`}
-      subtitle="This screen explains where the reel is in its lifecycle, what happened during review, and whether its package is ready to inspect."
+      subtitle="This reel detail stays anchored to its page workspace so operators can inspect lifecycle, package output, and the next action without losing context."
       actions={
         <>
-          <LinkAction href={pagePath(page.org_id, page.id)} label="Back to page" />
+          <LinkAction href={pageReelsPath(page.org_id, page.id)} label="Back to page reels" />
           <LinkAction
-            href={`/actions?orgId=${page.org_id}&pageId=${page.id}&reelId=${reel.id}`}
+            href={buildActionPath(page.org_id, page.id, reel.id)}
             label="Open in Actions"
             tone="primary"
           />
@@ -101,15 +113,15 @@ export default async function ReelDetailPage({
       cues={[
         {
           label: 'What this page is for',
-          value: 'Understand one reel from lifecycle to package without bouncing between routes.',
+          value: 'Explain one reel end to end while keeping the page workspace one click away.',
         },
         {
           label: 'What you can do here',
-          value: 'Review lifecycle state, confirm approval or posting history, and inspect package artifacts.',
+          value: 'Review lifecycle state, audit metadata, inspect the linked run, and download package artifacts.',
         },
         {
           label: 'What comes next',
-          value: 'If the reel needs a decision, move into Actions or Queue. If the package is ready, inspect downloads.',
+          value: 'Move back to the page reels tab, or continue into Actions when a human decision is needed.',
         },
       ]}
     >
@@ -172,8 +184,9 @@ export default async function ReelDetailPage({
               {relatedRun ? (
                 <LinkAction href={runPath(page.org_id, relatedRun.id)} label="Open related run" />
               ) : null}
+              <LinkAction href={pagePath(page.org_id, page.id)} label="Open page overview" />
               <LinkAction
-                href={`/actions?orgId=${page.org_id}&pageId=${page.id}&reelId=${reel.id}`}
+                href={buildActionPath(page.org_id, page.id, reel.id)}
                 label="Open in Actions"
                 tone="secondary"
               />
@@ -217,8 +230,7 @@ export default async function ReelDetailPage({
           </div>
         ) : (
           <p className="cl-panel-description">
-            No package output is linked to this reel yet. The detail view stays ready for package
-            visibility as soon as a process run completes.
+            No package output is linked to this reel yet. Return to the page reels tab or Actions if you need to keep work moving.
           </p>
         )}
       </SectionCard>
