@@ -121,3 +121,76 @@ def test_get_package_is_org_scoped(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Package not found"
+
+
+def test_get_package_rejects_non_canonical_artifact_uris(
+    db_session: Session,
+    package_client: TestClient,
+) -> None:
+    org = Org(name="Canonical Package Org", slug=f"pkg-canon-{uuid.uuid4().hex[:8]}")
+    db_session.add(org)
+    db_session.flush()
+
+    reel_id = uuid.uuid4()
+    run = Run(
+        org_id=org.id,
+        workflow_key="process_reel",
+        status="succeeded",
+        input_params={"reel_id": str(reel_id)},
+        output_payload={
+            "package": {
+                "reel_id": str(reel_id),
+                "package_root_uri": f"s3://content-lab/reels/packages/{reel_id}",
+                "manifest_uri": f"s3://content-lab/reels/packages/{reel_id}/package_manifest.json",
+                "provenance_uri": f"s3://content-lab/reels/packages/{reel_id}/provenance.json",
+                "artifacts": [
+                    {
+                        "name": "final_video",
+                        "storage_uri": "s3://content-lab/assets/derived/not-a-package.mp4",
+                        "kind": "video",
+                        "content_type": "video/mp4",
+                    }
+                ],
+            }
+        },
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    response = package_client.get(f"/orgs/{org.id}/packages/{run.id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Package metadata is invalid: package artifact URIs are outside the canonical package scope"
+    )
+
+
+def test_get_package_requires_reel_id_when_downloadable_package_uris_exist(
+    db_session: Session,
+    package_client: TestClient,
+) -> None:
+    org = Org(name="Package Missing Reel Org", slug=f"pkg-missing-{uuid.uuid4().hex[:8]}")
+    db_session.add(org)
+    db_session.flush()
+
+    run = Run(
+        org_id=org.id,
+        workflow_key="process_reel",
+        status="succeeded",
+        input_params={},
+        output_payload={
+            "package": {
+                "manifest_uri": "s3://content-lab/reels/packages/reel-123/package_manifest.json",
+                "artifacts": [],
+            }
+        },
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    response = package_client.get(f"/orgs/{org.id}/packages/{run.id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Package metadata is invalid: reel_id is required to validate package storage scope"
+    )

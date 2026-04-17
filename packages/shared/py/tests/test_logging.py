@@ -12,6 +12,7 @@ from content_lab_shared.logging import (
     configure_logging,
     get_correlation_id,
     redact_event_dict,
+    redact_sensitive_data,
     redact_sensitive_string,
     set_correlation_id,
 )
@@ -91,6 +92,35 @@ class TestRedactEventDict:
         assert result["API_KEY"] == "***REDACTED***"
         assert result["Secret"] == "***REDACTED***"
 
+    def test_redacts_nested_payloads(self) -> None:
+        ed = {
+            "event": "test",
+            "metadata": {
+                "provider": {
+                    "authorization": "Bearer top-secret",
+                    "nested": [{"api_key": "abc123"}, {"note": "safe"}],
+                }
+            },
+        }
+        result = self._call(ed)
+        assert result["metadata"]["provider"]["authorization"] == "***REDACTED***"
+        assert result["metadata"]["provider"]["nested"][0]["api_key"] == "***REDACTED***"
+        assert result["metadata"]["provider"]["nested"][1]["note"] == "safe"
+
+
+class TestRedactSensitiveData:
+    def test_redacts_sequence_values_recursively(self) -> None:
+        redacted = redact_sensitive_data(
+            {
+                "items": (
+                    {"session_id": "sess-123"},
+                    {"message": "authorization=super-secret"},
+                )
+            }
+        )
+        assert redacted["items"][0]["session_id"] == "***REDACTED***"
+        assert redacted["items"][1]["message"] == "authorization=***REDACTED***"
+
 
 class TestRedactSensitiveString:
     def test_redacts_token_assignment(self) -> None:
@@ -98,6 +128,13 @@ class TestRedactSensitiveString:
         out = redact_sensitive_string(raw)
         assert "supersecret" not in out
         assert "***REDACTED***" in out
+
+    def test_redacts_header_style_credentials(self) -> None:
+        raw = 'request failed authorization: "Bearer secret-token" cookie=session=abc'
+        out = redact_sensitive_string(raw)
+        assert "secret-token" not in out
+        assert "session=abc" not in out
+        assert out.count("***REDACTED***") >= 2
 
 
 class TestConfigureLogging:

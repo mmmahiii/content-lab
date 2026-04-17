@@ -12,10 +12,30 @@ from content_lab_api.deps import get_db
 from content_lab_api.models import Org, Run
 from content_lab_api.routes._storage import build_signed_download
 from content_lab_api.schemas.packages import PackageArtifactOut, PackageDetailOut
+from content_lab_shared.settings import Settings
+from content_lab_storage import (
+    CAPTION_VARIANTS_FILENAME,
+    COVER_IMAGE_FILENAME,
+    FINAL_VIDEO_FILENAME,
+    PACKAGE_MANIFEST_FILENAME,
+    POSTING_PLAN_FILENAME,
+    PROVENANCE_FILENAME,
+    CanonicalStorageLayout,
+    StorageRef,
+)
 
 router = APIRouter(prefix="/orgs/{org_id}/packages", tags=["packages"])
 
 _SUPPORT_ARTIFACT_NAMES = frozenset({"manifest", "package_manifest", "provenance"})
+_PACKAGE_ARTIFACT_FILENAMES = {
+    "final_video": FINAL_VIDEO_FILENAME,
+    "cover": COVER_IMAGE_FILENAME,
+    "caption_variants": CAPTION_VARIANTS_FILENAME,
+    "posting_plan": POSTING_PLAN_FILENAME,
+    "provenance": PROVENANCE_FILENAME,
+    "manifest": PACKAGE_MANIFEST_FILENAME,
+    "package_manifest": PACKAGE_MANIFEST_FILENAME,
+}
 
 
 def _get_org_or_404(db: Session, org_id: uuid.UUID) -> Org:
@@ -101,6 +121,65 @@ def _optional_uuid(value: Any) -> uuid.UUID | None:
         return None
 
 
+def _package_layout() -> CanonicalStorageLayout:
+    return CanonicalStorageLayout(bucket=Settings().minio_bucket)
+
+
+def _invalid_package_metadata(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"Package metadata is invalid: {detail}",
+    )
+
+
+def _validate_package_root_uri(package_root_uri: str, *, reel_id: uuid.UUID) -> str:
+    expected_ref = _package_layout().reel_package_prefix(reel_id)
+    try:
+        ref = StorageRef.from_uri(package_root_uri)
+    except ValueError as exc:
+        raise _invalid_package_metadata(
+            "package_root_uri must be a canonical s3:// package path"
+        ) from exc
+    if ref.uri != expected_ref.uri:
+        raise _invalid_package_metadata("package_root_uri is outside the canonical package scope")
+    return str(ref.uri)
+
+
+def _validate_package_object_uri(
+    storage_uri: str,
+    *,
+    reel_id: uuid.UUID,
+    artifact_name: str | None = None,
+) -> str:
+    layout = _package_layout()
+    expected_root = layout.reel_package_prefix(reel_id)
+    try:
+        ref = StorageRef.from_uri(storage_uri)
+    except ValueError as exc:
+        raise _invalid_package_metadata(
+            "package artifact URIs must be canonical s3:// object refs"
+        ) from exc
+
+    if ref.bucket != expected_root.bucket or not ref.key.startswith(f"{expected_root.key}/"):
+        raise _invalid_package_metadata(
+            "package artifact URIs are outside the canonical package scope"
+        )
+
+    if artifact_name is None:
+        return str(ref.uri)
+
+    expected_filename = _PACKAGE_ARTIFACT_FILENAMES.get(artifact_name.strip().lower())
+    if expected_filename is None:
+        return str(ref.uri)
+
+    expected_ref = layout.reel_package_object(reel_id, expected_filename)
+    if ref.uri != expected_ref.uri:
+        raise _invalid_package_metadata(
+            f"{artifact_name} must resolve to its canonical package object"
+        )
+    return str(ref.uri)
+
+
 @router.get("/{run_id}", response_model=PackageDetailOut)
 def get_package(
     org_id: uuid.UUID,
@@ -124,35 +203,88 @@ def get_package(
         or _artifact_uri_by_name(artifacts, "provenance")
     )
 
+    reel_uuid = _optional_uuid(
+        package_payload.get("reel_id") or _coerce_mapping(run.input_params).get("reel_id")
+    )
+    has_package_uris = any(
+        value is not None and str(value).strip() != ""
+        for value in (
+            package_payload.get("package_root_uri"),
+            manifest_uri,
+            provenance_uri,
+            *[artifact["storage_uri"] for artifact in artifacts],
+        )
+    )
+    if has_package_uris and reel_uuid is None:
+        raise _invalid_package_metadata("reel_id is required to validate package storage scope")
+
+    validated_package_root_uri = (
+        None
+        if package_payload.get("package_root_uri") is None or reel_uuid is None
+        else _validate_package_root_uri(str(package_payload["package_root_uri"]), reel_id=reel_uuid)
+    )
+    validated_manifest_uri = (
+        None
+        if manifest_uri is None or reel_uuid is None
+        else _validate_package_object_uri(
+            str(manifest_uri), reel_id=reel_uuid, artifact_name="package_manifest"
+        )
+    )
+    validated_provenance_uri = (
+        None
+        if provenance_uri is None or reel_uuid is None
+        else _validate_package_object_uri(
+            str(provenance_uri), reel_id=reel_uuid, artifact_name="provenance"
+        )
+    )
+
     return PackageDetailOut(
         run_id=run.id,
         org_id=run.org_id,
         status=run.status,
         workflow_key=run.workflow_key,
-        reel_id=_optional_uuid(
-            package_payload.get("reel_id") or _coerce_mapping(run.input_params).get("reel_id")
-        ),
-        package_root_uri=package_payload.get("package_root_uri"),
-        manifest_uri=None if manifest_uri is None else str(manifest_uri),
+        reel_id=reel_uuid,
+        package_root_uri=validated_package_root_uri,
+        manifest_uri=validated_manifest_uri,
         manifest_metadata=manifest_metadata,
         manifest_download=(
-            None if manifest_uri is None else build_signed_download(storage_uri=str(manifest_uri))
+            None
+            if validated_manifest_uri is None
+            else build_signed_download(storage_uri=validated_manifest_uri)
         ),
         provenance=provenance,
-        provenance_uri=None if provenance_uri is None else str(provenance_uri),
+        provenance_uri=validated_provenance_uri,
         provenance_download=(
             None
-            if provenance_uri is None
-            else build_signed_download(storage_uri=str(provenance_uri))
+            if validated_provenance_uri is None
+            else build_signed_download(storage_uri=validated_provenance_uri)
         ),
         artifacts=[
             PackageArtifactOut(
                 name=artifact["name"],
-                storage_uri=artifact["storage_uri"],
+                storage_uri=(
+                    artifact["storage_uri"]
+                    if reel_uuid is None
+                    else _validate_package_object_uri(
+                        artifact["storage_uri"],
+                        reel_id=reel_uuid,
+                        artifact_name=artifact["name"],
+                    )
+                ),
                 kind=artifact["kind"],
                 content_type=artifact["content_type"],
                 metadata=artifact["metadata"],
-                download=build_signed_download(storage_uri=artifact["storage_uri"]),
+                download=build_signed_download(
+                    storage_uri=(
+                        artifact["storage_uri"]
+                        if reel_uuid is None
+                        else _validate_package_object_uri(
+                            artifact["storage_uri"],
+                            reel_id=reel_uuid,
+                            artifact_name=artifact["name"],
+                        )
+                    )
+                ),
             )
             for artifact in artifacts
             if artifact["name"].strip().lower() not in _SUPPORT_ARTIFACT_NAMES

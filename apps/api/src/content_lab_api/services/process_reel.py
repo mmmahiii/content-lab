@@ -18,6 +18,7 @@ from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
 from content_lab_qa import evaluate_package
 from content_lab_runs import RunStatus, TaskStatus
+from content_lab_storage import CanonicalStorageLayout
 
 PROCESS_REEL_WORKFLOW_KEY = "process_reel"
 PROCESS_REEL_TASK_TYPE = "process_reel"
@@ -286,7 +287,8 @@ class StubProcessReelExecutor:
         )
 
     def package_reel(self, execution: ProcessReelExecution) -> dict[str, Any]:
-        package_root_uri = f"memory://packages/{execution.reel_id}"
+        package_refs = CanonicalStorageLayout(bucket="content-lab").reel_package(execution.reel_id)
+        package_root_uri = package_refs.root.uri
         final_video_checksum = "sha256:" + ("a" * 64)
         cover_checksum = "sha256:" + ("b" * 64)
         caption_checksum = "sha256:" + ("c" * 64)
@@ -295,7 +297,7 @@ class StubProcessReelExecutor:
         manifest_checksum = "sha256:" + ("f" * 64)
         return {
             "package_root_uri": package_root_uri,
-            "manifest_uri": f"{package_root_uri}/package_manifest.json",
+            "manifest_uri": package_refs.manifest.uri,
             "ready_for_publish": True,
             "manifest": {
                 "version": 1,
@@ -334,7 +336,9 @@ class StubProcessReelExecutor:
                 "assets": [
                     {
                         "role": "source_clip",
-                        "storage_uri": f"memory://assets/{execution.reel_id}/primary.mp4",
+                        "storage_uri": (
+                            f"s3://content-lab/assets/derived/{execution.reel_id}/primary.mp4"
+                        ),
                     }
                 ],
                 "provider_jobs": [
@@ -356,37 +360,37 @@ class StubProcessReelExecutor:
                 {
                     "name": "final_video",
                     "filename": "final_video.mp4",
-                    "storage_uri": f"{package_root_uri}/final_video.mp4",
+                    "storage_uri": package_refs.final_video.uri,
                     "checksum_sha256": final_video_checksum,
                 },
                 {
                     "name": "cover",
                     "filename": "cover.png",
-                    "storage_uri": f"{package_root_uri}/cover.png",
+                    "storage_uri": package_refs.cover.uri,
                     "checksum_sha256": cover_checksum,
                 },
                 {
                     "name": "caption_variants",
                     "filename": "caption_variants.txt",
-                    "storage_uri": f"{package_root_uri}/caption_variants.txt",
+                    "storage_uri": package_refs.caption_variants.uri,
                     "checksum_sha256": caption_checksum,
                 },
                 {
                     "name": "posting_plan",
                     "filename": "posting_plan.json",
-                    "storage_uri": f"{package_root_uri}/posting_plan.json",
+                    "storage_uri": package_refs.posting_plan.uri,
                     "checksum_sha256": posting_plan_checksum,
                 },
                 {
                     "name": "provenance",
                     "filename": "provenance.json",
-                    "storage_uri": f"{package_root_uri}/provenance.json",
+                    "storage_uri": package_refs.provenance.uri,
                     "checksum_sha256": provenance_checksum,
                 },
                 {
                     "name": "package_manifest",
                     "filename": "package_manifest.json",
-                    "storage_uri": f"{package_root_uri}/package_manifest.json",
+                    "storage_uri": package_refs.manifest.uri,
                     "checksum_sha256": manifest_checksum,
                 },
             ],

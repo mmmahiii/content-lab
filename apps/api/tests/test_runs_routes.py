@@ -430,9 +430,7 @@ def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(
         run_metadata={"submitted_via": "api"},
         external_ref="other-org-run",
     )
-    db_session.add_all(
-        [matching_input_run, matching_target_run, sibling_page_run, other_org_run]
-    )
+    db_session.add_all([matching_input_run, matching_target_run, sibling_page_run, other_org_run])
     db_session.flush()
 
     matching_input_run.updated_at = matching_input_run.created_at

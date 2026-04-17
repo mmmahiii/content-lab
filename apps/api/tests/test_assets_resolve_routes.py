@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
-from content_lab_api.models import Asset, AssetGenParam, Org, ProviderJob, Task
+from content_lab_api.models import Asset, AssetGenParam, AuditLog, Org, ProviderJob, Task
 from content_lab_assets.providers.runway.jobs import build_runway_job_external_ref
 from content_lab_assets.registry import build_asset_key
 
@@ -202,6 +202,18 @@ def test_asset_resolve_generate_path_reuses_generation_intent(
     assert (
         provider_jobs[0].metadata_["provider_ref"]["external_ref"] == provider_jobs[0].external_ref
     )
+    audit_rows = (
+        db_session.query(AuditLog)
+        .filter(
+            AuditLog.org_id == org_id,
+            AuditLog.action == "asset.generate.requested",
+            AuditLog.resource_id == task_id,
+        )
+        .all()
+    )
+    assert len(audit_rows) == 1
+    assert audit_rows[0].payload["asset_id"] == asset_id
+    assert audit_rows[0].payload["provider"] == "runway"
 
 
 def test_asset_resolve_generate_path_reuses_provider_job_external_ref_uniqueness(

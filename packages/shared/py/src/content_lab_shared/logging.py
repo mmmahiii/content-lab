@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from contextvars import ContextVar
 from typing import Any
 
@@ -48,12 +48,36 @@ def _inject_correlation_id(
 _REDACTED = "***REDACTED***"
 
 _SECRET_KEY_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(key|secret|token|password|salt|credential)", re.IGNORECASE),
+    re.compile(
+        r"(key|secret|token|password|salt|credential|authorization|cookie|session)", re.IGNORECASE
+    ),
+)
+
+_KEY_VALUE_SECRET_PATTERN = re.compile(
+    r"""(?ix)
+    \b
+    (api[_-]?key|access[_-]?key|client[_-]?secret|password|secret|token|authorization|cookie|session(?:id)?|jwt)
+    \b
+    (\s*[:=]\s*)
+    (?:
+        "[^"]*"
+        |
+        '[^']*'
+        |
+        [^\s,;]+
+    )
+    """
+)
+
+_VALUE_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    _KEY_VALUE_SECRET_PATTERN,
+    re.compile(r"(?i)\b(bearer|basic)\s+[^\s]+"),
+    re.compile(r"(?i)sk-[a-zA-Z0-9]{8,}"),
 )
 
 
 def _is_sensitive_key(key: str) -> bool:
-    return any(p.search(key) for p in _SECRET_KEY_PATTERNS)
+    return any(pattern.search(key) for pattern in _SECRET_KEY_PATTERNS)
 
 
 def redact_event_dict(
@@ -63,20 +87,39 @@ def redact_event_dict(
     for key in list(event_dict):
         if _is_sensitive_key(key):
             event_dict[key] = _REDACTED
+            continue
+        event_dict[key] = redact_sensitive_data(event_dict[key])
     return event_dict
 
 
-_VALUE_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)(api[_-]?key|password|secret|token|auth)\s*[=:]\s*[^\s,;]+"),
-    re.compile(r"(?i)bearer\s+[^\s]+"),
-    re.compile(r"(?i)sk-[a-zA-Z0-9]{8,}"),
-)
+def redact_sensitive_data(value: Any) -> Any:
+    """Recursively redact secret-bearing values inside nested payloads."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): (_REDACTED if _is_sensitive_key(str(key)) else redact_sensitive_data(raw))
+            for key, raw in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_sensitive_data(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact_sensitive_data(item) for item in value)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [redact_sensitive_data(item) for item in value]
+    if isinstance(value, str):
+        return redact_sensitive_string(value)
+    return value
 
 
 def redact_sensitive_string(text: str, *, max_len: int = 2_000) -> str:
     """Redact common secret patterns embedded in free-form strings (e.g. exception messages)."""
-    s = text if len(text) <= max_len else f"{text[:max_len]}…"
+    s = text if len(text) <= max_len else f"{text[:max_len]}..."
+    s = _KEY_VALUE_SECRET_PATTERN.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}{_REDACTED}",
+        s,
+    )
     for pattern in _VALUE_SECRET_PATTERNS:
+        if pattern is _KEY_VALUE_SECRET_PATTERN:
+            continue
         s = pattern.sub(_REDACTED, s)
     return s
 
