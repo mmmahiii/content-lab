@@ -37,12 +37,24 @@ See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard comman
 
 **API health via background job (Windows):** From repo root run `powershell -NoProfile -File scripts/api-health-smoke.ps1`. It uses a **free ephemeral port** and sets `apps/api` inside the job. Avoid pasting `Start-Job { uvicorn … --port 8000 }` plus `Invoke-RestMethod http://127.0.0.1:8000/health`: if something else already listens on 8000, the request hits that process (often HTTP 500), not your job. Use `pwsh` only if PowerShell 7+ is installed (`pwsh` is not the same as the `pwsh` PyPI package).
 
+### Cloud bootstrap automation
+
+Cloud agents bootstrap the VM through `.cursor/environment.json`, which runs:
+
+```bash
+bash scripts/bootstrap-cloud-env.sh
+```
+
+That script ensures Docker nested-runtime compatibility (`fuse-overlayfs` +
+`iptables-legacy`), Python 3.11, Poetry, Node.js 24 (via nvm), pnpm 9, `.env`
+provisioning, scaffold compatibility layout, and workspace `pnpm install`.
+
 ### Scaffold verification
 
 Cursor Cloud's scaffold check expects `minio-create-bucket` and `packages/*/py` paths. This repo provides compatibility:
 
 - **Docker Compose**: `minio-create-bucket` is an alias for `minio-init` (same behavior).
-- **packages/*/py**: Run `bash ./scripts/ensure-scaffold-compat.sh` (Linux) or `pwsh -File scripts/ensure-scaffold-compat.ps1` (Windows) to create the layout before verification. Cloud agents run this automatically via `.cursor/environment.json` install.
+- **packages/*/py**: Run `bash ./scripts/ensure-scaffold-compat.sh` (Linux) or `pwsh -File scripts/ensure-scaffold-compat.ps1` (Windows) to create the layout before verification. Cloud agents run this automatically from `scripts/bootstrap-cloud-env.sh` via `.cursor/environment.json`.
 
 To run the full scaffold check (infra, installs, lint, format, typecheck, tests, Docker build, API health, orchestrator smoke):
 
