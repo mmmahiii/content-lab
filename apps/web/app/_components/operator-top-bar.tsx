@@ -58,6 +58,7 @@ export function OperatorTopBar({
   context: { orgId: string | null; source: OperatorContextSource };
 }) {
   const pathname = usePathname();
+  const isHome = pathname === '/';
 
   return (
     <aside className="cl-sidebar" aria-label="Primary workspace navigation">
@@ -83,47 +84,51 @@ export function OperatorTopBar({
         ))}
       </nav>
 
-      <details className="cl-sidebar-card cl-disclosure">
-        <summary className="cl-disclosure-summary">
-          <span>
-            <span className="cl-kicker">How Content Lab Works</span>
-            <strong className="cl-disclosure-title">Workflow map</strong>
-          </span>
-          <span className="cl-disclosure-hint">Show</span>
-        </summary>
-        <ol className="cl-flow-list">
-          {flowItems.map((item, index) => (
-            <li key={item.title} className="cl-flow-item">
-              <span className="cl-flow-step">{index + 1}</span>
-              <div className="cl-flow-copy">
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </details>
+      {!isHome ? (
+        <>
+          <details className="cl-sidebar-card cl-disclosure">
+            <summary className="cl-disclosure-summary">
+              <span>
+                <span className="cl-kicker">How Content Lab Works</span>
+                <strong className="cl-disclosure-title">Workflow map</strong>
+              </span>
+              <span className="cl-disclosure-hint">Show</span>
+            </summary>
+            <ol className="cl-flow-list">
+              {flowItems.map((item, index) => (
+                <li key={item.title} className="cl-flow-item">
+                  <span className="cl-flow-step">{index + 1}</span>
+                  <div className="cl-flow-copy">
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </details>
 
-      <details className="cl-sidebar-card cl-disclosure">
-        <summary className="cl-disclosure-summary">
-          <span>
-            <span className="cl-kicker">Need A Reference?</span>
-            <strong className="cl-disclosure-title">Help and preview</strong>
-          </span>
-          <span className="cl-disclosure-hint">Show</span>
-        </summary>
-        <p className="cl-compact cl-help-text">
-          Use the sample route if you want to explore the UI patterns before working with live data.
-        </p>
-        <div className="cl-button-row">
-          <Link href="/ui-demo" className="cl-link-button">
-            Open UI demo
-          </Link>
-          <Link href="/pages" className="cl-link-button is-secondary">
-            Open pages
-          </Link>
-        </div>
-      </details>
+          <details className="cl-sidebar-card cl-disclosure">
+            <summary className="cl-disclosure-summary">
+              <span>
+                <span className="cl-kicker">Need A Reference?</span>
+                <strong className="cl-disclosure-title">Help and preview</strong>
+              </span>
+              <span className="cl-disclosure-hint">Show</span>
+            </summary>
+            <p className="cl-compact cl-help-text">
+              Use the sample route if you want to explore the UI patterns before working with live data.
+            </p>
+            <div className="cl-button-row">
+              <Link href="/ui-demo" className="cl-link-button">
+                Open UI demo
+              </Link>
+              <Link href="/pages" className="cl-link-button is-secondary">
+                Open pages
+              </Link>
+            </div>
+          </details>
+        </>
+      ) : null}
     </aside>
   );
 }
