@@ -54,14 +54,29 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export function OperatorTopBar({
   context,
+  onCollapseSidebar,
 }: {
   context: { orgId: string | null; source: OperatorContextSource };
+  onCollapseSidebar?: () => void;
 }) {
   const pathname = usePathname();
   const isHome = pathname === '/';
 
   return (
     <aside className="cl-sidebar" aria-label="Primary workspace navigation">
+      {onCollapseSidebar ? (
+        <div className="cl-sidebar-toolbar">
+          <span className="cl-sidebar-toolbar-label">Menu</span>
+          <button
+            type="button"
+            className="cl-sidebar-collapse-button"
+            onClick={onCollapseSidebar}
+            aria-label="Hide workspace sidebar"
+          >
+            Hide
+          </button>
+        </div>
+      ) : null}
       <div className="cl-sidebar-card">
         <Link href="/" className="cl-brand">
           <span className="cl-brand-mark" aria-hidden />
