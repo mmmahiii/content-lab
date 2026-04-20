@@ -102,39 +102,6 @@ function ActionCluster({ items }: { items: LinkItem[] }) {
   );
 }
 
-function FeatureDirectory() {
-  const features = [
-    {
-      title: 'Pages',
-      description: 'Use Pages as the main hub, then move through each page workspace without losing context.',
-      href: '/pages',
-    },
-    {
-      title: 'Queue',
-      description: 'Handle the human review and posting workflow without missing items that need attention.',
-      href: '/queue',
-    },
-    {
-      title: 'Actions',
-      description: 'Start workflows, process a reel, approve or archive, and record manual posting.',
-      href: '/actions',
-    },
-  ];
-
-  return (
-    <div className="cl-card-grid">
-      {features.map((feature) => (
-        <article key={feature.title} className="cl-card cl-card-compact">
-          <div className="cl-kicker">Feature</div>
-          <h3 className="cl-card-title">{feature.title}</h3>
-          <p className="cl-card-description">{feature.description}</p>
-          <LinkAction href={feature.href} label={`Open ${feature.title}`} />
-        </article>
-      ))}
-    </div>
-  );
-}
-
 function GlossaryPanel() {
   return (
     <div className="cl-glossary">
@@ -168,94 +135,26 @@ function GlossaryPanel() {
   );
 }
 
-function NewHerePanel() {
-  return (
-    <div className="cl-card-grid">
-      <article className="cl-card cl-card-compact">
-        <div className="cl-kicker">If you are new</div>
-        <h3 className="cl-card-title">Start with Pages</h3>
-        <p className="cl-card-description">
-          Choose the account you are working on first. That page now carries its own overview,
-          reels, runs, and policy tabs before you take action.
-        </p>
-        <LinkAction href="/pages" label="Open Pages" />
-      </article>
-      <article className="cl-card cl-card-compact">
-        <div className="cl-kicker">Then move to</div>
-        <h3 className="cl-card-title">Queue or Actions</h3>
-        <p className="cl-card-description">
-          Go to Queue if you are reviewing existing work. Go to Actions if you are starting
-          something new or recording a human step.
-        </p>
-        <div className="cl-button-row">
-          <LinkAction href="/queue" label="Open Queue" />
-          <LinkAction href="/actions" label="Open Actions" tone="secondary" />
-        </div>
-      </article>
-    </div>
-  );
-}
-
-function WorkflowSteps() {
-  const steps = [
-    {
-      label: '1. Choose a page',
-      copy: 'Open Pages to confirm which account you are working on and inspect its context.',
-      href: '/pages',
-    },
-    {
-      label: '2. Open the page workspace',
-      copy: 'Use the page overview, reels, runs, and policy tabs to stay inside one account context.',
-      href: pagePath(demoIds.orgId, demoIds.pageId),
-    },
-    {
-      label: '3. Start work',
-      copy: 'Open Actions to launch a workflow or process a specific reel with explicit audited inputs.',
-      href: '/actions',
-    },
-    {
-      label: '4. Review output',
-      copy: 'Use Queue to approve, archive, or investigate items that need human attention.',
-      href: '/queue',
-    },
-    {
-      label: '5. Inspect the package',
-      copy: 'Open reel or package detail to confirm downloads, provenance, and publishable files.',
-      href: packagePath(demoIds.orgId, demoIds.runId),
-    },
-    {
-      label: '6. Record posting',
-      copy: 'After a human posts externally, record the outcome in Actions without autoposting.',
-      href: buildActionPath({ orgId: demoIds.orgId, pageId: demoIds.pageId, reelId: demoIds.reelId }),
-    },
-  ];
-
-  return (
-    <div className="cl-card-grid">
-      {steps.map((step) => (
-        <article key={step.label} className="cl-card cl-card-compact">
-          <div className="cl-kicker">Daily workflow</div>
-          <h3 className="cl-card-title">{step.label}</h3>
-          <p className="cl-card-description">{step.copy}</p>
-          <LinkAction href={step.href} label="Open step" />
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function DashboardMetrics({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+function HomeSignalStrip({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
   const queue = buildPackageReviewQueue(dashboard);
+  const reviewReadyCount =
+    queue.state === 'ready'
+      ? queue.data.filter((item) => item.queueState === 'ready_for_review').length
+      : 'Not available';
+  const qaFailedCount =
+    queue.state === 'ready'
+      ? queue.data.filter((item) => item.queueState === 'qa_failed').length
+      : 'Not available';
 
   const items = [
     { label: 'Pages in scope', value: dashboard.pages.state === 'ready' ? dashboard.pages.data.length : 'Not connected' },
-    { label: 'Current runs', value: dashboard.runs.state === 'ready' ? dashboard.runs.data.length : 'Not available' },
-    { label: 'Recent reels', value: dashboard.reels.state === 'ready' ? dashboard.reels.data.length : 'Not available' },
-    { label: 'Queue items', value: queue.state === 'ready' ? queue.data.length : 'Not available' },
+    { label: 'In-flight runs', value: dashboard.runs.state === 'ready' ? dashboard.runs.data.length : 'Not available' },
+    { label: 'Needs review', value: reviewReadyCount },
+    { label: 'QA failed', value: qaFailedCount },
   ];
 
   return (
-    <div className="cl-stat-grid">
+    <div className="cl-stat-grid cl-home-signal-grid">
       {items.map((item) => (
         <article key={item.label} className="cl-stat-card">
           <div className="cl-meta-label">{item.label}</div>
@@ -264,33 +163,6 @@ function DashboardMetrics({ dashboard }: { dashboard: OperatorDashboardSnapshot 
       ))}
     </div>
   );
-}
-
-function QueueSummaryCards({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
-  const queue = buildPackageReviewQueue(dashboard);
-  const items =
-    queue.state === 'ready'
-      ? [
-          {
-            label: 'Ready for review',
-            value: queue.data.filter((item) => item.queueState === 'ready_for_review').length,
-          },
-          {
-            label: 'QA failed',
-            value: queue.data.filter((item) => item.queueState === 'qa_failed').length,
-          },
-          {
-            label: 'Posted',
-            value: queue.data.filter((item) => item.queueState === 'posted').length,
-          },
-        ]
-      : [
-          { label: 'Ready for review', value: 'Not loaded' },
-          { label: 'QA failed', value: 'Not loaded' },
-          { label: 'Posted', value: 'Not loaded' },
-        ];
-
-  return <MetaGrid items={items} />;
 }
 
 function cueSummaryForRoute(copy: string): string {
@@ -568,68 +440,109 @@ function QueueTable({ queue, orgId }: { queue: ReviewQueueItem[]; orgId: string 
   );
 }
 
-function RecentActivity({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
-  const queue = buildPackageReviewQueue(dashboard);
+function HomeWorkflowPanel({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+  const configured = dashboard.context.orgId !== null;
+  const firstPageId =
+    dashboard.pages.state === 'ready' && dashboard.pages.data[0] ? dashboard.pages.data[0].id : demoIds.pageId;
+  const pageWorkspaceHref = pagePath(dashboard.context.orgId ?? demoIds.orgId, firstPageId);
+  const steps = [
+    {
+      title: 'Choose a page',
+      description: 'Start in Pages, confirm the account in scope, and keep the rest of the work tied to that page.',
+      actions: <LinkAction href="/pages" label="Open Pages" />,
+    },
+    {
+      title: 'Stay in the page workspace',
+      description: 'Use the overview, reels, runs, and policy tabs so context stays inside one account.',
+      actions: <LinkAction href={pageWorkspaceHref} label="Open page workspace" tone="secondary" />,
+    },
+    {
+      title: 'Start or review work',
+      description: 'Use Actions to trigger or record a human step, and Queue when review work spans multiple pages.',
+      actions: (
+        <ActionCluster
+          items={[
+            { href: '/actions', label: 'Open Actions' },
+            { href: '/queue', label: 'Open Queue', tone: 'secondary' },
+          ]}
+        />
+      ),
+    },
+    {
+      title: 'Inspect the package and finish',
+      description: 'Check the package output, then record manual posting after the human publish step is complete.',
+      actions: (
+        <ActionCluster
+          items={[
+            { href: packagePath(demoIds.orgId, demoIds.runId), label: 'Open sample package' },
+            {
+              href: buildActionPath({ orgId: demoIds.orgId, pageId: demoIds.pageId, reelId: demoIds.reelId }),
+              label: 'Record posting',
+              tone: 'secondary',
+            },
+          ]}
+        />
+      ),
+    },
+  ];
 
   return (
-    <div className="cl-card-grid">
-      <article className="cl-card">
-        <div className="cl-kicker">Pages</div>
-        <h3 className="cl-card-title">
-          {dashboard.pages.state === 'ready' ? dashboard.pages.data[0]?.displayName ?? 'No pages yet' : 'Pages unavailable'}
-        </h3>
-        <p className="cl-card-description">
-          {dashboard.pages.state === 'ready'
-            ? 'Start from the page you manage, then stay inside that page workspace for reels, runs, and policy.'
-            : dashboard.pages.message ?? 'Connect an org to begin loading pages.'}
-        </p>
-        <LinkAction href="/pages" label="Open Pages" />
-      </article>
-      <article className="cl-card">
-        <div className="cl-kicker">Page workspace</div>
-        <h3 className="cl-card-title">
-          {dashboard.pages.state === 'ready' ? 'Overview, reels, runs, policy' : 'Workspace unavailable'}
-        </h3>
-        <p className="cl-card-description">
-          {dashboard.pages.state === 'ready'
-            ? 'Every page now groups its own content, automation, and guardrails in one place.'
-            : dashboard.pages.message ?? 'Choose an org to load page workspaces.'}
-        </p>
-        <LinkAction
-          href={
-            dashboard.pages.state === 'ready' && dashboard.pages.data[0]
-              ? pagePath(dashboard.context.orgId ?? demoIds.orgId, dashboard.pages.data[0].id)
-              : pagePath(demoIds.orgId, demoIds.pageId)
+    <div className="cl-home-layout">
+      {!configured ? (
+        <EmptyState
+          title="Connect your workspace"
+          message={
+            dashboard.context.configurationMessage ??
+            'Choose a workspace org in the sidebar to load live pages, runs, reels, and queue counts.'
           }
-          label="Open a page workspace"
+          tone="warning"
+          actions={
+            <>
+              <LinkAction href={pageWorkspaceHref} label="Open sample page" />
+              <LinkAction href="/actions" label="Open Actions anyway" tone="secondary" />
+            </>
+          }
         />
-      </article>
-      <article className="cl-card">
-        <div className="cl-kicker">Queue</div>
-        <h3 className="cl-card-title">
-          {queue.state === 'ready' ? `${queue.data.length} items need attention` : 'Queue unavailable'}
-        </h3>
-        <p className="cl-card-description">
-          {queue.state === 'ready'
-            ? 'Queue brings review-ready, QA-failed, and posted reels into one operator workflow.'
-            : queue.message ?? 'Queue items appear when generated reels reach a human step.'}
-        </p>
-        <LinkAction href="/queue" label="Open Queue" />
-      </article>
+      ) : null}
+      <div className="cl-home-flow">
+        <div className="cl-home-flow-head">
+          <div>
+            <div className="cl-kicker">Workflow map</div>
+            <h2 className="cl-panel-title">One clear path through the operator workspace</h2>
+            <p className="cl-panel-description">
+              Pages is the main entry point. Stay page-scoped until the work crosses into shared review or audited manual actions.
+            </p>
+          </div>
+          <p className="cl-home-flow-note">
+            Use the reference panel below when you need glossary help. The homepage keeps only the workflow path and live signal.
+          </p>
+        </div>
+        <HomeSignalStrip dashboard={dashboard} />
+        <ol className="cl-flow-list cl-home-flow-list">
+          {steps.map((step, index) => (
+            <li key={step.title} className="cl-flow-item cl-home-flow-item">
+              <span className="cl-flow-step">{index + 1}</span>
+              <div className="cl-flow-copy">
+                <strong>{step.title}</strong>
+                <span>{step.description}</span>
+                <div className="cl-button-row cl-home-step-actions">{step.actions}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
     </div>
   );
 }
 
 export function HomeRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
-  const configured = dashboard.context.orgId !== null;
-
   return (
     <DetailFrame
+      className="cl-page-home"
       breadcrumbs={[{ label: 'Home' }]}
-      eyebrow="Start here"
-      title="A guided operator workspace for Content Lab"
-      subtitle="This UI is now page-first: operators choose a page, stay inside that page workspace for reels, runs, and policy, then use Queue or Actions only when the workflow crosses page boundaries."
-      cuesSummary="Open this quick guide if you want the short version of what this workspace does and where to go next."
+      eyebrow="Home"
+      title="Content Lab operator home"
+      subtitle="A compact landing page for daily operations: one workflow map, live queue signal, and direct entry points into Pages, Queue, Actions, and a sample page."
       actions={
         <ActionCluster
           items={[
@@ -640,68 +553,12 @@ export function HomeRouteView({ dashboard }: { dashboard: OperatorDashboardSnaps
           ]}
         />
       }
-      cues={[
-        {
-          label: 'What this workspace is for',
-          value: 'Operate the reel workflow from page selection through human review and manual posting records.',
-        },
-        {
-          label: 'What you can do here',
-          value: 'Navigate every feature, understand the language of the system, and jump into the next recommended action.',
-        },
-        {
-          label: 'What comes next',
-          value: configured
-            ? 'Choose a page, then use its tabs to move through reels, runs, and policy.'
-            : 'Choose a workspace org in the sidebar to load live data, or use the sample detail links while onboarding.',
-        },
-      ]}
     >
-      {!configured ? (
-        <SectionCard
-          title="Connect your workspace"
-          description="The shell is ready, but live org-scoped data needs a workspace org before it can load pages, runs, reels, queue items, and policy."
-          actions={<LinkAction href="/actions" label="Open Actions anyway" />}
-        >
-          <EmptyState
-            title="Live data is not connected yet"
-            message={
-              dashboard.context.configurationMessage ??
-              'Use the workspace org control in the sidebar so the primary routes can load live API data.'
-            }
-            tone="warning"
-            actions={
-              <>
-                <LinkAction href={pagePath(demoIds.orgId, demoIds.pageId)} label="Open sample page" />
-                <LinkAction href={reelPath(demoIds.orgId, demoIds.pageId, demoIds.reelId)} label="Open sample reel" />
-              </>
-            }
-          />
-        </SectionCard>
-      ) : null}
-
       <SectionCard
-        title="Start here today"
-        description="This is the shortest path to understanding the workspace and acting on current work."
+        title="Workflow map"
+        description="One concise path for daily work, with live signal kept in the same panel so the homepage stays useful without repeating itself."
       >
-        <DashboardMetrics dashboard={dashboard} />
-        <QueueSummaryCards dashboard={dashboard} />
-        <NewHerePanel />
-        <RecentActivity dashboard={dashboard} />
-      </SectionCard>
-
-      <SectionCard
-        title="Workspace map"
-        description="Keep every feature visible, but grouped into the two questions operators usually have: where do I go, and in what order?"
-      >
-        <div className="cl-form-columns">
-          <div className="cl-stack-md">
-            <WorkflowSteps />
-          </div>
-          <div className="cl-stack-md">
-            <FeatureDirectory />
-          </div>
-        </div>
+        <HomeWorkflowPanel dashboard={dashboard} />
       </SectionCard>
 
       <details className="cl-panel cl-disclosure-panel">

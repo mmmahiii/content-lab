@@ -20,6 +20,7 @@ type FrameProps = {
   cues?: CueItem[];
   cuesSummary?: string;
   actions?: ReactNode;
+  className?: string;
   children: ReactNode;
 };
 
@@ -118,10 +119,11 @@ export function DetailFrame({
   cues,
   cuesSummary,
   actions,
+  className,
   children,
 }: FrameProps): ReactElement {
   return (
-    <div className="cl-page">
+    <div className={className ? `cl-page ${className}` : 'cl-page'}>
       <section className="cl-page-header">
         <Breadcrumbs items={breadcrumbs} />
         <div className="cl-page-hero">

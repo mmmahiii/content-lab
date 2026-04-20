@@ -104,12 +104,15 @@ describe('HomePage', () => {
       createElement(DashboardHomeView, { dashboard: readyDashboard }),
     );
 
-    expect(markup).toContain('A guided operator workspace for Content Lab');
-    expect(markup).toContain('Daily workflow');
-    expect(markup).toContain('Start here today');
-    expect(markup).toContain('Workspace map');
-    expect(markup).toContain('Northwind Fitness');
+    expect(markup).toContain('Content Lab operator home');
+    expect(markup).toContain('Workflow map');
+    expect(markup).toContain('One clear path through the operator workspace');
+    expect(markup).toContain('Needs review');
+    expect(markup).toContain('Open page workspace');
     expect(markup).toContain('Open Actions');
+    expect(markup).not.toContain('A guided operator workspace for Content Lab');
+    expect(markup).not.toContain('Daily workflow');
+    expect(markup).not.toContain('Start here today');
   });
 
   it('renders configuration and empty-state messaging when data is unavailable', () => {
@@ -146,7 +149,8 @@ describe('HomePage', () => {
     expect(markup).toContain('Connect your workspace');
     expect(markup).toContain('Set CONTENT_LAB_OPERATOR_ORG_ID');
     expect(markup).toContain('Open sample page');
-    expect(markup).toContain('Workspace map');
+    expect(markup).toContain('Workflow map');
+    expect(markup).not.toContain('Start here today');
   });
 
   it('renders a dedicated actions workspace with task-based operator controls', () => {
