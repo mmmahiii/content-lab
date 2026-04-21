@@ -21,10 +21,7 @@ import {
   runPath,
 } from '../_lib/content-lab-data';
 import type { PolicyEditorRecord } from '../_lib/operator-policy';
-import type {
-  PageWorkspaceRun,
-  PageWorkspaceSnapshot,
-} from '../_lib/operator-page-workspace';
+import type { PageWorkspaceSnapshot } from '../_lib/operator-page-workspace';
 
 export type PageWorkspaceTab = 'overview' | 'reels' | 'runs' | 'policy';
 
@@ -200,128 +197,37 @@ function PageWorkspaceFrame({
   );
 }
 
-function RelatedRunSummary({ run }: { run: PageWorkspaceRun }) {
-  return (
-    <div className="cl-resource-title">
-      <strong>{run.run.workflow_key}</strong>
-      <span className="cl-resource-meta">
-        {formatStatus(run.run.flow_trigger)} - {formatTimestamp(run.run.updated_at)}
-      </span>
-    </div>
-  );
-}
-
-function PolicyStatusCard({ snapshot }: { snapshot: PageWorkspaceSnapshot }) {
-  return (
-    <article className="cl-card cl-card-compact">
-      <div className="cl-kicker">Policy</div>
-      <h3 className="cl-card-title">{policySummaryLabel(snapshot)}</h3>
-      <p className="cl-card-description">
-        {snapshot.policy
-          ? 'This page has a saved policy and is ready for edits inside the page workspace.'
-          : 'This page is still using default guardrails until a saved page policy is created.'}
-      </p>
-      <div className="cl-button-row">
-        <LinkAction
-          href={pagePolicyPath(snapshot.context.orgId, snapshot.page.id)}
-          label="Open Policy"
-        />
-        <LinkAction
-          href={buildActionPath({ orgId: snapshot.context.orgId, pageId: snapshot.page.id })}
-          label="Open in Actions"
-          tone="secondary"
-        />
-      </div>
-    </article>
-  );
-}
-
-function OverviewPreviewCards({ snapshot }: { snapshot: PageWorkspaceSnapshot }) {
-  const previewReels = snapshot.reels.slice(0, 3);
-  const previewRuns = snapshot.runs.slice(0, 3);
-
-  return (
-    <div className="cl-card-grid">
-      <article className="cl-card cl-card-compact">
-        <div className="cl-kicker">Reels</div>
-        <h3 className="cl-card-title">{snapshot.reels.length} reel(s) on this page</h3>
-        <p className="cl-card-description">
-          Review current content without leaving page context, then jump straight into a reel or its related package.
-        </p>
-        <div className="cl-stack-sm">
-          {previewReels.map((entry) => (
-            <div key={entry.reel.id} className="cl-resource-title">
-              <strong>{entry.reel.variant_label ?? `Reel ${entry.reel.id.slice(0, 8)}`}</strong>
-              <span className="cl-resource-meta">
-                {formatStatus(entry.reel.status)}
-                {entry.relatedRunStatus ? ` - run ${formatStatus(entry.relatedRunStatus)}` : ''}
-              </span>
-            </div>
-          ))}
-        </div>
-        <LinkAction
-          href={pageReelsPath(snapshot.context.orgId, snapshot.page.id)}
-          label="Open Reels"
-        />
-      </article>
-      <article className="cl-card cl-card-compact">
-        <div className="cl-kicker">Runs</div>
-        <h3 className="cl-card-title">{snapshot.runs.length} run(s) on this page</h3>
-        <p className="cl-card-description">
-          Track page-scoped automation and jump into the linked reel, package, or action flow.
-        </p>
-        <div className="cl-stack-sm">
-          {previewRuns.map((entry) => (
-            <RelatedRunSummary key={entry.run.id} run={entry} />
-          ))}
-        </div>
-        <LinkAction href={pageRunsPath(snapshot.context.orgId, snapshot.page.id)} label="Open Runs" />
-      </article>
-      <PolicyStatusCard snapshot={snapshot} />
-    </div>
-  );
-}
-
 function PageOverviewPanel({ snapshot }: { snapshot: PageWorkspaceSnapshot }) {
   const { page, policy } = snapshot;
   const disclosureCount = page.metadata.constraints.required_disclosures.length;
 
   return (
-    <>
-      <SectionCard
-        title="Page summary"
-        description="Start here when you need to reorient on the account before touching content or workflows."
-      >
-        <MetaGrid
-          items={[
-            { label: 'Handle', value: page.handle ?? 'Not recorded' },
-            { label: 'External page id', value: page.external_page_id ?? 'Not recorded' },
-            { label: 'Persona label', value: page.metadata.persona?.label ?? 'Not configured' },
-            { label: 'Audience', value: page.metadata.persona?.audience ?? 'Not configured' },
-            {
-              label: 'Content pillars',
-              value: page.metadata.persona?.content_pillars.join(', ') ?? 'None',
-            },
-            { label: 'Required disclosures', value: disclosureCount === 0 ? 'None' : disclosureCount },
-            {
-              label: 'Primary policy mode',
-              value: policy
-                ? Object.entries(policy.state.mode_ratios)
-                    .sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'Balanced'
-                : 'Default guardrails',
-            },
-            { label: 'Updated', value: formatTimestamp(page.updated_at) },
-          ]}
-        />
-      </SectionCard>
-
-      <SectionCard
-        title="Continue from this page"
-        description="Use the previews below to move directly into the next page-scoped area of work."
-      >
-        <OverviewPreviewCards snapshot={snapshot} />
-      </SectionCard>
-    </>
+    <SectionCard
+      title="Page summary"
+      description="Start here when you need to reorient on the account before touching content or workflows."
+    >
+      <MetaGrid
+        items={[
+          { label: 'Handle', value: page.handle ?? 'Not recorded' },
+          { label: 'External page id', value: page.external_page_id ?? 'Not recorded' },
+          { label: 'Persona label', value: page.metadata.persona?.label ?? 'Not configured' },
+          { label: 'Audience', value: page.metadata.persona?.audience ?? 'Not configured' },
+          {
+            label: 'Content pillars',
+            value: page.metadata.persona?.content_pillars.join(', ') ?? 'None',
+          },
+          { label: 'Required disclosures', value: disclosureCount === 0 ? 'None' : disclosureCount },
+          {
+            label: 'Primary policy mode',
+            value: policy
+              ? Object.entries(policy.state.mode_ratios)
+                  .sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'Balanced'
+              : 'Default guardrails',
+          },
+          { label: 'Updated', value: formatTimestamp(page.updated_at) },
+        ]}
+      />
+    </SectionCard>
   );
 }
 
