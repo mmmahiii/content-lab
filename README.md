@@ -52,16 +52,24 @@ That launcher will:
 - ensure `.env` exists;
 - start Docker infra;
 - apply API migrations;
-- start API, worker, orchestrator, and web in Docker;
+- start API, worker, and orchestrator in Docker;
+- start the web console locally with `pnpm --filter web dev` so UI edits hot-reload;
 - wait for the API and web console to be ready;
 - open `http://127.0.0.1:3000`.
 
-The first run may take longer because Docker needs to build the app images once.
-Later runs reuse those images by default. If you want to force a fresh rebuild,
-run:
+The first run may take longer because Docker needs to build the backend app
+images once. Later UI edits do not require rebuilding the web Docker image. If
+you want to force a fresh backend rebuild, run:
 
 ```powershell
 powershell -NoProfile -File .\open-console.ps1 -Rebuild
+```
+
+If you specifically want the old production-like Docker-built web console, run:
+
+```powershell
+powershell -NoProfile -File .\open-console.ps1 -DockerWeb
+# or: pnpm run console:open:docker
 ```
 
 Stop everything later with:

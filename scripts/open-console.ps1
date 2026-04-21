@@ -4,12 +4,15 @@ param(
     [int]$MaxWaitSeconds = 240,
     [switch]$NoBrowser,
     [switch]$SkipBuild,
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    [switch]$DockerWeb
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$BuildFingerprintPath = Join-Path $RepoRoot ".console-build-fingerprint"
+$BuildFingerprintPath = Join-Path $RepoRoot $(if ($DockerWeb) { ".console-docker-web-build-fingerprint" } else { ".console-backend-build-fingerprint" })
+$ConsoleStatePath = Join-Path $RepoRoot ".console-state.json"
+$ConsoleWebLogPath = Join-Path $RepoRoot ".console-web.log"
 
 function Invoke-Compose {
     param(
@@ -184,22 +187,31 @@ function Test-DockerImageExists {
 }
 
 function Get-BuildFingerprint {
+    param(
+        [bool]$IncludeWeb = $false
+    )
+
     $paths = @(
-        "package.json",
-        "pnpm-lock.yaml",
-        "pnpm-workspace.yaml",
-        "tsconfig.base.json",
         "infra/docker-compose.yml",
         "infra/Dockerfile.api",
         "infra/Dockerfile.worker",
         "infra/Dockerfile.orchestrator",
-        "infra/Dockerfile.web",
-        "apps/web",
         "apps/api",
         "apps/worker",
         "apps/orchestrator",
         "packages"
     )
+
+    if ($IncludeWeb) {
+        $paths += @(
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "tsconfig.base.json",
+            "infra/Dockerfile.web",
+            "apps/web"
+        )
+    }
 
     $files = foreach ($path in $paths) {
         if (-not (Test-Path $path)) {
@@ -342,6 +354,271 @@ function Wait-ForHttpReady {
     throw "Timed out waiting for $Url"
 }
 
+function Get-ConsolePort {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    $uri = [Uri]$Url
+    if ($uri.Port -gt 0) {
+        return $uri.Port
+    }
+
+    if ($uri.Scheme -eq "https") {
+        return 443
+    }
+
+    return 80
+}
+
+function Quote-PowerShellString {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    return "'$($Value.Replace("'", "''"))'"
+}
+
+function Get-ConsoleState {
+    if (-not (Test-Path -LiteralPath $ConsoleStatePath)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $ConsoleStatePath -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Host "Ignoring unreadable console state file: $ConsoleStatePath" -ForegroundColor Yellow
+        return $null
+    }
+}
+
+function Set-ConsoleState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    $State | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ConsoleStatePath
+}
+
+function Clear-ConsoleState {
+    if (Test-Path -LiteralPath $ConsoleStatePath) {
+        Remove-Item -LiteralPath $ConsoleStatePath -Force
+    }
+}
+
+function Test-ProcessAlive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    return [bool](Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
+function Stop-ProcessTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
+    foreach ($child in $children) {
+        Stop-ProcessTree -ProcessId ([int]$child.ProcessId)
+    }
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($process) {
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-PortListeners {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port
+    )
+
+    @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -Property LocalAddress, LocalPort, OwningProcess -Unique)
+}
+
+function Get-PortOwnerMessage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port
+    )
+
+    $listeners = Get-PortListeners -Port $Port
+    if ($listeners.Count -eq 0) {
+        return "No listener is using port $Port."
+    }
+
+    $lines = foreach ($listener in $listeners) {
+        $processId = [int]$listener.OwningProcess
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+        if ($process) {
+            "PID $processId ($($process.Name)): $($process.CommandLine)"
+        }
+        else {
+            "PID ${processId}: process details unavailable"
+        }
+    }
+
+    return "Port $Port is already in use:`n$($lines -join "`n")"
+}
+
+function Wait-ForPortFree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $deadline = [datetime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([datetime]::UtcNow -lt $deadline) {
+        if ((Get-PortListeners -Port $Port).Count -eq 0) {
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    throw (Get-PortOwnerMessage -Port $Port)
+}
+
+function Stop-TrackedLocalWeb {
+    $state = Get-ConsoleState
+    if (-not $state -or $state.mode -ne "local-web-dev" -or -not $state.webPid) {
+        return
+    }
+
+    $webPid = [int]$state.webPid
+    if (Test-ProcessAlive -ProcessId $webPid) {
+        Write-Host "Stopping tracked local web dev server (PID $webPid)..." -ForegroundColor Cyan
+        Stop-ProcessTree -ProcessId $webPid
+    }
+
+    Clear-ConsoleState
+}
+
+function Stop-DockerWebService {
+    $containerId = Get-ComposeContainerId -Service "web"
+    if (-not $containerId) {
+        return
+    }
+
+    Write-Host "Stopping Docker web service so local Next.js can own port 3000..." -ForegroundColor Cyan
+    Invoke-Compose -ComposeArgs @("--profile", "web", "rm", "-sf", "web")
+}
+
+function Import-RootEnvFile {
+    $envPath = Join-Path $RepoRoot ".env"
+    if (-not (Test-Path -LiteralPath $envPath)) {
+        return
+    }
+
+    foreach ($line in Get-Content -LiteralPath $envPath) {
+        $trimmed = $line.Trim()
+        if ($trimmed.Length -eq 0 -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) {
+            continue
+        }
+
+        $separatorIndex = $trimmed.IndexOf("=")
+        $name = $trimmed.Substring(0, $separatorIndex).Trim()
+        $value = $trimmed.Substring($separatorIndex + 1).Trim()
+        if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+
+        if ($name.Length -gt 0) {
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+}
+
+function Set-LocalWebEnvironment {
+    Import-RootEnvFile
+    $env:CONTENT_LAB_API_BASE_URL = "http://127.0.0.1:8000"
+    $env:NEXT_PUBLIC_API_BASE_URL = "http://127.0.0.1:8000"
+    $env:NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL = "http://127.0.0.1:8000"
+
+    if ($env:CONTENT_LAB_OPERATOR_ORG_ID) {
+        $env:NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID = $env:CONTENT_LAB_OPERATOR_ORG_ID
+    }
+}
+
+function Start-OrReuseLocalWeb {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+        [int]$TimeoutSeconds = 120
+    )
+
+    Ensure-Command -Name "pnpm"
+    Set-LocalWebEnvironment
+    Stop-DockerWebService
+
+    $port = Get-ConsolePort -Url $Url
+    $state = Get-ConsoleState
+    if ($state -and $state.mode -eq "local-web-dev" -and $state.webPid) {
+        $webPid = [int]$state.webPid
+        if (Test-ProcessAlive -ProcessId $webPid) {
+            try {
+                Wait-ForHttpReady -Url $Url -TimeoutSeconds 5
+                Write-Host "Reusing local web dev server (PID $webPid)." -ForegroundColor Green
+                return
+            }
+            catch {
+                Write-Host "Tracked local web dev server is not responding; restarting it." -ForegroundColor Yellow
+                Stop-ProcessTree -ProcessId $webPid
+                Clear-ConsoleState
+            }
+        }
+        else {
+            Clear-ConsoleState
+        }
+    }
+
+    Wait-ForPortFree -Port $port -TimeoutSeconds 30
+
+    $repoLiteral = Quote-PowerShellString -Value $RepoRoot
+    $logLiteral = Quote-PowerShellString -Value $ConsoleWebLogPath
+    $command = "`$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath $repoLiteral; pnpm --filter web dev *> $logLiteral"
+
+    Write-Host "Starting local Next.js dev server with hot reload..." -ForegroundColor Cyan
+    $process = Start-Process -FilePath "powershell.exe" `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command) `
+        -WorkingDirectory $RepoRoot `
+        -WindowStyle Hidden `
+        -PassThru
+
+    Set-ConsoleState -State ([PSCustomObject]@{
+        mode = "local-web-dev"
+        webPid = $process.Id
+        port = $port
+        url = $Url
+        logPath = $ConsoleWebLogPath
+        startedAt = [DateTimeOffset]::Now.ToString("o")
+    })
+
+    try {
+        Wait-ForHttpReady -Url $Url -TimeoutSeconds $TimeoutSeconds
+    }
+    catch {
+        Write-Host "Local web dev server failed to become ready. Recent log output:" -ForegroundColor Red
+        if (Test-Path -LiteralPath $ConsoleWebLogPath) {
+            Get-Content -LiteralPath $ConsoleWebLogPath -Tail 80
+        }
+
+        Stop-TrackedLocalWeb
+        throw
+    }
+}
+
 Push-Location $RepoRoot
 try {
     Ensure-Command -Name "docker"
@@ -362,41 +639,85 @@ try {
     Write-Host "Ensuring MinIO bucket..." -ForegroundColor Cyan
     Invoke-Compose -ComposeArgs @("up", "minio-init")
 
-    $requiredImages = @("infra-api:latest", "infra-worker:latest", "infra-orchestrator:latest", "infra-web:latest")
+    $requiredImages = @("infra-api:latest", "infra-worker:latest", "infra-orchestrator:latest")
+    if ($DockerWeb) {
+        $requiredImages += "infra-web:latest"
+    }
+
     $missingImages = @($requiredImages | Where-Object { -not (Test-DockerImageExists -ImageName $_) })
-    $currentFingerprint = Get-BuildFingerprint
+    $currentFingerprint = Get-BuildFingerprint -IncludeWeb ([bool]$DockerWeb)
     $storedFingerprint = Get-StoredBuildFingerprint
     $sourceChanged = $storedFingerprint -ne $currentFingerprint
 
     if ($Rebuild -or $missingImages.Count -gt 0 -or $sourceChanged) {
         if ($Rebuild) {
-            Write-Host "Rebuilding API, worker, orchestrator, and web images..." -ForegroundColor Cyan
+            if ($DockerWeb) {
+                Write-Host "Rebuilding API, worker, orchestrator, and web images..." -ForegroundColor Cyan
+            }
+            else {
+                Write-Host "Rebuilding API, worker, and orchestrator images..." -ForegroundColor Cyan
+            }
         }
         elseif ($missingImages.Count -gt 0) {
             Write-Host "Building missing app images..." -ForegroundColor Cyan
         }
         else {
-            Write-Host "Source changes detected. Rebuilding app images..." -ForegroundColor Cyan
+            if ($DockerWeb) {
+                Write-Host "Source changes detected. Rebuilding app and web images..." -ForegroundColor Cyan
+            }
+            else {
+                Write-Host "Backend source changes detected. Rebuilding backend app images..." -ForegroundColor Cyan
+            }
         }
-        Invoke-Compose -ComposeArgs @("--profile", "app", "--profile", "web", "build", "api", "worker", "orchestrator", "web")
+
+        $buildArgs = @("--profile", "app", "build", "api", "worker", "orchestrator")
+        if ($DockerWeb) {
+            $buildArgs = @("--profile", "app", "--profile", "web", "build", "api", "worker", "orchestrator", "web")
+        }
+
+        Invoke-Compose -ComposeArgs $buildArgs
         Set-StoredBuildFingerprint -Fingerprint $currentFingerprint
     }
     else {
-        Write-Host "Reusing existing app images. Use -Rebuild when you want a fresh image build." -ForegroundColor Cyan
+        if ($DockerWeb) {
+            Write-Host "Reusing existing app and web images. Use -Rebuild when you want a fresh image build." -ForegroundColor Cyan
+        }
+        else {
+            Write-Host "Reusing existing backend app images. Web UI will run locally with hot reload." -ForegroundColor Cyan
+        }
     }
 
     Write-Host "Applying database migrations..." -ForegroundColor Cyan
     Invoke-Compose -ComposeArgs @("--profile", "app", "run", "--rm", "api", "poetry", "run", "alembic", "upgrade", "head")
 
-    Write-Host "Starting API, worker, orchestrator, and web..." -ForegroundColor Cyan
-    $upArgs = @("--profile", "app", "--profile", "web", "up", "-d")
-    $upArgs += @("api", "worker", "orchestrator", "web")
+    if ($DockerWeb) {
+        Stop-TrackedLocalWeb
+        Write-Host "Starting API, worker, orchestrator, and Docker web..." -ForegroundColor Cyan
+        $upArgs = @("--profile", "app", "--profile", "web", "up", "-d", "api", "worker", "orchestrator", "web")
+    }
+    else {
+        Write-Host "Starting API, worker, and orchestrator in Docker..." -ForegroundColor Cyan
+        $upArgs = @("--profile", "app", "up", "-d", "api", "worker", "orchestrator")
+    }
+
     Invoke-Compose -ComposeArgs $upArgs
 
     Wait-ForComposeService -Service "api" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds
-    Wait-ForComposeService -Service "web" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds
     Wait-ForHttpReady -Url "http://127.0.0.1:8000/health" -TimeoutSeconds $MaxWaitSeconds
-    Wait-ForHttpReady -Url $ConsoleUrl -TimeoutSeconds $MaxWaitSeconds
+
+    if ($DockerWeb) {
+        Wait-ForComposeService -Service "web" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds
+        Wait-ForHttpReady -Url $ConsoleUrl -TimeoutSeconds $MaxWaitSeconds
+        Set-ConsoleState -State ([PSCustomObject]@{
+            mode = "docker-web"
+            port = Get-ConsolePort -Url $ConsoleUrl
+            url = $ConsoleUrl
+            startedAt = [DateTimeOffset]::Now.ToString("o")
+        })
+    }
+    else {
+        Start-OrReuseLocalWeb -Url $ConsoleUrl -TimeoutSeconds $MaxWaitSeconds
+    }
 
     if (-not $NoBrowser) {
         Start-Process $ConsoleUrl
@@ -404,6 +725,9 @@ try {
 
     Write-Host ""
     Write-Host "Console ready at $ConsoleUrl" -ForegroundColor Green
+    if (-not $DockerWeb) {
+        Write-Host "Web UI is running locally with hot reload. Logs: $ConsoleWebLogPath" -ForegroundColor Cyan
+    }
     Write-Host "To stop the stack later, run:" -ForegroundColor Cyan
     Write-Host "  powershell -NoProfile -File scripts/stop-console.ps1" -ForegroundColor White
 }

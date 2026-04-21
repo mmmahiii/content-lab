@@ -46,17 +46,25 @@ This launcher will:
 1. ensure `.env` exists;
 2. start Postgres, Redis, MinIO, and bucket init;
 3. run Alembic migrations;
-4. start API, worker, orchestrator, and web in Docker;
-5. wait until `http://127.0.0.1:8000/health` and `http://127.0.0.1:3000` are ready;
-6. open the web console in your browser.
+4. start API, worker, and orchestrator in Docker;
+5. start the web console locally with `pnpm --filter web dev` for hot reload;
+6. wait until `http://127.0.0.1:8000/health` and `http://127.0.0.1:3000` are ready;
+7. open the web console in your browser.
 
-The first run may take a while because Docker has to build the app images once.
-After that, the launcher reuses those images by default so opening the console is
-much faster. If you want to rebuild after changing Dockerfiles or app
-dependencies, use:
+The first run may take a while because Docker has to build the backend app
+images once. After that, UI edits are served by local Next.js dev mode and
+should hot-reload without rebuilding Docker images. If you want to rebuild
+backend Docker images after changing backend Dockerfiles or dependencies, use:
 
 ```powershell
 powershell -NoProfile -File .\open-console.ps1 -Rebuild
+```
+
+If you specifically want the old production-like Docker-built web console, use:
+
+```powershell
+powershell -NoProfile -File .\open-console.ps1 -DockerWeb
+# or: pnpm run console:open:docker
 ```
 
 Stop the stack with:
