@@ -1,10 +1,28 @@
 # AGENTS.md
 
+Instructions for **AI coding agents** and automation (Cursor Cloud, local Cursor, CI helpers). Humans can use this as a quick orientation too; full local setup is in `README.md` and `docs/RUN_LOCAL.md`.
+
 ## Cursor Cloud specific instructions
 
 ### Overview
 
 Content Laboratory is a monorepo for generating ready-to-post social media reel packages. It has four backend Python apps (API, worker, orchestrator, shared lib) managed with Poetry, a Next.js 15 admin UI managed with pnpm, and Docker Compose infrastructure (Postgres 16, Redis 7, MinIO).
+
+### Repository map
+
+| Path | Role |
+|------|------|
+| `apps/api` | FastAPI HTTP API; Alembic migrations live here |
+| `apps/worker` | Dramatiq workers (generation, edit, QA, packaging) |
+| `apps/orchestrator` | Prefect 2 flows (scheduling, dependency graph) |
+| `apps/web` | Admin UI (Next.js 15) |
+| `packages/shared` | Shared Python models and TypeScript types |
+| `packages/*` | Domain libraries (assets, auth, core, creative, editing, features, ingestion, intelligence, outbox, qa, runs, storage) |
+| `infra/` | Docker Compose and Dockerfiles |
+| `docs/` | Architecture and runbooks |
+| `scripts/` | Bootstrap, scaffold compat, repo-wide `py_check`, smoke scripts |
+
+Repo-wide Python quality checks iterate **apps** and **packages** paths defined in `./scripts/py_check.sh` (not every folder is a standalone Poetry project; `packages/shared/py` is the shared package layout).
 
 ### Prerequisites (already in VM snapshot)
 
@@ -13,6 +31,8 @@ Content Laboratory is a monorepo for generating ready-to-post social media reel 
 - Node 24+ (via nvm)
 - pnpm 9
 - Docker CE with fuse-overlayfs + iptables-legacy (for nested container support)
+
+**Local / non-VM:** FFmpeg 6+ is recommended for deterministic media work; the worker needs FFmpeg for reel composition. See `README.md` prerequisites.
 
 ### Starting infrastructure
 
@@ -26,7 +46,17 @@ If `.env` does not exist at repo root, copy it: `cp infra/.env.example .env`
 
 ### Running services
 
-See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard commands. Key ports:
+See `README.md` "Quickstart (local)" and `docs/RUN_LOCAL.md` for standard commands. From repo root, `Makefile` targets mirror the common flows:
+
+| Goal | Make target |
+|------|-------------|
+| Infra only | `make infra-up` |
+| Migrations | `make migrate` |
+| Install all Python apps | `make py-install` |
+| API / worker / orchestrator / web | `make api`, `make worker`, `make orch`, `make web` |
+| Repo-wide Python gates | `make py-check` |
+
+Key ports:
 
 | Service | Command | Port |
 |---------|---------|------|
@@ -65,13 +95,13 @@ To run the full scaffold check (infra, installs, lint, format, typecheck, tests,
 
 ```powershell
 # Windows PowerShell
-.\verify.ps1   # or: .\scripts\verify-scaffold.ps1
+.\verify.ps1 # or: .\scripts\verify-scaffold.ps1
 ```
 
 ### Quality gates
 
 - **Python** (per-project): `poetry run ruff check .`, `poetry run ruff format --check .`, `poetry run mypy .`, `poetry run pytest -q`
-- **Python repo-wide**: `./scripts/py_check.sh`
+- **Python repo-wide**: `./scripts/py_check.sh` or `make py-check`
 - **TypeScript**: `pnpm lint`, `pnpm typecheck`, `pnpm test`
 
 ### Gotchas
