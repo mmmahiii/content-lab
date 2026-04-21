@@ -45,8 +45,8 @@ describe('operator detail routes', () => {
     );
 
     expect(markup).toContain('Page workspace');
-    expect(markup).toContain('Continue from this page');
-    expect(markup).toContain('Operator diary A');
+    expect(markup).toContain('Page summary');
+    expect(markup).toContain('Northwind Ops');
   });
 
   it('renders the page reels tab with page-scoped actions', async () => {
