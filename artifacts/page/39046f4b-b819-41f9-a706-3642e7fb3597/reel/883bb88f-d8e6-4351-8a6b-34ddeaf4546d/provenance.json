@@ -1,0 +1,23 @@
+{
+  "asset_ids": [
+    "099d4b24-3827-44b3-bfb2-dca2e0b5a465"
+  ],
+  "assets": [
+    {
+      "role": "source_clip",
+      "storage_uri": "s3://content-lab/assets/derived/099d4b24-3827-44b3-bfb2-dca2e0b5a465/source.mp4"
+    }
+  ],
+  "editor_version": "basic_vertical_v1",
+  "provider_jobs": [
+    {
+      "job_id": "577d320a-4158-5d5e-abef-567e8c7b4ff6",
+      "provider": "runway",
+      "status": "succeeded"
+    }
+  ],
+  "source_run_id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+  "upstream_refs": {
+    "timeline_uri": "file:///tmp/content-lab-process-reel/e4455adb-6405-4808-a10f-ac1dec6e253f/editing/timeline.json"
+  }
+}

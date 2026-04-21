@@ -1,0 +1,190 @@
+{
+  "run_id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+  "org_id": "56b5ec2a-8dab-4fba-b94b-5d9b4c1021db",
+  "status": "succeeded",
+  "workflow_key": "process_reel",
+  "reel_id": "883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+  "package_root_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+  "manifest_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/package_manifest.json",
+  "manifest_metadata": {
+    "reel_id": "883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+    "version": 1,
+    "complete": true,
+    "artifacts": [
+      {
+        "kind": "video",
+        "name": "final_video",
+        "filename": "final_video.mp4",
+        "size_bytes": 65717,
+        "content_type": "video/mp4",
+        "checksum_sha256": "sha256:9635d2964ed4400e713b5f38250ecce53c5940757c71bfdb9521e89a43095da9"
+      },
+      {
+        "kind": "image",
+        "name": "cover",
+        "filename": "cover.png",
+        "size_bytes": 30613,
+        "content_type": "image/png",
+        "checksum_sha256": "sha256:ec6577be8201c55d7d9685d5d365d5fcecb62e410a3cfb572a5fa3354fd30329"
+      },
+      {
+        "kind": "text",
+        "name": "caption_variants",
+        "filename": "caption_variants.txt",
+        "size_bytes": 358,
+        "content_type": "text/plain",
+        "checksum_sha256": "sha256:52a8a1a6b465cc3b3fe7050865dc3258bf87ca554e4199012b7dac5001bee198"
+      },
+      {
+        "kind": "json",
+        "name": "posting_plan",
+        "filename": "posting_plan.json",
+        "size_bytes": 3978,
+        "content_type": "application/json",
+        "checksum_sha256": "sha256:9273f16b064be9038058cd38730306a95d991f0caf680b4dc6b28c56924b327d"
+      },
+      {
+        "kind": "json",
+        "name": "provenance",
+        "filename": "provenance.json",
+        "size_bytes": 625,
+        "content_type": "application/json",
+        "checksum_sha256": "sha256:6ee753d01ef428e0cd0033cf0ec974f9ebf23e4390978d72804cefce4c3c0566"
+      }
+    ],
+    "artifact_count": 5,
+    "required_artifacts": [
+      "final_video",
+      "cover",
+      "caption_variants",
+      "posting_plan",
+      "provenance"
+    ]
+  },
+  "manifest_download": {
+    "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/package_manifest.json",
+    "url": "http://localhost:9000/content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/package_manifest.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T145721Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=4f79eb6e90af94f37b08d99de447c2d96ade19d224b6a7868c2237544c67be5a",
+    "expires_at": "2026-04-21T15:12:21.812136Z"
+  },
+  "provenance": {
+    "assets": [
+      {
+        "role": "source_clip",
+        "storage_uri": "s3://content-lab/assets/derived/099d4b24-3827-44b3-bfb2-dca2e0b5a465/source.mp4"
+      }
+    ],
+    "asset_ids": [
+      "099d4b24-3827-44b3-bfb2-dca2e0b5a465"
+    ],
+    "provider_jobs": [
+      {
+        "job_id": "577d320a-4158-5d5e-abef-567e8c7b4ff6",
+        "status": "succeeded",
+        "provider": "runway"
+      }
+    ],
+    "source_run_id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+    "upstream_refs": {
+      "timeline_uri": "file:///tmp/content-lab-process-reel/e4455adb-6405-4808-a10f-ac1dec6e253f/editing/timeline.json"
+    },
+    "editor_version": "basic_vertical_v1"
+  },
+  "provenance_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/provenance.json",
+  "provenance_download": {
+    "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/provenance.json",
+    "url": "http://localhost:9000/content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/provenance.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T145721Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=edf70d5fca2d925c78a8f2fec25e7deb7700d8f4023c4323ca0b6ca66f6ce1ab",
+    "expires_at": "2026-04-21T15:12:21.812542Z"
+  },
+  "artifacts": [
+    {
+      "name": "final_video",
+      "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/final_video.mp4",
+      "kind": "video",
+      "content_type": "video/mp4",
+      "metadata": {
+        "filename": "final_video.mp4",
+        "metadata": {
+          "run-id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+          "reel-id": "883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+          "artifact-name": "final_video",
+          "checksum-sha256": "sha256:9635d2964ed4400e713b5f38250ecce53c5940757c71bfdb9521e89a43095da9"
+        },
+        "size_bytes": 65717,
+        "checksum_sha256": "sha256:9635d2964ed4400e713b5f38250ecce53c5940757c71bfdb9521e89a43095da9"
+      },
+      "download": {
+        "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/final_video.mp4",
+        "url": "http://localhost:9000/content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/final_video.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T145721Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=caadc16e93ad3a0340607bc64613ee2db041cdf0cd1fc099611803e82e41ab57",
+        "expires_at": "2026-04-21T15:12:21.813429Z"
+      }
+    },
+    {
+      "name": "cover",
+      "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/cover.png",
+      "kind": "image",
+      "content_type": "image/png",
+      "metadata": {
+        "filename": "cover.png",
+        "metadata": {
+          "run-id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+          "reel-id": "883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+          "artifact-name": "cover",
+          "checksum-sha256": "sha256:ec6577be8201c55d7d9685d5d365d5fcecb62e410a3cfb572a5fa3354fd30329"
+        },
+        "size_bytes": 30613,
+        "checksum_sha256": "sha256:ec6577be8201c55d7d9685d5d365d5fcecb62e410a3cfb572a5fa3354fd30329"
+      },
+      "download": {
+        "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/cover.png",
+        "url": "http://localhost:9000/content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/cover.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T145721Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=b01bdb9c4d916bcaa19e47a8056f171dbf6615414a47898c9b601acf6ac87113",
+        "expires_at": "2026-04-21T15:12:21.814327Z"
+      }
+    },
+    {
+      "name": "caption_variants",
+      "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/caption_variants.txt",
+      "kind": "text",
+      "content_type": "text/plain",
+      "metadata": {
+        "filename": "caption_variants.txt",
+        "metadata": {
+          "run-id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+          "reel-id": "883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+          "artifact-name": "caption_variants",
+          "checksum-sha256": "sha256:52a8a1a6b465cc3b3fe7050865dc3258bf87ca554e4199012b7dac5001bee198"
+        },
+        "size_bytes": 358,
+        "checksum_sha256": "sha256:52a8a1a6b465cc3b3fe7050865dc3258bf87ca554e4199012b7dac5001bee198"
+      },
+      "download": {
+        "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/caption_variants.txt",
+        "url": "http://localhost:9000/content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/caption_variants.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T145721Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=f200cb383cf085777a7141abbe1bf1f6771db65e401a073e75ba43f851be32c4",
+        "expires_at": "2026-04-21T15:12:21.815209Z"
+      }
+    },
+    {
+      "name": "posting_plan",
+      "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/posting_plan.json",
+      "kind": "json",
+      "content_type": "application/json",
+      "metadata": {
+        "filename": "posting_plan.json",
+        "metadata": {
+          "run-id": "e4455adb-6405-4808-a10f-ac1dec6e253f",
+          "reel-id": "883bb88f-d8e6-4351-8a6b-34ddeaf4546d",
+          "artifact-name": "posting_plan",
+          "checksum-sha256": "sha256:9273f16b064be9038058cd38730306a95d991f0caf680b4dc6b28c56924b327d"
+        },
+        "size_bytes": 3978,
+        "checksum_sha256": "sha256:9273f16b064be9038058cd38730306a95d991f0caf680b4dc6b28c56924b327d"
+      },
+      "download": {
+        "storage_uri": "s3://content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/posting_plan.json",
+        "url": "http://localhost:9000/content-lab/reels/packages/883bb88f-d8e6-4351-8a6b-34ddeaf4546d/posting_plan.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T145721Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=a4e9ba50f88c343211b61ae8f6ec8e0f5f4eeeb014a59161427a4ae46d7b5308",
+        "expires_at": "2026-04-21T15:12:21.816102Z"
+      }
+    }
+  ],
+  "created_at": "2026-04-21T14:56:48.587714Z",
+  "updated_at": "2026-04-21T14:57:04.289122Z"
+}
