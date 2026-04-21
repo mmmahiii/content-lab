@@ -1,0 +1,108 @@
+{
+  "artifact_type": "posting_plan",
+  "compliance": {
+    "allow_direct_cta": true,
+    "blocked_phrases": [],
+    "max_hashtags": 4,
+    "prohibited_claims": [],
+    "required_disclosures": []
+  },
+  "family": {
+    "content_pillar": "operations",
+    "family_id": "7d8618a9-9b51-47ae-a247-0b0dbcc414b3",
+    "family_name": "Manual Demo Family",
+    "metadata": {
+      "mode": "explore"
+    }
+  },
+  "mode": "explore",
+  "page": {
+    "locale": "en",
+    "page_id": "579f8404-1737-47a5-9c06-66a0a07b2515",
+    "page_metadata": {
+      "constraints": {
+        "allow_direct_cta": true,
+        "banned_topics": [],
+        "blocked_phrases": [],
+        "max_hashtags": 4,
+        "max_script_words": null,
+        "preferred_languages": [],
+        "prohibited_claims": [],
+        "required_disclosures": []
+      },
+      "locale": "en",
+      "persona": {
+        "audience": "Busy founders",
+        "brand_tone": [],
+        "content_pillars": [
+          "operations"
+        ],
+        "differentiators": [],
+        "extensions": {},
+        "label": "Calm educator",
+        "primary_call_to_action": null
+      },
+      "timezone": "UTC"
+    },
+    "page_name": "Manual Demo Page",
+    "target_platforms": [
+      "instagram"
+    ],
+    "timezone": "UTC"
+  },
+  "plan_fingerprint": "sha256:1a7561b8a85e1d6cf78ed67420baf9486befc2194d05e7d0fdf293e1f99c505e",
+  "policy_snapshot": {
+    "budget": {
+      "daily_usd_limit": 50.0,
+      "monthly_usd_limit": 500.0,
+      "per_run_usd_limit": 20.0
+    },
+    "mode_ratios": {
+      "chaos": 0.0,
+      "exploit": 0.0,
+      "explore": 1.0,
+      "mutation": 0.0
+    },
+    "thresholds": {
+      "min_quality_score": 0.55,
+      "similarity": {
+        "block_at": 0.88,
+        "warn_at": 0.72
+      }
+    }
+  },
+  "publication": {
+    "approval_required": true,
+    "posting_method": "manual",
+    "priority": "normal",
+    "publish_window": {
+      "day_offset": 5,
+      "local_time": "10:30",
+      "timezone": "UTC",
+      "weekday": "saturday"
+    },
+    "recommended_caption_variant": "engagement",
+    "review_focus": [
+      "Human review is required before any posting action.",
+      "Confirm the selected caption and final assets still match the page persona.",
+      "Keep hashtag count at or below 4."
+    ],
+    "target_platforms": [
+      "instagram"
+    ]
+  },
+  "schema_version": "phase_1",
+  "trace": {
+    "algorithm_version": "phase_1",
+    "posting_window_index": 5,
+    "seed_bucket": 0.10335360296482361,
+    "seed_hash": "1a7561b8a85e1d6cf78ed67420baf9486befc2194d05e7d0fdf293e1f99c505e",
+    "seed_material": "{\"family\":{\"content_pillar\":\"operations\",\"family_id\":\"7d8618a9-9b51-47ae-a247-0b0dbcc414b3\",\"family_name\":\"Manual Demo Family\",\"metadata\":{\"mode\":\"explore\"}},\"mode\":\"explore\",\"page\":{\"locale\":\"en\",\"page_id\":\"579f8404-1737-47a5-9c06-66a0a07b2515\",\"page_metadata\":{\"constraints\":{\"allow_direct_cta\":true,\"banned_topics\":[],\"blocked_phrases\":[],\"max_hashtags\":4,\"preferred_languages\":[],\"prohibited_claims\":[],\"required_disclosures\":[]},\"locale\":\"en\",\"persona\":{\"audience\":\"Busy founders\",\"brand_tone\":[],\"content_pillars\":[\"operations\"],\"differentiators\":[],\"extensions\":{},\"label\":\"Calm educator\"},\"timezone\":\"UTC\"},\"page_name\":\"Manual Demo Page\",\"target_platforms\":[\"instagram\"],\"timezone\":\"UTC\"},\"policy\":{\"budget\":{\"daily_usd_limit\":50.0,\"monthly_usd_limit\":500.0,\"per_run_usd_limit\":20.0},\"mode_ratios\":{\"chaos\":0.0,\"exploit\":0.0,\"explore\":1.0,\"mutation\":0.0},\"thresholds\":{\"min_quality_score\":0.55,\"similarity\":{\"block_at\":0.88,\"warn_at\":0.72}}},\"variant\":{\"duration_seconds\":12,\"variant_id\":\"8ac8e82f-d112-4e08-b77a-b4e07dddb798\",\"variant_index\":21,\"variant_label\":\"v1\"}}"
+  },
+  "variant": {
+    "duration_seconds": 12,
+    "variant_id": "8ac8e82f-d112-4e08-b77a-b4e07dddb798",
+    "variant_index": 21,
+    "variant_label": "v1"
+  }
+}
