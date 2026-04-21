@@ -354,6 +354,21 @@ function Wait-ForHttpReady {
     throw "Timed out waiting for $Url"
 }
 
+function Test-HttpReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 3
+        return $response.StatusCode -ge 200 -and $response.StatusCode -lt 500
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-ConsolePort {
     param(
         [Parameter(Mandatory = $true)]
@@ -452,7 +467,7 @@ function Get-PortOwnerMessage {
         [int]$Port
     )
 
-    $listeners = Get-PortListeners -Port $Port
+    $listeners = @(Get-PortListeners -Port $Port)
     if ($listeners.Count -eq 0) {
         return "No listener is using port $Port."
     }
@@ -480,7 +495,7 @@ function Wait-ForPortFree {
 
     $deadline = [datetime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([datetime]::UtcNow -lt $deadline) {
-        if ((Get-PortListeners -Port $Port).Count -eq 0) {
+        if (@(Get-PortListeners -Port $Port).Count -eq 0) {
             return
         }
 
@@ -625,8 +640,12 @@ try {
     Ensure-EnvFile
     Ensure-DockerDaemon
 
+    if ($SkipBuild -and $Rebuild) {
+        throw "Use either -SkipBuild or -Rebuild, not both."
+    }
+
     if ($SkipBuild) {
-        Write-Host "The -SkipBuild switch is no longer needed; the launcher now reuses existing images by default." -ForegroundColor Yellow
+        Write-Host "Skipping Docker image builds because -SkipBuild was supplied." -ForegroundColor Yellow
     }
 
     Write-Host "Starting infrastructure..." -ForegroundColor Cyan
@@ -644,12 +663,16 @@ try {
         $requiredImages += "infra-web:latest"
     }
 
+    Write-Host "Checking required Docker images..." -ForegroundColor Cyan
     $missingImages = @($requiredImages | Where-Object { -not (Test-DockerImageExists -ImageName $_) })
-    $currentFingerprint = Get-BuildFingerprint -IncludeWeb ([bool]$DockerWeb)
-    $storedFingerprint = Get-StoredBuildFingerprint
-    $sourceChanged = $storedFingerprint -ne $currentFingerprint
 
-    if ($Rebuild -or $missingImages.Count -gt 0 -or $sourceChanged) {
+    if ($SkipBuild -and $missingImages.Count -gt 0) {
+        throw "Missing required Docker images: $($missingImages -join ', '). Run .\open-console.ps1 without -SkipBuild, or run with -Rebuild."
+    }
+
+    if ($Rebuild -or ($missingImages.Count -gt 0 -and -not $SkipBuild)) {
+        $currentFingerprint = Get-BuildFingerprint -IncludeWeb ([bool]$DockerWeb)
+
         if ($Rebuild) {
             if ($DockerWeb) {
                 Write-Host "Rebuilding API, worker, orchestrator, and web images..." -ForegroundColor Cyan
@@ -660,14 +683,6 @@ try {
         }
         elseif ($missingImages.Count -gt 0) {
             Write-Host "Building missing app images..." -ForegroundColor Cyan
-        }
-        else {
-            if ($DockerWeb) {
-                Write-Host "Source changes detected. Rebuilding app and web images..." -ForegroundColor Cyan
-            }
-            else {
-                Write-Host "Backend source changes detected. Rebuilding backend app images..." -ForegroundColor Cyan
-            }
         }
 
         $buildArgs = @("--profile", "app", "build", "api", "worker", "orchestrator")
@@ -687,8 +702,14 @@ try {
         }
     }
 
-    Write-Host "Applying database migrations..." -ForegroundColor Cyan
-    Invoke-Compose -ComposeArgs @("--profile", "app", "run", "--rm", "api", "poetry", "run", "alembic", "upgrade", "head")
+    $apiHealthUrl = "http://127.0.0.1:8000/health"
+    if (-not $Rebuild -and (Test-HttpReady -Url $apiHealthUrl)) {
+        Write-Host "API is already healthy; skipping migration check for faster relaunch. Use -Rebuild after backend/schema changes." -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "Applying database migrations..." -ForegroundColor Cyan
+        Invoke-Compose -ComposeArgs @("--profile", "app", "run", "--rm", "api", "poetry", "run", "alembic", "upgrade", "head")
+    }
 
     if ($DockerWeb) {
         Stop-TrackedLocalWeb
@@ -703,7 +724,7 @@ try {
     Invoke-Compose -ComposeArgs $upArgs
 
     Wait-ForComposeService -Service "api" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds
-    Wait-ForHttpReady -Url "http://127.0.0.1:8000/health" -TimeoutSeconds $MaxWaitSeconds
+    Wait-ForHttpReady -Url $apiHealthUrl -TimeoutSeconds $MaxWaitSeconds
 
     if ($DockerWeb) {
         Wait-ForComposeService -Service "web" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds

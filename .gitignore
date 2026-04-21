@@ -29,4 +29,6 @@ __pycache__/
 
 # Logs / artifacts
 *.log
+.console-state.json
+.console-*-build-fingerprint
 outputs/

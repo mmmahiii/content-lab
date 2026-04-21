@@ -11,29 +11,29 @@ param(
 $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot
 try {
-    $args = @(
-        "-RepoRoot", $RepoRoot,
-        "-ConsoleUrl", $ConsoleUrl,
-        "-MaxWaitSeconds", $MaxWaitSeconds
-    )
+    $scriptArgs = @{
+        RepoRoot = $RepoRoot
+        ConsoleUrl = $ConsoleUrl
+        MaxWaitSeconds = $MaxWaitSeconds
+    }
 
     if ($NoBrowser) {
-        $args += "-NoBrowser"
+        $scriptArgs.NoBrowser = $true
     }
 
     if ($SkipBuild) {
-        $args += "-SkipBuild"
+        $scriptArgs.SkipBuild = $true
     }
 
     if ($Rebuild) {
-        $args += "-Rebuild"
+        $scriptArgs.Rebuild = $true
     }
 
     if ($DockerWeb) {
-        $args += "-DockerWeb"
+        $scriptArgs.DockerWeb = $true
     }
 
-    & (Join-Path $PSScriptRoot "scripts/open-console.ps1") @args
+    & (Join-Path $PSScriptRoot "scripts/open-console.ps1") @scriptArgs
 }
 finally {
     Pop-Location
