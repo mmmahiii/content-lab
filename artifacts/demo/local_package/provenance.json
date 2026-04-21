@@ -1,0 +1,22 @@
+{
+  "asset_ids": [
+    "ba64fea1-106f-4e9a-a826-23ca865360f9"
+  ],
+  "assets": [
+    {
+      "role": "source_clip",
+      "storage_uri": "s3://content-lab/assets/raw/ba64fea1-106f-4e9a-a826-23ca865360f9/source.mp4"
+    }
+  ],
+  "editor_version": "basic_vertical_v1",
+  "provider_jobs": [
+    {
+      "provider": "demo-ffmpeg",
+      "status": "succeeded"
+    }
+  ],
+  "source_run_id": "demo-manual",
+  "upstream_refs": {
+    "timeline_uri": "/tmp/content-lab-demo-b_6176by/editing/output/cover.png"
+  }
+}

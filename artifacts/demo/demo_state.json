@@ -1,0 +1,215 @@
+{
+  "api_base_url": "http://127.0.0.1:8000",
+  "artifact_uris": {
+    "caption_variants": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/caption_variants.txt",
+    "cover": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/cover.png",
+    "final_video": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/final_video.mp4",
+    "package_manifest": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/package_manifest.json",
+    "posting_plan": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/posting_plan.json",
+    "provenance": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/provenance.json"
+  },
+  "family_id": "51f691af-ca9a-4e58-a34e-d0da5dee3bed",
+  "local_package_dir": "/workspace/artifacts/demo/local_package",
+  "org_id": "b23153a2-34f1-453a-ac92-6f9a371042b2",
+  "package_detail": {
+    "artifacts": [
+      {
+        "content_type": "video/mp4",
+        "download": {
+          "expires_at": "2026-04-21T14:35:10.706590Z",
+          "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/final_video.mp4",
+          "url": "http://localhost:9000/content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/final_video.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T142010Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=fffc1240281af095b2355fd6bbf6242ed86f9370d8ecea6cbd5e4007c829e3d1"
+        },
+        "kind": "video",
+        "metadata": {
+          "checksum_sha256": "sha256:f2a522365dddfd2a925801bab53d8c049c0975785436ab530e1364fac5021fe8",
+          "filename": "final_video.mp4",
+          "metadata": {
+            "artifact-name": "final_video",
+            "checksum-sha256": "sha256:f2a522365dddfd2a925801bab53d8c049c0975785436ab530e1364fac5021fe8",
+            "demo": "content-lab",
+            "reel-id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd"
+          },
+          "size_bytes": 231356
+        },
+        "name": "final_video",
+        "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/final_video.mp4"
+      },
+      {
+        "content_type": "image/png",
+        "download": {
+          "expires_at": "2026-04-21T14:35:10.707996Z",
+          "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/cover.png",
+          "url": "http://localhost:9000/content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/cover.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T142010Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=c29c1c02ea5c4d02be177997cc344a337f873edf8676b71e74ec8125c41feec7"
+        },
+        "kind": "image",
+        "metadata": {
+          "checksum_sha256": "sha256:a0d49ecfd63362210ab0d991c91ac7313b89643128cdc02c87a06e65319116ad",
+          "filename": "cover.png",
+          "metadata": {
+            "artifact-name": "cover",
+            "checksum-sha256": "sha256:a0d49ecfd63362210ab0d991c91ac7313b89643128cdc02c87a06e65319116ad",
+            "demo": "content-lab",
+            "reel-id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd"
+          },
+          "size_bytes": 87984
+        },
+        "name": "cover",
+        "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/cover.png"
+      },
+      {
+        "content_type": "text/plain",
+        "download": {
+          "expires_at": "2026-04-21T14:35:10.709294Z",
+          "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/caption_variants.txt",
+          "url": "http://localhost:9000/content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/caption_variants.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T142010Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=c36a58f458a2c7260385bba65e26dc524a42e9cf0c65db4ebf96c91dd8f0a95c"
+        },
+        "kind": "text",
+        "metadata": {
+          "checksum_sha256": "sha256:acad751a6a220124bbeafebf0a1f87768de370a272b5ee245b176e02b9822d1f",
+          "filename": "caption_variants.txt",
+          "metadata": {
+            "artifact-name": "caption_variants",
+            "checksum-sha256": "sha256:acad751a6a220124bbeafebf0a1f87768de370a272b5ee245b176e02b9822d1f",
+            "demo": "content-lab",
+            "reel-id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd"
+          },
+          "size_bytes": 155
+        },
+        "name": "caption_variants",
+        "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/caption_variants.txt"
+      },
+      {
+        "content_type": "application/json",
+        "download": {
+          "expires_at": "2026-04-21T14:35:10.710553Z",
+          "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/posting_plan.json",
+          "url": "http://localhost:9000/content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/posting_plan.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T142010Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=e7a0b7eb7abb10c4af3f16e172fedcb701e4b5fc4383f751671cd8c9251f3a3c"
+        },
+        "kind": "json",
+        "metadata": {
+          "checksum_sha256": "sha256:1103fb350de4aaa26e34607bc428f105836293b6c1c7d198db3da1fea2feeea4",
+          "filename": "posting_plan.json",
+          "metadata": {
+            "artifact-name": "posting_plan",
+            "checksum-sha256": "sha256:1103fb350de4aaa26e34607bc428f105836293b6c1c7d198db3da1fea2feeea4",
+            "demo": "content-lab",
+            "reel-id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd"
+          },
+          "size_bytes": 428
+        },
+        "name": "posting_plan",
+        "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/posting_plan.json"
+      }
+    ],
+    "created_at": "2026-04-21T14:20:10.681513Z",
+    "manifest_download": {
+      "expires_at": "2026-04-21T14:35:10.704312Z",
+      "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/package_manifest.json",
+      "url": "http://localhost:9000/content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/package_manifest.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T142010Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=bb820973ad5f9e7d8276945c828fa90754739922a1eca9cc9306427392d57a0f"
+    },
+    "manifest_metadata": {
+      "artifact_count": 5,
+      "artifacts": [
+        {
+          "checksum_sha256": "sha256:f2a522365dddfd2a925801bab53d8c049c0975785436ab530e1364fac5021fe8",
+          "content_type": "video/mp4",
+          "filename": "final_video.mp4",
+          "kind": "video",
+          "name": "final_video",
+          "size_bytes": 231356
+        },
+        {
+          "checksum_sha256": "sha256:a0d49ecfd63362210ab0d991c91ac7313b89643128cdc02c87a06e65319116ad",
+          "content_type": "image/png",
+          "filename": "cover.png",
+          "kind": "image",
+          "name": "cover",
+          "size_bytes": 87984
+        },
+        {
+          "checksum_sha256": "sha256:acad751a6a220124bbeafebf0a1f87768de370a272b5ee245b176e02b9822d1f",
+          "content_type": "text/plain",
+          "filename": "caption_variants.txt",
+          "kind": "text",
+          "name": "caption_variants",
+          "size_bytes": 155
+        },
+        {
+          "checksum_sha256": "sha256:1103fb350de4aaa26e34607bc428f105836293b6c1c7d198db3da1fea2feeea4",
+          "content_type": "application/json",
+          "filename": "posting_plan.json",
+          "kind": "json",
+          "name": "posting_plan",
+          "size_bytes": 428
+        },
+        {
+          "checksum_sha256": "sha256:fb6ac09c29adfee6cf89092ed16326fe3946957dbad9a5957c57395fc66af96c",
+          "content_type": "application/json",
+          "filename": "provenance.json",
+          "kind": "json",
+          "name": "provenance",
+          "size_bytes": 505
+        }
+      ],
+      "complete": true,
+      "reel_id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+      "required_artifacts": [
+        "final_video",
+        "cover",
+        "caption_variants",
+        "posting_plan",
+        "provenance"
+      ],
+      "version": 1
+    },
+    "manifest_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/package_manifest.json",
+    "org_id": "b23153a2-34f1-453a-ac92-6f9a371042b2",
+    "package_root_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+    "provenance": {
+      "asset_ids": [
+        "ba64fea1-106f-4e9a-a826-23ca865360f9"
+      ],
+      "assets": [
+        {
+          "role": "source_clip",
+          "storage_uri": "s3://content-lab/assets/raw/ba64fea1-106f-4e9a-a826-23ca865360f9/source.mp4"
+        }
+      ],
+      "editor_version": "basic_vertical_v1",
+      "provider_jobs": [
+        {
+          "provider": "demo-ffmpeg",
+          "status": "succeeded"
+        }
+      ],
+      "source_run_id": "demo-manual",
+      "upstream_refs": {
+        "timeline_uri": "/tmp/content-lab-demo-b_6176by/editing/output/cover.png"
+      }
+    },
+    "provenance_download": {
+      "expires_at": "2026-04-21T14:35:10.705255Z",
+      "storage_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/provenance.json",
+      "url": "http://localhost:9000/content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/provenance.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260421%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260421T142010Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=b92dc1d0f79f2568d7871b74d26c669ce157a0f336db645143db5e7fc0faf829"
+    },
+    "provenance_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd/provenance.json",
+    "reel_id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+    "run_id": "ac49511c-6d7a-40e3-89e8-809a01a7325e",
+    "status": "succeeded",
+    "updated_at": "2026-04-21T14:20:10.681513Z",
+    "workflow_key": "process_reel"
+  },
+  "package_root_uri": "s3://content-lab/reels/packages/2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+  "page_id": "51953a08-23cd-4b62-9319-421ab35f2d9c",
+  "reel_id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+  "run_id": "ac49511c-6d7a-40e3-89e8-809a01a7325e",
+  "ui_urls": {
+    "package_detail": "/orgs/b23153a2-34f1-453a-ac92-6f9a371042b2/packages/ac49511c-6d7a-40e3-89e8-809a01a7325e",
+    "page_overview": "/orgs/b23153a2-34f1-453a-ac92-6f9a371042b2/pages/51953a08-23cd-4b62-9319-421ab35f2d9c",
+    "page_reels": "/orgs/b23153a2-34f1-453a-ac92-6f9a371042b2/pages/51953a08-23cd-4b62-9319-421ab35f2d9c/reels",
+    "pages_index": "/pages",
+    "reel_detail": "/orgs/b23153a2-34f1-453a-ac92-6f9a371042b2/pages/51953a08-23cd-4b62-9319-421ab35f2d9c/reels/2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+    "run_detail": "/orgs/b23153a2-34f1-453a-ac92-6f9a371042b2/runs/ac49511c-6d7a-40e3-89e8-809a01a7325e"
+  }
+}

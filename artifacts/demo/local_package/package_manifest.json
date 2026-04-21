@@ -1,0 +1,55 @@
+{
+  "artifact_count": 5,
+  "artifacts": [
+    {
+      "checksum_sha256": "sha256:f2a522365dddfd2a925801bab53d8c049c0975785436ab530e1364fac5021fe8",
+      "content_type": "video/mp4",
+      "filename": "final_video.mp4",
+      "kind": "video",
+      "name": "final_video",
+      "size_bytes": 231356
+    },
+    {
+      "checksum_sha256": "sha256:a0d49ecfd63362210ab0d991c91ac7313b89643128cdc02c87a06e65319116ad",
+      "content_type": "image/png",
+      "filename": "cover.png",
+      "kind": "image",
+      "name": "cover",
+      "size_bytes": 87984
+    },
+    {
+      "checksum_sha256": "sha256:acad751a6a220124bbeafebf0a1f87768de370a272b5ee245b176e02b9822d1f",
+      "content_type": "text/plain",
+      "filename": "caption_variants.txt",
+      "kind": "text",
+      "name": "caption_variants",
+      "size_bytes": 155
+    },
+    {
+      "checksum_sha256": "sha256:1103fb350de4aaa26e34607bc428f105836293b6c1c7d198db3da1fea2feeea4",
+      "content_type": "application/json",
+      "filename": "posting_plan.json",
+      "kind": "json",
+      "name": "posting_plan",
+      "size_bytes": 428
+    },
+    {
+      "checksum_sha256": "sha256:fb6ac09c29adfee6cf89092ed16326fe3946957dbad9a5957c57395fc66af96c",
+      "content_type": "application/json",
+      "filename": "provenance.json",
+      "kind": "json",
+      "name": "provenance",
+      "size_bytes": 505
+    }
+  ],
+  "complete": true,
+  "reel_id": "2e7556d7-6ff0-4238-b74d-4977afb7b8bd",
+  "required_artifacts": [
+    "final_video",
+    "cover",
+    "caption_variants",
+    "posting_plan",
+    "provenance"
+  ],
+  "version": 1
+}
