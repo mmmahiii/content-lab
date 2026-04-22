@@ -57,6 +57,18 @@ _MODE_PRIORITY = {
     "mutation": 2,
     "chaos": 3,
 }
+
+# Explicit dispatch behaviour for the factory → process_reel handoff.
+# - "production": always invokes the real ``process_reel`` flow (failures propagate).
+# - "smoke": does not call downstream services; records explicit smoke_noop results.
+# Local CLI defaults to smoke; production schedules should set production explicitly.
+DEFAULT_FACTORY_DISPATCH_MODE = "smoke"
+FACTORY_DISPATCH_MODE_PRODUCTION = "production"
+FACTORY_DISPATCH_MODE_SMOKE = "smoke"
+_FACTORY_DISPATCH_MODES: frozenset[str] = frozenset(
+    {FACTORY_DISPATCH_MODE_PRODUCTION, FACTORY_DISPATCH_MODE_SMOKE}
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -650,37 +662,60 @@ def evaluate_budget_guardrails(
     return outcomes
 
 
-def run_process_reel(reel: ReelVariantWorkUnit) -> object:
-    """Dispatch ``process_reel`` when a persisted reel exists, else return a stub result."""
+def _normalize_factory_dispatch_mode(value: str) -> str:
+    normalized = value.strip()
+    if normalized not in _FACTORY_DISPATCH_MODES:
+        allowed = ", ".join(sorted(_FACTORY_DISPATCH_MODES))
+        raise ValueError(
+            f"factory_dispatch_mode must be one of ({allowed}), got {value!r}"
+        )
+    return normalized
 
-    if reel.metadata.get("dispatch_mode") == "persisted":
-        return cast(object, process_reel(reel_id=reel.reel_id, dry_run=False))
-    return {
-        "status": "stubbed_dispatch",
-        "reel_id": reel.reel_id,
-        "detail": "daily_reel_factory has not persisted reel rows for process_reel yet",
-    }
+
+def run_process_reel(
+    reel: ReelVariantWorkUnit,
+    *,
+    factory_dispatch_mode: str,
+) -> object:
+    """Run ``process_reel`` in production, or return an explicit smoke no-op (no downstream calls)."""
+
+    mode = _normalize_factory_dispatch_mode(factory_dispatch_mode)
+    if mode == FACTORY_DISPATCH_MODE_SMOKE:
+        return {
+            "status": "smoke_noop",
+            "factory_dispatch_mode": FACTORY_DISPATCH_MODE_SMOKE,
+            "reel_id": reel.reel_id,
+            "detail": (
+                "smoke: process_reel was not invoked; set factory_dispatch_mode=production "
+                "for real downstream process_reel runs"
+            ),
+        }
+    return cast(object, process_reel(reel_id=reel.reel_id, dry_run=False))
 
 
 def dispatch_process_reel_runs(
     page_batches: list[PageBatch],
     *,
     guardrails: dict[str, BudgetGuardrailOutcome],
+    factory_dispatch_mode: str,
 ) -> list[DispatchRecord]:
-    """Invoke ``process_reel`` for each allowed reel."""
+    """Invoke ``process_reel`` for each allowed reel (production), or record smoke no-ops."""
 
+    mode = _normalize_factory_dispatch_mode(factory_dispatch_mode)
     dispatches: list[DispatchRecord] = []
     for page_batch in page_batches:
         guardrail = guardrails[page_batch.page.page_id]
         approved_reel_count = _approved_reel_count(page_batch=page_batch, guardrail=guardrail)
-        dispatches.extend(
-            DispatchRecord(
-                reel_id=reel.reel_id,
-                status="dispatched",
-                result=run_process_reel(reel),
+        for reel in page_batch.reels[:approved_reel_count]:
+            payload = run_process_reel(reel, factory_dispatch_mode=mode)
+            record_status = "smoke_noop" if mode == FACTORY_DISPATCH_MODE_SMOKE else "dispatched"
+            dispatches.append(
+                DispatchRecord(
+                    reel_id=reel.reel_id,
+                    status=record_status,
+                    result=payload,
+                )
             )
-            for reel in page_batch.reels[:approved_reel_count]
-        )
         dispatches.extend(
             DispatchRecord(
                 reel_id=reel.reel_id,
@@ -728,15 +763,21 @@ def _factory_status(
     *,
     page_count: int,
     reel_count: int,
-    dispatch_count: int,
+    factory_dispatch_mode: str,
+    production_dispatched: int,
+    smoke_noop: int,
 ) -> str:
     if page_count == 0:
         return "no_target_pages"
     if reel_count == 0:
         return "no_work_units"
-    if dispatch_count == 0:
+    if production_dispatched + smoke_noop == 0:
         return "guardrail_blocked"
-    if dispatch_count == reel_count:
+    if factory_dispatch_mode == FACTORY_DISPATCH_MODE_SMOKE:
+        if smoke_noop == reel_count:
+            return "smoke_simulation"
+        return "partially_smoke"
+    if production_dispatched == reel_count:
         return "scheduled"
     return "partially_scheduled"
 
@@ -747,8 +788,11 @@ def _build_run_summary_payload(
     page_batches: list[PageBatch],
     guardrails: dict[str, BudgetGuardrailOutcome],
     dispatches: list[DispatchRecord],
+    factory_dispatch_mode: str,
 ) -> dict[str, object]:
-    dispatch_count = sum(1 for dispatch in dispatches if dispatch.status == "dispatched")
+    mode = _normalize_factory_dispatch_mode(factory_dispatch_mode)
+    production_dispatched = sum(1 for dispatch in dispatches if dispatch.status == "dispatched")
+    smoke_noop = sum(1 for dispatch in dispatches if dispatch.status == "smoke_noop")
     skipped_count = sum(1 for dispatch in dispatches if dispatch.status == "skipped")
     family_count = sum(len(page_batch.families) for page_batch in page_batches)
     reel_count = sum(len(page_batch.reels) for page_batch in page_batches)
@@ -773,6 +817,9 @@ def _build_run_summary_payload(
                 "dispatched_reels": sum(
                     1 for dispatch in page_dispatches if dispatch.status == "dispatched"
                 ),
+                "smoke_noop_reels": sum(
+                    1 for dispatch in page_dispatches if dispatch.status == "smoke_noop"
+                ),
                 "skipped_reels": sum(
                     1 for dispatch in page_dispatches if dispatch.status == "skipped"
                 ),
@@ -791,15 +838,19 @@ def _build_run_summary_payload(
         "status": _factory_status(
             page_count=len(page_batches),
             reel_count=reel_count,
-            dispatch_count=dispatch_count,
+            factory_dispatch_mode=mode,
+            production_dispatched=production_dispatched,
+            smoke_noop=smoke_noop,
         ),
+        "factory_dispatch_mode": mode,
         "production_model": _PACKAGE_DELIVERY_MODEL,
         "target_artifact": _READY_TO_POST_ARTIFACT,
         "counts": {
             "pages": len(page_batches),
             "families": family_count,
             "reels": reel_count,
-            "dispatched": dispatch_count,
+            "dispatched": production_dispatched,
+            "smoke_noop": smoke_noop,
             "skipped": skipped_count,
             "blocked_pages": sum(1 for guardrail in guardrails.values() if not guardrail.allowed),
         },
@@ -814,6 +865,7 @@ def persist_factory_run_summary(
     page_batches: list[PageBatch],
     guardrails: dict[str, BudgetGuardrailOutcome],
     dispatches: list[DispatchRecord],
+    factory_dispatch_mode: str,
     service: DailyReelFactoryService,
 ) -> PersistedRunSummary:
     """Persist a clear run-summary snapshot for later inspection."""
@@ -825,6 +877,7 @@ def persist_factory_run_summary(
             page_batches=page_batches,
             guardrails=guardrails,
             dispatches=dispatches,
+            factory_dispatch_mode=factory_dispatch_mode,
         ),
     )
 
@@ -845,10 +898,13 @@ def _serialize_factory_result(
     page_batches: list[PageBatch],
     guardrails: dict[str, BudgetGuardrailOutcome],
     dispatches: list[DispatchRecord],
+    factory_dispatch_mode: str,
     run_summary: PersistedRunSummary | None = None,
     operator_event: OperatorSummaryEvent | None = None,
 ) -> dict[str, object]:
-    dispatch_count = sum(1 for dispatch in dispatches if dispatch.status == "dispatched")
+    mode = _normalize_factory_dispatch_mode(factory_dispatch_mode)
+    production_dispatched = sum(1 for dispatch in dispatches if dispatch.status == "dispatched")
+    smoke_noop_count = sum(1 for dispatch in dispatches if dispatch.status == "smoke_noop")
     skipped_count = sum(1 for dispatch in dispatches if dispatch.status == "skipped")
     page_payloads: list[dict[str, object]] = []
     family_count = 0
@@ -882,14 +938,18 @@ def _serialize_factory_result(
         "status": _factory_status(
             page_count=len(page_batches),
             reel_count=reel_count,
-            dispatch_count=dispatch_count,
+            factory_dispatch_mode=mode,
+            production_dispatched=production_dispatched,
+            smoke_noop=smoke_noop_count,
         ),
+        "factory_dispatch_mode": mode,
         "production_model": _PACKAGE_DELIVERY_MODEL,
         "target_artifact": _READY_TO_POST_ARTIFACT,
         "page_count": len(page_batches),
         "family_count": family_count,
         "reel_count": reel_count,
-        "dispatch_count": dispatch_count,
+        "dispatch_count": production_dispatched,
+        "smoke_noop_count": smoke_noop_count,
         "skipped_count": skipped_count,
         "budget_guardrails": _guardrail_summary(guardrails),
         "pages": page_payloads,
@@ -903,10 +963,14 @@ def _serialize_factory_result(
 
 
 @flow(name="daily_reel_factory")
-def daily_reel_factory(name: str = "world") -> dict[str, object]:
+def daily_reel_factory(
+    name: str = "world",
+    factory_dispatch_mode: str = DEFAULT_FACTORY_DISPATCH_MODE,
+) -> dict[str, object]:
     """Phase-1 daily factory entrypoint for local execution."""
 
     _ = orchestrator_service_context()
+    mode = _normalize_factory_dispatch_mode(factory_dispatch_mode)
     service = get_daily_reel_factory_service()
     checker = get_budget_guardrail_checker()
 
@@ -915,12 +979,17 @@ def daily_reel_factory(name: str = "world") -> dict[str, object]:
     variant_plan = plan_variant_strategy(policy_by_page)
     page_batches = create_reel_work_units(variant_plan, service=service)
     guardrails = evaluate_budget_guardrails(page_batches, checker=checker)
-    dispatches = dispatch_process_reel_runs(page_batches, guardrails=guardrails)
+    dispatches = dispatch_process_reel_runs(
+        page_batches,
+        guardrails=guardrails,
+        factory_dispatch_mode=mode,
+    )
     run_summary = persist_factory_run_summary(
         name,
         page_batches=page_batches,
         guardrails=guardrails,
         dispatches=dispatches,
+        factory_dispatch_mode=mode,
         service=service,
     )
     operator_event = emit_operator_summary_event(
@@ -932,6 +1001,7 @@ def daily_reel_factory(name: str = "world") -> dict[str, object]:
         page_batches=page_batches,
         guardrails=guardrails,
         dispatches=dispatches,
+        factory_dispatch_mode=mode,
         run_summary=run_summary,
         operator_event=operator_event,
     )
@@ -940,7 +1010,7 @@ def daily_reel_factory(name: str = "world") -> dict[str, object]:
 def build_daily_reel_factory_kwargs(args: Namespace) -> dict[str, object]:
     """Map CLI arguments onto the flow signature."""
 
-    return {"name": args.name}
+    return {"name": args.name, "factory_dispatch_mode": args.factory_dispatch_mode}
 
 
 FLOW_DEFINITION = FlowDefinition(

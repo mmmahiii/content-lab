@@ -7,7 +7,7 @@ import pytest
 
 from content_lab_api.services import (
     InMemoryProcessReelRepository,
-    ProcessReelService,
+    ProcessReelPersistenceService,
     StubProcessReelExecutor,
 )
 from content_lab_orchestrator.cli import main
@@ -32,9 +32,11 @@ def test_cli_runs_default_flow(capsys: pytest.CaptureFixture[str]) -> None:
 
     captured = capsys.readouterr()
     payload = ast.literal_eval(captured.out.strip().splitlines()[-1])
-    assert payload["status"] == "scheduled"
+    assert payload["status"] == "smoke_simulation"
+    assert payload["factory_dispatch_mode"] == "smoke"
     assert payload["page_count"] == 1
-    assert payload["dispatch_count"] == 4
+    assert payload["dispatch_count"] == 0
+    assert payload["smoke_noop_count"] == 4
 
 
 def test_cli_runs_selected_named_flow(
@@ -48,7 +50,7 @@ def test_cli_runs_selected_named_flow(
         page_id="page-7",
         reel_family_id="family-9",
     )
-    service = ProcessReelService(
+    service = ProcessReelPersistenceService(
         repository=repository,
         executor=StubProcessReelExecutor(),
     )

@@ -374,6 +374,35 @@ const packagedRun: RunDetailOut = {
   task_status_counts: {
     succeeded: 4,
   },
+  outbox: {
+    events: [
+      {
+        id: '0f2cd117-ef4f-411f-9995-93f9a1456f1f',
+        event_type: 'orchestration.flow.requested',
+        delivery_status: 'sent',
+        attempt_count: 1,
+        created_at: '2026-04-09T09:03:35.000Z',
+        dispatched_at: '2026-04-09T09:04:00.000Z',
+        next_attempt_at: null,
+        pending_age_seconds: null,
+      },
+      {
+        id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        event_type: 'process_reel.package_ready',
+        delivery_status: 'sent',
+        attempt_count: 1,
+        created_at: '2026-04-09T09:18:00.000Z',
+        dispatched_at: '2026-04-09T09:18:10.000Z',
+        next_attempt_at: null,
+        pending_age_seconds: null,
+      },
+    ],
+    pending_count: 0,
+    sent_count: 2,
+    failed_count: 0,
+    has_backlog: false,
+    summary: 'All recorded outbox events for this run have been dispatched.',
+  },
 };
 
 const factoryRun: RunDetailOut = {
@@ -435,6 +464,14 @@ const factoryRun: RunDetailOut = {
     running: 1,
     succeeded: 1,
   },
+  outbox: {
+    events: [],
+    pending_count: 0,
+    sent_count: 0,
+    failed_count: 0,
+    has_backlog: false,
+    summary: null,
+  },
 };
 
 const packagedArtifactPath = `reels/packages/${demoIds.reelId}`;
@@ -459,6 +496,15 @@ const packageDetail: PackageDetailOut = {
   },
   provenance_uri: `s3://content-lab/${packagedArtifactPath}/provenance.json`,
   provenance_download: buildDownload(`${packagedArtifactPath}/provenance.json`),
+  outbox_notification: {
+    event_type: 'process_reel.package_ready',
+    delivery_status: 'sent',
+    attempt_count: 1,
+    dispatched_at: '2026-04-09T09:18:10.000Z',
+    is_pending: false,
+    is_failed: false,
+    message: 'Package-ready notification was dispatched from the outbox.',
+  },
   artifacts: [
     {
       name: 'final_video',

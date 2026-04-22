@@ -22,6 +22,20 @@ class PackageArtifactOut(BaseModel):
     download: SignedDownloadOut
 
 
+class PackageOutboxNotificationOut(BaseModel):
+    """Delivery state for the terminal process_reel package-ready outbox event."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: str | None = None
+    delivery_status: str | None = None
+    attempt_count: int | None = None
+    dispatched_at: datetime | None = None
+    is_pending: bool = False
+    is_failed: bool = False
+    message: str | None = None
+
+
 class PackageDetailOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -38,5 +52,6 @@ class PackageDetailOut(BaseModel):
     provenance_uri: str | None = None
     provenance_download: SignedDownloadOut | None = None
     artifacts: list[PackageArtifactOut] = Field(default_factory=list)
+    outbox_notification: PackageOutboxNotificationOut | None = None
     created_at: datetime
     updated_at: datetime

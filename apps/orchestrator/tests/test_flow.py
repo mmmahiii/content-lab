@@ -32,8 +32,8 @@ from content_lab_storage.refs import StorageRef
 from content_lab_api.services import (
     InMemoryProcessReelRepository,
     ProcessReelExecution,
+    ProcessReelPersistenceService,
     ProcessReelQAResult,
-    ProcessReelService,
 )
 from content_lab_core.types import Platform
 from content_lab_orchestrator.flows import (
@@ -85,6 +85,7 @@ provider_job_sweeper_flow_module = importlib.import_module(
 storage_integrity_flow_module = importlib.import_module(
     "content_lab_orchestrator.flows.storage_integrity_check"
 )
+outbox_drain_module = importlib.import_module("content_lab_orchestrator.flows.outbox_drain")
 
 
 class RecordingFactoryService:
@@ -835,7 +836,9 @@ def _install_service(
     monkeypatch: pytest.MonkeyPatch,
     *,
     qa_passes: bool = True,
-) -> tuple[ProcessReelService, InMemoryProcessReelRepository, RecordingProcessReelExecutor]:
+) -> tuple[
+    ProcessReelPersistenceService, InMemoryProcessReelRepository, RecordingProcessReelExecutor
+]:
     repository = InMemoryProcessReelRepository()
     repository.seed_reel(
         reel_id="reel-42",
@@ -844,7 +847,7 @@ def _install_service(
         reel_family_id="family-9",
     )
     executor = RecordingProcessReelExecutor(qa_passes=qa_passes)
-    service = ProcessReelService(repository=repository, executor=executor)
+    service = ProcessReelPersistenceService(repository=repository, executor=executor)
     monkeypatch.setattr(process_reel_flow_module, "build_process_reel_runtime", lambda: service)
     return service, repository, executor
 
@@ -856,7 +859,7 @@ def _install_phase_one_service(
     asset_resolver: object | None = None,
     script_generator_path: ScriptGeneratorPath | str = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
 ) -> tuple[
-    ProcessReelService,
+    ProcessReelPersistenceService,
     InMemoryProcessReelRepository,
     FakeProcessReelEventSink,
     FakeStorageClient,
@@ -884,7 +887,7 @@ def _install_phase_one_service(
         temp_root=tmp_path / "phase-one",
         script_generator_path=script_generator_path,
     )
-    service = ProcessReelService(repository=repository, executor=executor)
+    service = ProcessReelPersistenceService(repository=repository, executor=executor)
     event_sink = FakeProcessReelEventSink()
     monkeypatch.setattr(process_reel_flow_module, "build_process_reel_runtime", lambda: service)
     monkeypatch.setattr(
@@ -922,26 +925,52 @@ def _operator_event_payload(result: dict[str, object]) -> dict[str, object]:
 def test_example_flow_alias_uses_default_phase1_flow() -> None:
     result = _result_payload(example_flow("ryan"))
 
-    assert result["status"] == "scheduled"
+    assert result["status"] == "smoke_simulation"
+    assert result["factory_dispatch_mode"] == "smoke"
     assert result["page_count"] == 1
     assert result["family_count"] == 2
     assert result["reel_count"] == 4
+    assert result["dispatch_count"] == 0
+    assert result["smoke_noop_count"] == 4
 
 
 def test_flow_discovery_lists_phase1_flows() -> None:
     assert list_flow_names() == (
         "daily_reel_factory",
+        "outbox_drain",
         "process_reel",
         "provider_job_sweeper",
         "storage_integrity_check",
     )
 
 
+def test_outbox_drain_flow_invokes_worker_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_dispatch(*, batch_size: int = 25, **_kwargs: object) -> dict[str, int]:
+        captured["batch_size"] = batch_size
+        return {"claimed": 0, "sent": 0, "failed": 0}
+
+    monkeypatch.setattr(
+        outbox_drain_module,
+        "dispatch_pending_outbox_events",
+        _fake_dispatch,
+    )
+    result = outbox_drain_module.outbox_drain(batch_size=7)
+
+    assert captured["batch_size"] == 7
+    assert result == {"claimed": 0, "sent": 0, "failed": 0}
+
+
 def test_default_flow_registration_points_at_daily_factory() -> None:
     result = _result_payload(get_flow_definition(DEFAULT_FLOW_NAME).entrypoint(name="ryan"))
 
-    assert result["status"] == "scheduled"
-    assert result["dispatch_count"] == 4
+    assert result["status"] == "smoke_simulation"
+    assert result["factory_dispatch_mode"] == "smoke"
+    assert result["dispatch_count"] == 0
+    assert result["smoke_noop_count"] == 4
 
 
 def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
@@ -981,7 +1010,7 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
         lambda: EnforcingGuardrails(),
     )
 
-    def _record_process_call(reel: ReelVariantWorkUnit) -> str:
+    def _record_process_call(reel: ReelVariantWorkUnit, **_: object) -> str:
         process_calls.append(reel.reel_id)
         return f"processed {reel.reel_id}"
 
@@ -991,7 +1020,12 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
         _record_process_call,
     )
 
-    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+    result = _result_payload(
+        daily_reel_factory_module.daily_reel_factory(
+            name="seed-page",
+            factory_dispatch_mode="production",
+        )
+    )
 
     assert [family.mode for family in service.created_families] == ["mutation", "exploit"]
     assert [family.name for family in service.created_families] == [
@@ -1004,12 +1038,14 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
     assert process_calls == ["reel-1", "reel-2", "reel-3", "reel-4"]
 
     assert result["status"] == "scheduled"
+    assert result["factory_dispatch_mode"] == "production"
     assert result["production_model"] == "package_first"
     assert result["target_artifact"] == "ready_to_post_package"
     assert result["page_count"] == 1
     assert result["family_count"] == 2
     assert result["reel_count"] == 4
     assert result["dispatch_count"] == 4
+    assert result["smoke_noop_count"] == 0
     assert result["skipped_count"] == 0
     assert result["budget_guardrails"] == {
         "status": "enforced",
@@ -1023,16 +1059,19 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
 
     run_summary = _run_summary_payload(result)
     assert run_summary["summary_id"] == "summary-1"
+    assert run_summary["factory_dispatch_mode"] == "production"
     assert cast(dict[str, object], run_summary["counts"]) == {
         "pages": 1,
         "families": 2,
         "reels": 4,
         "dispatched": 4,
+        "smoke_noop": 0,
         "skipped": 0,
         "blocked_pages": 0,
     }
     summary_pages = cast(list[dict[str, object]], run_summary["pages"])
     assert summary_pages[0]["dispatched_reels"] == 4
+    assert summary_pages[0]["smoke_noop_reels"] == 0
     assert summary_pages[0]["skipped_reels"] == 0
 
     operator_event = _operator_event_payload(result)
@@ -1071,18 +1110,25 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "get_budget_guardrail_checker",
         lambda: BlockingGuardrails(),
     )
+    def _forbid_process_reel(reel: ReelVariantWorkUnit, **_: object) -> str:
+        raise AssertionError(f"process_reel should not run for {reel.reel_id}")
+
     monkeypatch.setattr(
         daily_reel_factory_module,
         "run_process_reel",
-        lambda reel: (_ for _ in ()).throw(
-            AssertionError(f"process_reel should not run for {reel.reel_id}")
-        ),
+        _forbid_process_reel,
     )
 
-    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+    result = _result_payload(
+        daily_reel_factory_module.daily_reel_factory(
+            name="seed-page",
+            factory_dispatch_mode="production",
+        )
+    )
 
     assert result["status"] == "guardrail_blocked"
     assert result["dispatch_count"] == 0
+    assert result["smoke_noop_count"] == 0
     assert result["skipped_count"] == 4
     assert result["budget_guardrails"] == {
         "status": "stubbed",
@@ -1098,11 +1144,13 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "skipped",
     ]
     run_summary = _run_summary_payload(result)
+    assert run_summary["factory_dispatch_mode"] == "production"
     assert cast(dict[str, object], run_summary["counts"]) == {
         "pages": 1,
         "families": 2,
         "reels": 4,
         "dispatched": 0,
+        "smoke_noop": 0,
         "skipped": 4,
         "blocked_pages": 1,
     }
@@ -1206,7 +1254,7 @@ def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_bloc
         lambda: MixedGuardrails(),
     )
 
-    def _record_process_call(reel: ReelVariantWorkUnit) -> str:
+    def _record_process_call(reel: ReelVariantWorkUnit, **_: object) -> str:
         process_calls.append(reel.reel_id)
         return f"processed {reel.reel_id}"
 
@@ -1216,9 +1264,15 @@ def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_bloc
         _record_process_call,
     )
 
-    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+    result = _result_payload(
+        daily_reel_factory_module.daily_reel_factory(
+            name="seed-page",
+            factory_dispatch_mode="production",
+        )
+    )
 
     assert result["status"] == "partially_scheduled"
+    assert result["factory_dispatch_mode"] == "production"
     assert result["page_count"] == 2
     assert result["family_count"] == 4
     assert result["reel_count"] == 8
@@ -1227,16 +1281,19 @@ def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_bloc
     assert process_calls == ["reel-1", "reel-2", "reel-3", "reel-4"]
 
     run_summary = _run_summary_payload(result)
+    assert run_summary["factory_dispatch_mode"] == "production"
     assert cast(dict[str, object], run_summary["counts"]) == {
         "pages": 2,
         "families": 4,
         "reels": 8,
         "dispatched": 4,
+        "smoke_noop": 0,
         "skipped": 4,
         "blocked_pages": 1,
     }
     summary_pages = cast(list[dict[str, object]], run_summary["pages"])
     assert [page["dispatched_reels"] for page in summary_pages] == [4, 0]
+    assert [page["smoke_noop_reels"] for page in summary_pages] == [0, 0]
     assert [page["skipped_reels"] for page in summary_pages] == [0, 4]
     assert [page["family_modes"] for page in summary_pages] == [
         ["mutation", "exploit"],
@@ -1277,7 +1334,7 @@ def test_daily_reel_factory_reduces_dispatches_when_budget_guardrail_limits_page
         lambda: service,
     )
 
-    def _record_limited_process_call(reel: ReelVariantWorkUnit) -> str:
+    def _record_limited_process_call(reel: ReelVariantWorkUnit, **_: object) -> str:
         process_calls.append(reel.reel_id)
         return f"processed {reel.reel_id}"
 
@@ -1287,10 +1344,17 @@ def test_daily_reel_factory_reduces_dispatches_when_budget_guardrail_limits_page
         _record_limited_process_call,
     )
 
-    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+    result = _result_payload(
+        daily_reel_factory_module.daily_reel_factory(
+            name="seed-page",
+            factory_dispatch_mode="production",
+        )
+    )
 
     assert result["status"] == "partially_scheduled"
+    assert result["factory_dispatch_mode"] == "production"
     assert result["dispatch_count"] == 2
+    assert result["smoke_noop_count"] == 0
     assert process_calls == ["reel-1", "reel-2"]
     assert result["budget_guardrails"] == {
         "status": "warn",
@@ -1326,6 +1390,68 @@ def test_daily_reel_factory_reduces_dispatches_when_budget_guardrail_limits_page
             "remaining_budget_below_warning_threshold",
         ],
     }
+
+
+def test_daily_reel_factory_smoke_mode_does_not_call_process_reel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        calls.append("process_reel")
+        raise AssertionError("process_reel must not run in smoke mode")
+
+    monkeypatch.setattr(daily_reel_factory_module, "process_reel", _fail)
+
+    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="world"))
+
+    assert calls == []
+    assert result["factory_dispatch_mode"] == "smoke"
+    assert result["status"] == "smoke_simulation"
+    assert result["dispatch_count"] == 0
+    assert result["smoke_noop_count"] == 4
+    first_dispatch = _dispatch_payloads(result)[0]
+    assert first_dispatch["status"] == "smoke_noop"
+    result_payload = first_dispatch.get("result")
+    assert isinstance(result_payload, dict)
+    assert result_payload.get("status") == "smoke_noop"
+
+
+def test_daily_reel_factory_production_mode_invokes_process_reel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen_reel_ids: list[str] = []
+
+    def _stub_process_reel(
+        reel_id: str, dry_run: bool = False, run_id: str | None = None
+    ) -> dict[str, object]:
+        _ = dry_run, run_id
+        seen_reel_ids.append(reel_id)
+        return {"reel_id": reel_id, "reel_status": "ready", "run_status": "succeeded"}
+
+    monkeypatch.setattr(daily_reel_factory_module, "process_reel", _stub_process_reel)
+
+    result = _result_payload(
+        daily_reel_factory_module.daily_reel_factory(
+            name="world",
+            factory_dispatch_mode="production",
+        )
+    )
+
+    assert result["factory_dispatch_mode"] == "production"
+    assert result["status"] == "scheduled"
+    assert result["dispatch_count"] == 4
+    assert result["smoke_noop_count"] == 0
+    assert len(seen_reel_ids) == 4
+    assert {dispatch["status"] for dispatch in _dispatch_payloads(result)} == {"dispatched"}
+
+
+def test_daily_reel_factory_rejects_invalid_factory_dispatch_mode() -> None:
+    with pytest.raises(ValueError, match="factory_dispatch_mode"):
+        daily_reel_factory_module.daily_reel_factory(
+            name="world",
+            factory_dispatch_mode="staging",
+        )
 
 
 def test_process_reel_flow_persists_success_path(monkeypatch: pytest.MonkeyPatch) -> None:

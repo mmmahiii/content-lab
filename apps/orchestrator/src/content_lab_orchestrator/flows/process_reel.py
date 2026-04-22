@@ -1,4 +1,14 @@
-"""Primary phase-1 orchestration flow for processing an individual reel."""
+"""Primary phase-1 **sequencing** flow for processing an individual reel.
+
+**Ownership:** This Prefect flow defines the only supported ``process_reel`` step
+order for real runs. It routes each step to ``ProcessReelPersistenceService`` in
+``content_lab_api.services.process_reel`` (via ``build_process_reel_persistence_service``),
+which persists ``Run`` / ``Task`` / ``Reel`` state. Creative, asset, edit, and package
+work run through ``PhaseOneProcessReelExecutor`` and related injectables below.
+
+The API package does *not* define an alternate end-to-end pipeline; persistence there
+is invoked step-by-step as this flow executes.
+"""
 
 # mypy: disable-error-code="no-any-return,untyped-decorator"
 
@@ -50,7 +60,7 @@ from content_lab_api.models import OutboxEvent, Page, ProviderJob, Reel, ReelFam
 from content_lab_api.schemas.pages import parse_page_metadata
 from content_lab_api.services import (
     SQLAlchemyPhase1AssetRegistryStore,
-    build_process_reel_service,
+    build_process_reel_persistence_service,
     ensure_task_row,
     get_provider_job_by_external_ref,
     load_policy_bundle,
@@ -93,7 +103,7 @@ class ProcessReelExecutionLike(Protocol):
 
 
 class ProcessReelRuntime(Protocol):
-    """Typed runtime boundary for the API-backed process-reel service."""
+    """Typed view of the API persistence service used for each process-reel step."""
 
     def start_execution(
         self,
@@ -834,12 +844,12 @@ def build_process_reel_event_sink() -> ProcessReelEventSink:
 
 
 def build_process_reel_runtime() -> ProcessReelRuntime:
-    """Construct the default service runtime for ``process_reel``."""
+    """Wire the default phase-one executor to the API process-reel persistence service."""
 
     context = orchestrator_service_context()
     return cast(
         ProcessReelRuntime,
-        build_process_reel_service(
+        build_process_reel_persistence_service(
             actor=context.actor or "content-lab-orchestrator",
             executor=build_phase_one_process_reel_executor(),
         ),

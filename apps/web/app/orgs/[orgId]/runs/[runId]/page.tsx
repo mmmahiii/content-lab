@@ -126,6 +126,63 @@ export default async function RunDetailPage({
       </SectionCard>
 
       <SectionCard
+        title="Outbox delivery"
+        description="Transactional notifications tied to this run (orchestration requests, package-ready signals, and similar events) and whether they have been dispatched."
+      >
+        {run.outbox.events.length === 0 ? (
+          <p className="cl-panel-description">
+            {run.outbox.summary ?? 'No outbox events are recorded for this run yet.'}
+          </p>
+        ) : (
+          <>
+            {run.outbox.summary ? <p className="cl-panel-description">{run.outbox.summary}</p> : null}
+            <MetaGrid
+              items={[
+                {
+                  label: 'Pending / sent / failed',
+                  value: `${run.outbox.pending_count} / ${run.outbox.sent_count} / ${run.outbox.failed_count}`,
+                },
+                {
+                  label: 'Backlog',
+                  value: run.outbox.has_backlog ? 'Yes — at least one event is still pending' : 'No',
+                },
+              ]}
+            />
+            <div className="cl-stack-md">
+              {run.outbox.events.map((row) => (
+                <article key={row.id} className="cl-entity-card">
+                  <div className="cl-split">
+                    <div>
+                      <div className="cl-step-label">{row.event_type}</div>
+                      <div className="cl-entity-title">{row.id}</div>
+                    </div>
+                    <StatusBadge status={row.delivery_status} />
+                  </div>
+                  <MetaGrid
+                    items={[
+                      { label: 'Attempts', value: String(row.attempt_count) },
+                      { label: 'Created', value: formatTimestamp(row.created_at) },
+                      {
+                        label: 'Dispatched',
+                        value: row.dispatched_at ? formatTimestamp(row.dispatched_at) : '—',
+                      },
+                      {
+                        label: 'Pending age (s)',
+                        value:
+                          row.pending_age_seconds !== null && row.pending_age_seconds !== undefined
+                            ? String(Math.round(row.pending_age_seconds))
+                            : '—',
+                      },
+                    ]}
+                  />
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+      </SectionCard>
+
+      <SectionCard
         title="Task summaries"
         description="Use these task summaries to understand what part of the workflow finished, failed, or is still running."
       >

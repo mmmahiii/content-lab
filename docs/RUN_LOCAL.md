@@ -149,6 +149,20 @@ List available flows:
 cd apps/orchestrator && poetry run python -m content_lab_orchestrator.cli list
 ```
 
+**`daily_reel_factory` dispatch mode:** the default run uses **smoke** mode. It
+does **not** call downstream `process_reel` for each planned reel; it records
+explicit no-op results instead. The returned payload includes
+`factory_dispatch_mode: "smoke"`, `status` is typically `smoke_simulation`, and
+`dispatch_count` is the number of real `process_reel` invocations (zero in
+smoke; see `smoke_noop_count`). For end-to-end handoff to the worker pipeline,
+use production dispatch (requires persisted reel rows, API/DB, and normal
+worker/provider configuration):
+
+```bash
+cd apps/orchestrator && poetry run python -m content_lab_orchestrator.cli run \
+  --name world --factory-dispatch-mode production
+```
+
 ## 5. Web (Next.js admin UI)
 
 ```bash

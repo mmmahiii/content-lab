@@ -1,4 +1,14 @@
-"""Process-reel orchestration service with persisted run/task/reel state."""
+"""Run/task/reel persistence for the orchestrator-driven ``process_reel`` flow.
+
+**Ownership:** The Prefect flow in ``content_lab_orchestrator.flows.process_reel`` owns
+*step order* and *when* each boundary runs. This module is the **persistence and
+per-step state bridge**: ``ProcessReelPersistenceService`` updates Postgres rows
+(``Run``, ``Task``, ``Reel``) and carries ``ProcessReelExecution`` payloads when
+the orchestrator invokes ``start_execution`` / ``run_*`` for each task.
+
+Do not treat this as a second pipeline implementation; the worker/orchestrator
+flow is the single sequencing path for real runs.
+"""
 
 from __future__ import annotations
 
@@ -173,7 +183,11 @@ class ProcessReelQAResult:
 
 
 class ProcessReelExecutor(Protocol):
-    """Stub-friendly boundaries for downstream orchestration work."""
+    """Per-step work invoked by the persistence service (creative, assets, etc.).
+
+    Production runs use a phase-1 executor constructed in the orchestrator app; tests
+    and local CLI may inject ``StubProcessReelExecutor`` instead.
+    """
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]: ...
 
@@ -839,8 +853,8 @@ class InMemoryProcessReelRepository:
         return dict(sorted(statuses.items()))
 
 
-class ProcessReelService:
-    """Phase-1 ``process_reel`` orchestration service."""
+class ProcessReelPersistenceService:
+    """Applies run/task/reel updates for each process-reel step the orchestrator runs."""
 
     def __init__(
         self,
@@ -1275,15 +1289,15 @@ class ProcessReelService:
         }
 
 
-def build_process_reel_service(
+def build_process_reel_persistence_service(
     *,
     executor: ProcessReelExecutor | None = None,
     repository: ProcessReelRepository | None = None,
     actor: str = "content-lab-orchestrator",
-) -> ProcessReelService:
-    """Build the default process-reel service for orchestrator execution."""
+) -> ProcessReelPersistenceService:
+    """Build the process-reel persistence service used from the orchestrator flow."""
 
-    return ProcessReelService(
+    return ProcessReelPersistenceService(
         repository=repository or SQLAlchemyProcessReelRepository(),
         executor=executor,
         actor=actor,

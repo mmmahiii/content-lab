@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
-from content_lab_api.models import Org, Run
+from content_lab_api.models import Org, OutboxEvent, Run
+from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
 
 
 @pytest.fixture
@@ -72,6 +73,18 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
     )
     db_session.add(run)
     db_session.flush()
+    db_session.add(
+        OutboxEvent(
+            org_id=org.id,
+            aggregate_type="run",
+            aggregate_id=str(run.id),
+            event_type=PROCESS_REEL_PACKAGE_READY_EVENT,
+            payload={},
+            delivery_status="pending",
+            attempt_count=0,
+        )
+    )
+    db_session.flush()
 
     response = package_client.get(f"/orgs/{org.id}/packages/{run.id}")
 
@@ -96,6 +109,48 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
     assert artifacts["final_video"]["download"]["url"].startswith(
         f"http://localhost:9000/content-lab/reels/packages/{reel_id}/final_video.mp4?"
     )
+    on = payload.get("outbox_notification")
+    assert on is not None
+    assert on.get("is_pending") is True
+    assert "pending" in (on.get("message") or "").lower()
+
+
+def test_get_package_includes_outbox_notification_when_event_sent(
+    db_session: Session,
+    package_client: TestClient,
+) -> None:
+    org = Org(name="Outbox Package Org", slug=f"outbox-pkg-{uuid.uuid4().hex[:8]}")
+    db_session.add(org)
+    db_session.flush()
+    reel_id = uuid.uuid4()
+    run = Run(
+        org_id=org.id,
+        workflow_key="process_reel",
+        status="succeeded",
+        input_params={"reel_id": str(reel_id)},
+        output_payload={"package": {"manifest": {"version": 1}, "reel_id": str(reel_id)}},
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(
+        OutboxEvent(
+            org_id=org.id,
+            aggregate_type="run",
+            aggregate_id=str(run.id),
+            event_type=PROCESS_REEL_PACKAGE_READY_EVENT,
+            payload={},
+            delivery_status="sent",
+            attempt_count=1,
+        )
+    )
+    db_session.flush()
+
+    response = package_client.get(f"/orgs/{org.id}/packages/{run.id}")
+    assert response.status_code == 200
+    on = response.json()["outbox_notification"]
+    assert on["is_pending"] is False
+    assert on["is_failed"] is False
+    assert "dispatched" in (on.get("message") or "").lower()
 
 
 def test_get_package_is_org_scoped(

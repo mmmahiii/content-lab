@@ -19,6 +19,8 @@ logger = get_actor_logger("outbox_dispatcher")
 QUEUE_NAME = build_queue_name("outbox")
 _WEBHOOK_URL_ENV = "CONTENT_LAB_OUTBOX_WEBHOOK_URL"
 _WEBHOOK_TIMEOUT_SECONDS = 5.0
+# Delay before the next automatic drain; keeps the outbox from sitting idle when the worker is up.
+_OUTBOX_DRAIN_RESCHEDULE_MS = 15_000
 
 
 class OutboxDispatchStore(Protocol):
@@ -180,13 +182,25 @@ def dispatch_pending_outbox_events(
     }
 
 
+def _schedule_next_outbox_drain() -> None:
+    """Re-enqueue a delayed drain so normal worker runtime continues to flush the outbox."""
+
+    try:
+        dispatch_outbox.send_with_options(delay=_OUTBOX_DRAIN_RESCHEDULE_MS)
+    except Exception as exc:
+        logger.warning("failed to schedule next outbox drain: %s", exc)
+
+
 @dramatiq.actor(queue_name=QUEUE_NAME)
 def dispatch_outbox(batch_size: int = 25) -> Mapping[str, int]:
     """Drain a batch of pending outbox events."""
 
-    result = dispatch_pending_outbox_events(batch_size=batch_size)
-    logger.info("outbox batch complete %s", json.dumps(dict(result), sort_keys=True))
-    return result
+    try:
+        result = dispatch_pending_outbox_events(batch_size=batch_size)
+        logger.info("outbox batch complete %s", json.dumps(dict(result), sort_keys=True))
+        return result
+    finally:
+        _schedule_next_outbox_drain()
 
 
 def _utcnow(value: datetime | None) -> datetime:
@@ -217,4 +231,14 @@ __all__ = [
     "build_dispatch_store",
     "dispatch_outbox",
     "dispatch_pending_outbox_events",
+    "enqueue_initial_outbox_drain",
 ]
+
+
+def enqueue_initial_outbox_drain() -> None:
+    """Enqueue a single outbox batch (call once when the worker process boots)."""
+
+    try:
+        dispatch_outbox.send()
+    except Exception as exc:
+        logger.warning("initial outbox drain could not be enqueued: %s", exc)

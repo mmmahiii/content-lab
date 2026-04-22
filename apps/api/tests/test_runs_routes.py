@@ -10,8 +10,19 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
-from content_lab_api.models import AuditLog, Org, Page, PageKind, Reel, ReelFamily, Run, Task
+from content_lab_api.models import (
+    AuditLog,
+    Org,
+    OutboxEvent,
+    Page,
+    PageKind,
+    Reel,
+    ReelFamily,
+    Run,
+    Task,
+)
 from content_lab_api.routes.runs import OrchestrationTriggerResult, get_orchestration_backend
+from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
 
 
 def _make_page(
@@ -381,6 +392,64 @@ def test_run_detail_includes_task_summaries(
     assert tasks_by_type["plan_reels"]["result"] == {"planned": 2}
     assert tasks_by_type["qa_review"]["status"] == "running"
     assert tasks_by_type["qa_review"]["result"] is None
+    assert payload["outbox"]["pending_count"] == 0
+    assert payload["outbox"]["summary"] is None
+
+
+def test_run_detail_includes_outbox_counts_for_run_aggregate(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+) -> None:
+    org_id = seeded_run_scope["org_id"]
+
+    run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="reel_trigger",
+        status="succeeded",
+        input_params={},
+        run_metadata={},
+        external_ref="prefect-123",
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    db_session.add(
+        OutboxEvent(
+            org_id=org_id,
+            aggregate_type="run",
+            aggregate_id=str(run.id),
+            event_type=PROCESS_REEL_PACKAGE_READY_EVENT,
+            payload={"reel_id": "reel-1"},
+            delivery_status="pending",
+            attempt_count=0,
+        )
+    )
+    db_session.add(
+        OutboxEvent(
+            org_id=org_id,
+            aggregate_type="run",
+            aggregate_id=str(run.id),
+            event_type="orchestration.flow.requested",
+            payload={},
+            delivery_status="sent",
+            attempt_count=1,
+        )
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+    response = runs_client.get(f"/orgs/{org_id}/runs/{run.id}")
+    assert response.status_code == 200
+    payload = response.json()
+    ob = payload["outbox"]
+    assert ob["pending_count"] == 1
+    assert ob["sent_count"] == 1
+    assert ob["failed_count"] == 0
+    assert ob["has_backlog"] is True
+    assert ob["summary"] is not None
+    assert "pending dispatch" in (ob["summary"] or "")
 
 
 def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(

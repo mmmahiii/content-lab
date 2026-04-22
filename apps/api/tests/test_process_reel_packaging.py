@@ -5,8 +5,8 @@ from typing import Any
 from content_lab_api.services import (
     InMemoryProcessReelRepository,
     ProcessReelExecution,
+    ProcessReelPersistenceService,
     ProcessReelQAResult,
-    ProcessReelService,
 )
 
 _SHA256_A = "sha256:" + ("a" * 64)
@@ -135,7 +135,7 @@ class _PackagingExecutor:
 
 def _seed_service(
     executor: _PackagingExecutor,
-) -> tuple[ProcessReelService, InMemoryProcessReelRepository]:
+) -> tuple[ProcessReelPersistenceService, InMemoryProcessReelRepository]:
     repository = InMemoryProcessReelRepository()
     repository.seed_reel(
         reel_id="reel-42",
@@ -143,7 +143,7 @@ def _seed_service(
         page_id="page-7",
         reel_family_id="family-9",
     )
-    return ProcessReelService(repository=repository, executor=executor), repository
+    return ProcessReelPersistenceService(repository=repository, executor=executor), repository
 
 
 def test_process_reel_service_persists_package_payload_on_reel_metadata() -> None:
