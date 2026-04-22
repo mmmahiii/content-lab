@@ -1551,6 +1551,359 @@ def test_process_reel_flow_hard_fails_lint_before_asset_spend(
     assert event_sink.events[0]["event_type"] == "process_reel.failed"
 
 
+def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExecution:
+    execution = ProcessReelExecution(
+        reel_id="reel-42",
+        org_id="org-1",
+        page_id="page-7",
+        reel_family_id="family-9",
+        run_id="run-1",
+        dry_run=False,
+    )
+    execution.outputs["creative_planning"] = dict(creative_output)
+    execution.outputs["editing"] = {
+        "final_video_path": "/tmp/final_video.mp4",
+        "cover_path": "/tmp/cover.png",
+    }
+    execution.outputs["asset_resolution"] = {
+        "asset_key_hash": "asset-key-hash",
+        "policy": {},
+        "storage_uri": "memory://assets/source.mp4",
+    }
+    return execution
+
+
+def _strong_creative_output() -> dict[str, Any]:
+    return {
+        "script": {
+            "hook_text": "You can fix tight hips in 45 seconds.",
+            "duration_seconds": 12,
+            "spoken_script": [
+                {
+                    "start_seconds": 0,
+                    "end_seconds": 4,
+                    "narration": "Tight hips usually come from sitting, not bad posture.",
+                },
+                {
+                    "start_seconds": 4,
+                    "end_seconds": 8,
+                    "narration": "Do these three controlled hip rotations before meetings.",
+                },
+                {
+                    "start_seconds": 8,
+                    "end_seconds": 12,
+                    "narration": "Follow for the next routine to loosen up fast.",
+                },
+            ],
+            "overlay_timeline": [
+                {
+                    "start_seconds": 0,
+                    "end_seconds": 4,
+                    "text": "Tight hips? Try 45 seconds.",
+                    "emphasis": "hook",
+                },
+                {
+                    "start_seconds": 4,
+                    "end_seconds": 8,
+                    "text": "Three controlled rotations",
+                    "emphasis": "value",
+                },
+                {
+                    "start_seconds": 8,
+                    "end_seconds": 12,
+                    "text": "Follow for the next routine",
+                    "emphasis": "cta",
+                },
+            ],
+            "caption_variants": [
+                {"variant": "short", "text": "Tight hips? 45s, three rotations."},
+            ],
+        },
+        "scene_plan": {
+            "duration_seconds": 12,
+            "scenes": [
+                {
+                    "scene_id": "s1",
+                    "purpose": "hook",
+                    "start_seconds": 0,
+                    "end_seconds": 3,
+                    "visual_intent": "Hook shot showing the hip rotation release.",
+                    "shot_guidance": "Tight close-up on the rotation.",
+                    "overlay_role": "hook",
+                    "overlay_text": "Tight hips? Try 45 seconds.",
+                },
+                {
+                    "scene_id": "s2",
+                    "purpose": "setup",
+                    "start_seconds": 3,
+                    "end_seconds": 6,
+                    "visual_intent": "Show seated desk posture to frame the problem.",
+                    "shot_guidance": "Medium shot at the desk.",
+                    "overlay_role": "context",
+                },
+                {
+                    "scene_id": "s3",
+                    "purpose": "value",
+                    "start_seconds": 6,
+                    "end_seconds": 9,
+                    "visual_intent": "Demonstrate the three-rotation drill clearly.",
+                    "shot_guidance": "Wide then close on hips.",
+                    "overlay_role": "emphasis",
+                    "overlay_text": "Three controlled rotations",
+                },
+                {
+                    "scene_id": "s4",
+                    "purpose": "payoff",
+                    "start_seconds": 9,
+                    "end_seconds": 11,
+                    "visual_intent": "Reveal the improved range of motion.",
+                    "shot_guidance": "Hold the wider rotation.",
+                    "overlay_role": "emphasis",
+                },
+                {
+                    "scene_id": "s5",
+                    "purpose": "close",
+                    "start_seconds": 11,
+                    "end_seconds": 12,
+                    "visual_intent": "End with a clean final frame and CTA.",
+                    "shot_guidance": "Clean final frame.",
+                    "overlay_role": "cta",
+                    "overlay_text": "Follow for the next routine",
+                },
+            ],
+        },
+        "brief": {
+            "title": "45-second hip reset",
+            "content_pillar": "mobility",
+            "primary_call_to_action": "Follow for the next routine",
+        },
+    }
+
+
+def _stub_passing_format_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    from content_lab_core.types import QAVerdict as _QAVerdict
+    from content_lab_qa.format import FormatQAConstraints, FormatQAReport, ProbedMedia
+
+    def _fake_format(**_kwargs: Any) -> FormatQAReport:
+        probed = ProbedMedia(
+            path="/tmp/final_video.mp4",
+            exists=True,
+            width=1080,
+            height=1920,
+            duration_seconds=12.0,
+            has_audio=True,
+        )
+        cover = ProbedMedia(
+            path="/tmp/cover.png", exists=True, width=1080, height=1920, has_audio=False
+        )
+        return FormatQAReport(
+            verdict=_QAVerdict.PASS,
+            message="ok",
+            checks=(),
+            failure_reasons=(),
+            constraints=FormatQAConstraints(),
+            final_video=probed,
+            cover=cover,
+        )
+
+    monkeypatch.setattr(process_reel_flow_module, "evaluate_format_qa", _fake_format)
+
+
+def test_process_reel_qa_passes_when_semantic_and_format_are_healthy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_passing_format_report(monkeypatch)
+    executor = PhaseOneProcessReelExecutor(
+        planning_context_loader=FakePlanningContextLoader(),
+        asset_resolver=cast(Any, FailingProcessReelAssetResolver()),
+        storage_client=FakeStorageClient(),
+        package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="[REDACTED]"),
+    )
+
+    execution = _build_qa_execution(creative_output=_strong_creative_output())
+    result = executor.run_qa(execution)
+
+    assert result.passed is True
+    assert result.details["verdict"] == "pass"
+    semantic_details = cast(dict[str, Any], result.details["semantic_script"])
+    assert semantic_details["verdict"] == "pass"
+    assert semantic_details["findings"] == []
+
+
+def test_process_reel_qa_fails_when_script_is_semantically_weak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_passing_format_report(monkeypatch)
+    weak_creative = _strong_creative_output()
+    weak_creative["script"]["hook_text"] = "Quick fix:"
+    weak_creative["script"]["spoken_script"] = [
+        {"start_seconds": 0, "end_seconds": 4, "narration": "Follow for more."},
+        {
+            "start_seconds": 4,
+            "end_seconds": 8,
+            "narration": "Comment below if you liked this.",
+        },
+        {
+            "start_seconds": 8,
+            "end_seconds": 12,
+            "narration": "Save this for later and share this.",
+        },
+    ]
+
+    executor = PhaseOneProcessReelExecutor(
+        planning_context_loader=FakePlanningContextLoader(),
+        asset_resolver=cast(Any, FailingProcessReelAssetResolver()),
+        storage_client=FakeStorageClient(),
+        package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="[REDACTED]"),
+    )
+
+    execution = _build_qa_execution(creative_output=weak_creative)
+    result = executor.run_qa(execution)
+
+    assert result.passed is False
+    assert result.details["verdict"] == "fail"
+    semantic_details = cast(dict[str, Any], result.details["semantic_script"])
+    assert semantic_details["verdict"] == "fail"
+    finding_codes = [
+        cast(str, finding["code"])
+        for finding in cast(list[dict[str, Any]], semantic_details["findings"])
+    ]
+    assert "incomplete_hook" in finding_codes
+    assert "cta_heavy_script" in finding_codes
+    format_details = cast(dict[str, Any], result.details["format"])
+    assert format_details["verdict"] == "pass"
+
+
+def test_process_reel_flow_marks_qa_failed_on_semantically_weak_script(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryProcessReelRepository()
+    repository.seed_reel(
+        reel_id="reel-42",
+        org_id="org-1",
+        page_id="page-7",
+        reel_family_id="family-9",
+    )
+
+    class WeakSemanticExecutor:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
+            self.calls.append("creative_planning")
+            return {
+                **_strong_creative_output(),
+                "script_generation": {
+                    "generator_path": "rules_plus_provider",
+                    "provider_name": "rules_provider",
+                    "metadata": {},
+                },
+                "script_lint": {"outcome": "pass", "passed": True, "findings": []},
+                "primary_asset_request": {
+                    "asset_class": "clip",
+                    "provider": "runway",
+                    "model": "gen4.5",
+                    "prompt": "ok",
+                    "scene_plan": {},
+                    "compiled_prompt": {},
+                    "prompt_trace": {},
+                    "duration_seconds": 12,
+                    "fps": 24,
+                    "ratio": "9:16",
+                    "motion": {},
+                    "reference_asset_ids": [],
+                    "request_context": {},
+                },
+            }
+
+        def resolve_assets(self, execution: ProcessReelExecution) -> dict[str, Any]:
+            self.calls.append("asset_resolution")
+            return {
+                "asset_key_hash": "asset-key-hash",
+                "policy": {},
+                "storage_uri": "memory://assets/source.mp4",
+                "provider_job": {"provider": "runway", "status": "succeeded"},
+                "provider_job_id": "provider-1",
+            }
+
+        def edit_reel(self, execution: ProcessReelExecution) -> dict[str, Any]:
+            self.calls.append("editing")
+            return {
+                "edit_id": f"edit-{execution.reel_id}",
+                "template_version": "basic_vertical_v1",
+                "final_video_path": "/tmp/final_video.mp4",
+                "final_video_uri": "file:///tmp/final_video.mp4",
+                "cover_path": "/tmp/cover.png",
+                "cover_uri": "file:///tmp/cover.png",
+                "timeline_uri": "file:///tmp/timeline.json",
+            }
+
+        def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
+            self.calls.append("qa")
+            from content_lab_qa import SemanticScriptQARequest, evaluate_semantic_script
+
+            weak_script = {
+                "hook_text": "Quick fix:",
+                "duration_seconds": 12,
+                "spoken_script": [
+                    {"start_seconds": 0, "end_seconds": 4, "narration": "Follow for more."},
+                    {
+                        "start_seconds": 4,
+                        "end_seconds": 8,
+                        "narration": "Comment below if you liked this.",
+                    },
+                ],
+                "overlay_timeline": [
+                    {"start_seconds": 0, "end_seconds": 6, "text": "Wow", "emphasis": "hook"},
+                    {"start_seconds": 6, "end_seconds": 12, "text": "Ok", "emphasis": "value"},
+                ],
+                "caption_variants": [{"variant": "short", "text": "ok"}],
+            }
+            semantic = evaluate_semantic_script(SemanticScriptQARequest(script=weak_script))
+            return ProcessReelQAResult(
+                passed=False,
+                details={
+                    "verdict": "fail",
+                    "checks": [semantic.as_qa_result().as_payload()],
+                    "format": {"verdict": "pass", "message": "", "failure_reasons": []},
+                    "semantic_script": {
+                        "verdict": semantic.verdict.value,
+                        "message": semantic.message,
+                        "failure_reasons": list(semantic.failure_reasons),
+                        "findings": [
+                            finding.model_dump(mode="json") for finding in semantic.findings
+                        ],
+                    },
+                },
+            )
+
+        def package_reel(self, execution: ProcessReelExecution) -> dict[str, Any]:
+            raise AssertionError("packaging should not run for semantically failed reel")
+
+    executor = WeakSemanticExecutor()
+    service = ProcessReelService(repository=repository, executor=cast(Any, executor))
+    event_sink = FakeProcessReelEventSink()
+    monkeypatch.setattr(process_reel_flow_module, "build_process_reel_runtime", lambda: service)
+    monkeypatch.setattr(
+        process_reel_flow_module, "build_process_reel_event_sink", lambda: event_sink
+    )
+
+    result = process_reel(reel_id="reel-42", dry_run=False)
+
+    assert executor.calls == ["creative_planning", "asset_resolution", "editing", "qa"]
+    assert result["reel_status"] == "qa_failed"
+    assert result["run_status"] == "failed"
+    qa_output = cast(dict[str, Any], result["step_outputs"]["qa"])
+    semantic_details = cast(dict[str, Any], qa_output["semantic_script"])
+    assert semantic_details["verdict"] == "fail"
+    semantic_codes = [
+        cast(str, finding["code"])
+        for finding in cast(list[dict[str, Any]], semantic_details["findings"])
+    ]
+    assert "incomplete_hook" in semantic_codes
+    assert any(event.get("event_type") == "process_reel.failed" for event in event_sink.events)
+
+
 def test_process_reel_flow_emits_failure_event_and_stops_before_ready(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -63,8 +63,10 @@ from content_lab_qa import (
     RepetitionGateRequest,
     RepetitionHistoryStore,
     RepetitionPolicy,
+    SemanticScriptQARequest,
     evaluate_format_qa,
     evaluate_repetition,
+    evaluate_semantic_script,
 )
 from content_lab_runs import TaskRowSpec, TaskStatus
 from content_lab_shared.settings import Settings
@@ -632,6 +634,7 @@ class PhaseOneProcessReelExecutor:
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
         editing_output = _step_output(execution, "editing")
         asset_output = _step_output(execution, "asset_resolution")
+        creative_output = _step_output(execution, "creative_planning")
         format_report = evaluate_format_qa(
             final_video_path=_required_text(
                 editing_output.get("final_video_path"),
@@ -654,12 +657,20 @@ class PhaseOneProcessReelExecutor:
             ),
             history_store=self._repetition_history_store,
         )
+        semantic_report = evaluate_semantic_script(
+            SemanticScriptQARequest(
+                script=_mapping(creative_output.get("script")),
+                scene_plan=_mapping(creative_output.get("scene_plan")) or None,
+                brief=_mapping(creative_output.get("brief")) or None,
+            )
+        )
         repetition_failed = repetition_result.verdict.value == "fail"
-        passed = format_report.passed and not repetition_failed
+        semantic_failed = not semantic_report.passed and semantic_report.verdict.value == "fail"
+        passed = format_report.passed and not repetition_failed and not semantic_failed
         verdict = "pass"
         if not passed:
             verdict = "fail"
-        elif repetition_result.verdict.value == "warn":
+        elif repetition_result.verdict.value == "warn" or semantic_report.verdict.value == "warn":
             verdict = "warn"
 
         return ProcessReelQAResult(
@@ -669,6 +680,7 @@ class PhaseOneProcessReelExecutor:
                 "checks": [
                     *[check.as_payload() for check in format_report.checks],
                     repetition_result.as_payload(),
+                    semantic_report.as_qa_result().as_payload(),
                 ],
                 "format": {
                     "verdict": format_report.verdict.value,
@@ -676,6 +688,14 @@ class PhaseOneProcessReelExecutor:
                     "failure_reasons": list(format_report.failure_reasons),
                 },
                 "repetition": repetition_result.as_payload(),
+                "semantic_script": {
+                    "verdict": semantic_report.verdict.value,
+                    "message": semantic_report.message,
+                    "failure_reasons": list(semantic_report.failure_reasons),
+                    "findings": [
+                        finding.model_dump(mode="json") for finding in semantic_report.findings
+                    ],
+                },
             },
         )
 
