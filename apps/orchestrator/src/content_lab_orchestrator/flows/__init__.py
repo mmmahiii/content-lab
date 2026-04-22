@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from .daily_reel_factory import daily_reel_factory
+from .daily_reel_factory import (
+    DEFAULT_FACTORY_DISPATCH_MODE,
+    daily_reel_factory,
+)
 from .process_reel import process_reel
 from .provider_job_sweeper import provider_job_sweeper
 from .registry import (
@@ -17,14 +20,18 @@ from .registry import (
 )
 
 
-def example_flow(name: str = "world") -> dict[str, object]:
+def example_flow(
+    name: str = "world",
+    factory_dispatch_mode: str = DEFAULT_FACTORY_DISPATCH_MODE,
+) -> dict[str, object]:
     """Backward-compatible alias for the starter scaffold flow."""
 
-    return daily_reel_factory(name=name)
+    return daily_reel_factory(name=name, factory_dispatch_mode=factory_dispatch_mode)
 
 
 __all__ = [
     "DEFAULT_FLOW_NAME",
+    "DEFAULT_FACTORY_DISPATCH_MODE",
     "FlowDefinition",
     "FlowNotFoundError",
     "FlowRegistryError",

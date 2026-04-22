@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from content_lab_orchestrator.flows.daily_reel_factory import DEFAULT_FACTORY_DISPATCH_MODE
 from content_lab_orchestrator.flows import (
     DEFAULT_FLOW_NAME,
     get_flow_definition,
@@ -32,6 +33,15 @@ def _build_parser() -> argparse.ArgumentParser:
     run_cmd = sub.add_parser("run")
     run_cmd.add_argument("--flow", default=DEFAULT_FLOW_NAME, choices=list_flow_names())
     run_cmd.add_argument("--name", default="world")
+    run_cmd.add_argument(
+        "--factory-dispatch-mode",
+        default=DEFAULT_FACTORY_DISPATCH_MODE,
+        choices=("production", "smoke"),
+        help=(
+            "For daily_reel_factory only: production invokes process_reel per reel; "
+            "smoke records explicit no-ops (default). Other flows ignore this flag."
+        ),
+    )
     run_cmd.add_argument("--reel-id", default="demo-reel")
     run_cmd.add_argument("--run-id", default=None)
     run_cmd.add_argument("--dry-run", action="store_true")
