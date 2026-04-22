@@ -71,6 +71,7 @@ def probe_media(path: Path) -> dict[str, object]:
     return {
         "width": int(video_stream["width"]),
         "height": int(video_stream["height"]),
+        "duration_seconds": float(payload["format"]["duration"]),
         "has_audio_track": any(stream["codec_type"] == "audio" for stream in streams),
     }
 

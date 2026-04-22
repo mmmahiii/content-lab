@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from content_lab_editing.edit_plan import SceneAwareEditPlan, SceneEditPlanSegment
 from content_lab_editing.editor_basic import (
     FINAL_COVER_FILENAME,
     FINAL_VIDEO_FILENAME,
@@ -55,6 +56,7 @@ def test_render_basic_vertical_edit_adds_silence_for_local_clip_without_audio(
     assert artifact.cover_frame_timestamp_seconds == 0.5
     assert artifact.source_had_audio_track is False
     assert artifact.has_audio_track is True
+    assert artifact.staged_segment_paths == (artifact.staged_source_path,)
     assert output_probe["width"] == 1080
     assert output_probe["height"] == 1920
     assert output_probe["has_audio_track"] is True
@@ -133,3 +135,66 @@ def test_render_basic_vertical_edit_applies_overlay_timeline(tmp_path: Path) -> 
 
     assert before_overlay == after_overlay
     assert during_overlay != before_overlay
+
+
+def test_render_basic_vertical_edit_assembles_scene_aware_plan(tmp_path: Path) -> None:
+    hook_source = tmp_path / "hook-red.mp4"
+    value_source = tmp_path / "value-blue.mp4"
+    build_fixture_clip(
+        output_path=hook_source,
+        width=640,
+        height=640,
+        include_audio=False,
+        duration_seconds=0.9,
+        video_source="color=c=red:size=640x640:rate=24",
+    )
+    build_fixture_clip(
+        output_path=value_source,
+        width=1280,
+        height=720,
+        include_audio=False,
+        duration_seconds=0.9,
+        video_source="color=c=blue:size=1280x720:rate=24",
+    )
+    edit_plan = SceneAwareEditPlan(
+        segments=[
+            SceneEditPlanSegment(
+                segment_id="segment-001",
+                scene_id="scene-hook",
+                purpose="hook",
+                source_uri=str(hook_source),
+                duration_seconds=0.6,
+                timeline_start_seconds=0.0,
+            ),
+            SceneEditPlanSegment(
+                segment_id="segment-002",
+                scene_id="scene-value",
+                purpose="value",
+                source_uri=str(value_source),
+                duration_seconds=0.6,
+                timeline_start_seconds=0.6,
+            ),
+        ]
+    )
+
+    artifact = render_basic_vertical_edit(
+        source_uri=hook_source,
+        workdir=tmp_path / "job-scenes",
+        edit_plan=edit_plan,
+    )
+
+    output_probe = probe_media(artifact.final_video_path)
+    assert artifact.final_video_path.name == FINAL_VIDEO_FILENAME
+    assert len(artifact.staged_segment_paths) == 2
+    assert artifact.staged_segment_paths[0].exists()
+    assert artifact.staged_segment_paths[1].exists()
+    assert output_probe["width"] == 1080
+    assert output_probe["height"] == 1920
+    assert output_probe["has_audio_track"] is True
+    duration_seconds = output_probe["duration_seconds"]
+    assert isinstance(duration_seconds, float)
+    assert 1.0 <= duration_seconds <= 1.5
+
+    first_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.2)
+    second_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.9)
+    assert first_frame != second_frame

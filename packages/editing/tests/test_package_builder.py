@@ -5,13 +5,20 @@ import json
 import os
 import uuid
 from pathlib import Path
+from unittest.mock import Mock
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import pytest
 
 from content_lab_editing.package_builder import build_package_directory, build_ready_to_post_package
-from content_lab_storage import CanonicalStorageLayout, S3StorageClient, S3StorageConfig
+from content_lab_storage import (
+    CanonicalStorageLayout,
+    S3StorageClient,
+    S3StorageConfig,
+    StorageRef,
+    StoredObject,
+)
 from content_lab_storage.reel_packages import assert_reel_package_complete
 
 _ONE_BY_ONE_PNG = base64.b64decode(
@@ -57,6 +64,68 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
         "posting_plan",
         "provenance",
     }
+
+
+def test_build_ready_to_post_package_attaches_creative_trace(tmp_path: Path) -> None:
+    client = Mock()
+    layout = CanonicalStorageLayout(bucket="content-lab")
+    final_video = tmp_path / "input-video.mp4"
+    cover = tmp_path / "input-cover.png"
+    final_video.write_bytes(b"video-bytes")
+    cover.write_bytes(_ONE_BY_ONE_PNG)
+
+    def _stored(
+        ref: StorageRef, *, content_type: str | None, metadata: dict[str, str]
+    ) -> StoredObject:
+        return StoredObject(
+            ref=ref,
+            size_bytes=123,
+            content_type=content_type,
+            metadata=metadata,
+            checksum_sha256="sha256:" + ("a" * 64),
+        )
+
+    client.put_object.side_effect = lambda **kwargs: _stored(
+        kwargs["ref"],
+        content_type=kwargs.get("content_type"),
+        metadata=dict(kwargs.get("metadata", {})),
+    )
+
+    built = build_ready_to_post_package(
+        client=client,
+        layout=layout,
+        reel_id="reel-local-123",
+        final_video_path=final_video,
+        cover_path=cover,
+        caption_variants=[{"variant": "short", "text": "Short caption"}],
+        posting_plan={"platform": "instagram"},
+        provenance={"source_run_id": "run-123"},
+        creative_trace={
+            "schema_version": "phase_1",
+            "artifact_type": "creative_trace",
+            "brief": {"title": "Desk reset"},
+        },
+        temp_root=tmp_path / "scratch",
+    )
+
+    trace_path = built.local_package.directory / "creative_trace.json"
+    assert trace_path.exists()
+    assert built.local_package.manifest is not None
+    assert built.local_package.manifest["artifact_count"] == 6
+    assert {artifact["name"] for artifact in built.local_package.manifest["artifacts"]} == {
+        "caption_variants",
+        "cover",
+        "creative_trace",
+        "final_video",
+        "posting_plan",
+        "provenance",
+    }
+    assert built.package_payload["creative_trace_uri"] == (
+        "s3://content-lab/reels/packages/reel-local-123/creative_trace.json"
+    )
+    assert built.package_payload["creative_trace"]["brief"]["title"] == "Desk reset"
+    assert built.stored_package.artifact_by_name("creative_trace") is not None
+    assert client.put_object.call_count == 7
 
 
 def _integration_client() -> tuple[S3StorageClient, str]:

@@ -13,6 +13,7 @@ from content_lab_storage.client import S3StorageClient, StoredObject
 from content_lab_storage.paths import (
     CAPTION_VARIANTS_FILENAME,
     COVER_IMAGE_FILENAME,
+    CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
@@ -118,6 +119,12 @@ def expected_reel_package_filenames(*, include_manifest: bool = True) -> tuple[s
     return filenames
 
 
+def optional_reel_package_filenames() -> tuple[str, ...]:
+    """Return canonical optional filenames in a ready-to-post package directory."""
+
+    return (CREATIVE_TRACE_FILENAME,)
+
+
 def resolve_reel_package_directory(
     directory: str | Path,
     *,
@@ -183,7 +190,12 @@ def persist_reel_package_directory(
     uploaded: list[ReelPackageArtifact] = []
 
     for spec in _artifact_specs(package_refs, include_manifest=include_manifest):
-        path = artifact_paths[spec.filename]
+        path = artifact_paths.get(spec.filename)
+        if path is None:
+            candidate = Path(directory) / spec.filename
+            if not candidate.exists() or not candidate.is_file():
+                continue
+            path = candidate
         checksums = checksum_file(path)
         object_metadata = {
             **base_metadata,
@@ -251,9 +263,19 @@ def _artifact_specs(
             content_type="application/json",
         ),
     )
+    optional_specs = (
+        _ArtifactSpec(
+            name="creative_trace",
+            filename=CREATIVE_TRACE_FILENAME,
+            ref=package_refs.creative_trace,
+            kind="json",
+            content_type="application/json",
+        ),
+    )
     if include_manifest:
         return (
             *specs,
+            *optional_specs,
             _ArtifactSpec(
                 name="package_manifest",
                 filename=PACKAGE_MANIFEST_FILENAME,
@@ -262,7 +284,7 @@ def _artifact_specs(
                 content_type="application/json",
             ),
         )
-    return specs
+    return (*specs, *optional_specs)
 
 
 def _uploaded_artifact(

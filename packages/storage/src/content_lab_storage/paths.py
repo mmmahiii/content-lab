@@ -9,6 +9,7 @@ from content_lab_storage.refs import StorageRef, build_key
 
 PACKAGE_MANIFEST_FILENAME = "package_manifest.json"
 PROVENANCE_FILENAME = "provenance.json"
+CREATIVE_TRACE_FILENAME = "creative_trace.json"
 FINAL_VIDEO_FILENAME = "final_video.mp4"
 COVER_IMAGE_FILENAME = "cover.png"
 CAPTION_VARIANTS_FILENAME = "caption_variants.txt"
@@ -32,6 +33,7 @@ class ReelPackageRefs:
     caption_variants: StorageRef
     posting_plan: StorageRef
     provenance: StorageRef
+    creative_trace: StorageRef
     manifest: StorageRef
 
 
@@ -85,5 +87,6 @@ class CanonicalStorageLayout:
             caption_variants=self.reel_package_object(reel_id, CAPTION_VARIANTS_FILENAME),
             posting_plan=self.reel_package_object(reel_id, POSTING_PLAN_FILENAME),
             provenance=self.reel_package_object(reel_id, PROVENANCE_FILENAME),
+            creative_trace=self.reel_package_object(reel_id, CREATIVE_TRACE_FILENAME),
             manifest=self.reel_package_object(reel_id, PACKAGE_MANIFEST_FILENAME),
         )

@@ -206,6 +206,26 @@ class ScriptGeneratorPath(str, Enum):
     RULES_PLUS_PROVIDER = "rules_plus_provider"
 
 
+class ScenePurpose(str, Enum):
+    """Narrative purpose for a planned reel scene."""
+
+    HOOK = "hook"
+    SETUP = "setup"
+    VALUE = "value"
+    PAYOFF = "payoff"
+    CLOSE = "close"
+
+
+class SceneOverlayRole(str, Enum):
+    """How a scene expects text overlays to function."""
+
+    HOOK = "hook"
+    CONTEXT = "context"
+    EMPHASIS = "emphasis"
+    CTA = "cta"
+    DISCLOSURE = "disclosure"
+
+
 class ScriptBeat(BaseModel):
     """A timed beat of spoken narration for editing and voiceover planning."""
 
@@ -256,6 +276,56 @@ class PinnedComment(BaseModel):
 
     text: str = Field(min_length=1, max_length=500)
     purpose: PinnedCommentPurpose = PinnedCommentPurpose.ENGAGEMENT
+
+
+class ScenePlanScene(BaseModel):
+    """One purposeful visual scene derived from the script and brief."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: str = Field(min_length=1, max_length=80)
+    purpose: ScenePurpose
+    start_seconds: int = Field(ge=0)
+    end_seconds: int = Field(gt=0)
+    visual_intent: str = Field(min_length=1, max_length=280)
+    shot_guidance: str = Field(min_length=1, max_length=280)
+    overlay_role: SceneOverlayRole
+    overlay_text: str | None = Field(default=None, max_length=120)
+    narration_refs: list[int] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def _validate_timing(self) -> ScenePlanScene:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("scene end_seconds must be greater than start_seconds")
+        return self
+
+
+class ScenePlanOutput(BaseModel):
+    """Structured scene plan used for provider prompting, editing, and QA."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["phase_1"] = "phase_1"
+    compiler_name: str = Field(default="deterministic_scene_plan_v1", min_length=1, max_length=80)
+    brief_title: str = Field(min_length=1, max_length=200)
+    duration_seconds: int = Field(ge=5, le=180)
+    scenes: list[ScenePlanScene] = Field(default_factory=list, min_length=1, max_length=8)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_scene_timeline(self) -> ScenePlanOutput:
+        previous_end = 0
+        for index, scene in enumerate(self.scenes):
+            if index == 0 and scene.start_seconds != 0:
+                raise ValueError("scene plan must start at 0 seconds")
+            if scene.start_seconds != previous_end:
+                raise ValueError("scene plan scenes must be contiguous and ordered")
+            if scene.end_seconds > self.duration_seconds:
+                raise ValueError("scene plan scenes must fit within duration_seconds")
+            previous_end = scene.end_seconds
+        if previous_end != self.duration_seconds:
+            raise ValueError("scene plan scenes must cover duration_seconds")
+        return self
 
 
 class GeneratedScriptOutput(BaseModel):

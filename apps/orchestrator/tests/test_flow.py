@@ -8,6 +8,7 @@ from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import unquote, urlparse
 
 import pytest
 from botocore.exceptions import ClientError
@@ -592,6 +593,7 @@ class FakeProcessReelAssetResolver:
         self.storage_client = storage_client
         self.runway_client = FakeRunwayClient(clip_bytes=clip_bytes)
         self.calls = 0
+        self.last_request_payload: dict[str, Any] | None = None
 
     def resolve_primary_asset(
         self,
@@ -601,6 +603,7 @@ class FakeProcessReelAssetResolver:
     ) -> dict[str, Any]:
         self.calls += 1
         request_payload = cast(dict[str, Any], creative_output["primary_asset_request"])
+        self.last_request_payload = dict(request_payload)
         asset_id = uuid.uuid4()
         generation = StoredRunwayGeneration(
             asset_id=asset_id,
@@ -1410,6 +1413,24 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert script_output["generator_path"] == "rules_plus_provider"
     assert script_output["provider_name"] == "rules_provider"
     assert creative_output["script_lint"]["outcome"] == "pass"
+    scene_plan = cast(dict[str, Any], creative_output["scene_plan"])
+    assert [scene["purpose"] for scene in cast(list[dict[str, Any]], scene_plan["scenes"])] == [
+        "hook",
+        "setup",
+        "value",
+        "payoff",
+        "close",
+    ]
+    assert asset_resolver.last_request_payload is not None
+    assert asset_resolver.last_request_payload["scene_plan"] == scene_plan
+    assert "compiled_prompt" in asset_resolver.last_request_payload
+    assert "prompt_trace" in asset_resolver.last_request_payload
+    assert "hook scene" in asset_resolver.last_request_payload["prompt"]
+    assert "scene plan" not in asset_resolver.last_request_payload["prompt"].lower()
+    assert "scene_prompt" not in asset_resolver.last_request_payload
+    compiled_prompt = cast(dict[str, Any], creative_output["compiled_prompt"])
+    assert asset_resolver.last_request_payload["compiled_prompt"] == compiled_prompt
+    assert asset_resolver.last_request_payload["prompt_trace"] == compiled_prompt["trace"]
     script_generation = cast(dict[str, Any], creative_output["script_generation"])
     assert script_generation["generator_path"] == "rules_plus_provider"
     assert script_generation["provider_name"] == "rules_provider"
@@ -1420,6 +1441,22 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     package_provenance = cast(dict[str, Any], result["package"]["provenance"])
     assert package_provenance["script_generation"] == creative_output["script_generation"]
     assert package_provenance["script_lint"] == creative_output["script_lint"]
+    assert package_provenance["scene_plan"] == scene_plan
+    assert package_provenance["prompt_trace"] == compiled_prompt["trace"]
+    package_payload = cast(dict[str, Any], result["package"])
+    assert package_payload["creative_trace_uri"] == (
+        f"s3://content-lab/reels/packages/{result['reel_id']}/creative_trace.json"
+    )
+    creative_trace = cast(dict[str, Any], package_payload["creative_trace"])
+    assert creative_trace["generator_selection"]["generator_path"] == "rules_plus_provider"
+    assert creative_trace["script_lint"] == creative_output["script_lint"]
+    assert creative_trace["scene_plan"] == scene_plan
+    assert creative_trace["prompt_trace"] == compiled_prompt["trace"]
+    editing_output = cast(dict[str, Any], result["step_outputs"]["editing"])
+    timeline_uri = cast(str, editing_output["timeline_uri"])
+    timeline_path = Path(unquote(urlparse(timeline_uri).path).lstrip("/"))
+    timeline_payload = process_reel_flow_module.json.loads(timeline_path.read_text())
+    assert timeline_payload["scene_plan"] == scene_plan
 
     run_id = result["run_id"]
     assert repository.reels["reel-42"].status == "ready"
@@ -1438,6 +1475,7 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert (
         f"s3://content-lab/reels/packages/{result['reel_id']}/package_manifest.json" in stored_uris
     )
+    assert f"s3://content-lab/reels/packages/{result['reel_id']}/creative_trace.json" in stored_uris
     assert f"s3://content-lab/reels/packages/{result['reel_id']}/final_video.mp4" in stored_uris
 
 
@@ -1468,9 +1506,17 @@ def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> N
     assert production_plan["script_generation"]["generator_path"] == "rules_plus_provider"
     assert production_plan["script"]["provider_name"] == "rules_provider"
     assert production_plan["script_lint"]["outcome"] == "pass"
+    assert production_plan["scene_plan"]["scenes"][0]["purpose"] == "hook"
+    assert production_plan["primary_asset_request"]["scene_plan"] == production_plan["scene_plan"]
+    assert (
+        production_plan["primary_asset_request"]["prompt_trace"]
+        == production_plan["compiled_prompt"]["trace"]
+    )
+    assert "hook scene" in production_plan["primary_asset_request"]["prompt"]
     assert stub_plan["script_generation"]["generator_path"] == "deterministic_stub"
     assert stub_plan["script"]["provider_name"] == "deterministic_stub"
     assert stub_plan["script_lint"]["outcome"] == "fail"
+    assert stub_plan["scene_plan"]["scenes"][0]["purpose"] == "hook"
     assert stub_plan["creative_blocked"] is True
     assert "primary_asset_request" not in stub_plan
     assert production_plan["script"].keys() == stub_plan["script"].keys()

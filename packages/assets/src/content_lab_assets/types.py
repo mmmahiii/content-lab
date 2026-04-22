@@ -31,6 +31,21 @@ class GenerationIntent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class AssetPromptTrace(BaseModel):
+    """Trace metadata for provider prompts stored beside generation requests."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    compiler_name: str = Field(min_length=1, max_length=80)
+    prompt_kind: str = Field(min_length=1, max_length=80)
+    source_hash: str = Field(min_length=64, max_length=64)
+    prompt_hash: str = Field(min_length=64, max_length=64)
+    scene_ids: list[str] = Field(default_factory=list)
+    final_prompt_chars: int = Field(ge=1)
+    negative_prompt: str = Field(min_length=1, max_length=500)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class DecisionPolicyMetadata(BaseModel):
     """Stable policy envelope reserved for later reuse enforcement and QA."""
 
@@ -103,6 +118,7 @@ AssetResolutionDecision = (
 __all__ = [
     "AssetResolutionDecision",
     "AssetResolutionDecisionBase",
+    "AssetPromptTrace",
     "BlockedDecision",
     "DecisionPolicyMetadata",
     "GenerateDecision",

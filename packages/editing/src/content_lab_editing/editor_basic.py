@@ -11,6 +11,7 @@ from typing import Protocol
 from urllib.parse import urlparse
 
 from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_frame
+from content_lab_editing.edit_plan import SceneAwareEditPlan
 from content_lab_editing.overlays import OverlayTimeline, build_overlay_video_filter
 
 TARGET_WIDTH = 1080
@@ -62,6 +63,7 @@ class BasicEditorArtifact:
     template_version: str
     source_uri: str
     staged_source_path: Path
+    staged_segment_paths: tuple[Path, ...]
     final_video_path: Path
     cover_image_path: Path
     width: int
@@ -78,6 +80,7 @@ def render_basic_vertical_edit(
     workdir: str | Path,
     storage_client: ObjectStorageClient | None = None,
     overlay_timeline: OverlayTimeline | None = None,
+    edit_plan: SceneAwareEditPlan | None = None,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> BasicEditorArtifact:
@@ -89,6 +92,18 @@ def render_basic_vertical_edit(
     output_dir = resolved_workdir / "output"
     staged_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if edit_plan is not None:
+        return _render_scene_aware_edit(
+            source_uri=source_uri,
+            edit_plan=edit_plan,
+            staged_dir=staged_dir,
+            output_dir=output_dir,
+            storage_client=storage_client,
+            overlay_timeline=overlay_timeline,
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+        )
 
     staged_source_path = stage_source_asset(
         source_uri=source_uri,
@@ -132,6 +147,7 @@ def render_basic_vertical_edit(
         template_version=PHASE1_TEMPLATE_VERSION,
         source_uri=normalized_source_uri,
         staged_source_path=staged_source_path,
+        staged_segment_paths=(staged_source_path,),
         final_video_path=final_video_path,
         cover_image_path=cover_artifact.image_path,
         width=output_probe.width,
@@ -139,6 +155,95 @@ def render_basic_vertical_edit(
         duration_seconds=output_probe.duration_seconds,
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=source_probe.has_audio_track,
+        has_audio_track=output_probe.has_audio_track,
+    )
+
+
+def _render_scene_aware_edit(
+    *,
+    source_uri: str | Path,
+    edit_plan: SceneAwareEditPlan,
+    staged_dir: Path,
+    output_dir: Path,
+    storage_client: ObjectStorageClient | None,
+    overlay_timeline: OverlayTimeline | None,
+    ffmpeg_bin: str,
+    ffprobe_bin: str,
+) -> BasicEditorArtifact:
+    normalized_source_uri = _normalize_source_uri(source_uri)
+    segment_paths: list[Path] = []
+    rendered_segment_paths: list[Path] = []
+    for index, segment in enumerate(edit_plan.segments, start=1):
+        segment_staged_dir = staged_dir / f"segment-{index:03d}"
+        staged_segment_path = stage_source_asset(
+            source_uri=segment.source_uri,
+            staged_dir=segment_staged_dir,
+            storage_client=storage_client,
+        )
+        source_probe = probe_media_file(staged_segment_path, ffprobe_bin=ffprobe_bin)
+        rendered_segment_path = output_dir / f"segment-{index:03d}.mp4"
+        _render_timeline_segment(
+            input_path=staged_segment_path,
+            output_path=rendered_segment_path,
+            source_has_audio=source_probe.has_audio_track,
+            source_start_seconds=segment.source_start_seconds,
+            duration_seconds=segment.duration_seconds,
+            ffmpeg_bin=ffmpeg_bin,
+        )
+        segment_paths.append(staged_segment_path)
+        rendered_segment_paths.append(rendered_segment_path)
+
+    combined_source_path = output_dir / "combined_source.mp4"
+    _concat_segments(
+        segment_paths=rendered_segment_paths,
+        output_path=combined_source_path,
+        ffmpeg_bin=ffmpeg_bin,
+    )
+    combined_probe = probe_media_file(combined_source_path, ffprobe_bin=ffprobe_bin)
+    video_filter = build_overlay_video_filter(
+        base_filter=_VIDEO_FILTER,
+        timeline=overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+    )
+
+    final_video_path = output_dir / FINAL_VIDEO_FILENAME
+    _render_final_video(
+        input_path=combined_source_path,
+        output_path=final_video_path,
+        source_has_audio=combined_probe.has_audio_track,
+        video_filter=video_filter,
+        ffmpeg_bin=ffmpeg_bin,
+    )
+
+    output_probe = probe_media_file(final_video_path, ffprobe_bin=ffprobe_bin)
+    if output_probe.width != TARGET_WIDTH or output_probe.height != TARGET_HEIGHT:
+        raise RuntimeError(
+            "Scene-aware editor output dimensions were not normalized to "
+            f"{TARGET_WIDTH}x{TARGET_HEIGHT}"
+        )
+    if not output_probe.has_audio_track:
+        raise RuntimeError("Scene-aware editor output is missing the required audio track")
+
+    cover_artifact = extract_cover_frame(
+        video_path=final_video_path,
+        output_path=output_dir / FINAL_COVER_FILENAME,
+        duration_seconds=output_probe.duration_seconds,
+        ffmpeg_bin=ffmpeg_bin,
+        ffprobe_bin=ffprobe_bin,
+    )
+
+    return BasicEditorArtifact(
+        template_version=PHASE1_TEMPLATE_VERSION,
+        source_uri=normalized_source_uri,
+        staged_source_path=segment_paths[0],
+        staged_segment_paths=tuple(segment_paths),
+        final_video_path=final_video_path,
+        cover_image_path=cover_artifact.image_path,
+        width=output_probe.width,
+        height=output_probe.height,
+        duration_seconds=output_probe.duration_seconds,
+        cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
+        source_had_audio_track=combined_probe.has_audio_track,
         has_audio_track=output_probe.has_audio_track,
     )
 
@@ -228,6 +333,112 @@ def probe_media_file(path: str | Path, *, ffprobe_bin: str = "ffprobe") -> Media
         height=height,
         duration_seconds=duration_seconds,
         has_audio_track=has_audio_track,
+    )
+
+
+def _render_timeline_segment(
+    *,
+    input_path: Path,
+    output_path: Path,
+    source_has_audio: bool,
+    source_start_seconds: float,
+    duration_seconds: float,
+    ffmpeg_bin: str,
+) -> None:
+    command = [
+        ffmpeg_bin,
+        "-y",
+    ]
+    if source_start_seconds > 0:
+        command.extend(["-ss", f"{source_start_seconds:.3f}"])
+    command.extend(
+        [
+            "-i",
+            str(input_path),
+        ]
+    )
+    if not source_has_audio:
+        command.extend(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                (
+                    "anullsrc="
+                    f"channel_layout={_AUDIO_CHANNEL_LAYOUT}:sample_rate={_AUDIO_SAMPLE_RATE}"
+                ),
+            ]
+        )
+
+    command.extend(
+        [
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-map_metadata",
+            "-1",
+            "-filter:v",
+            _VIDEO_FILTER,
+            "-map",
+            "0:v:0",
+        ]
+    )
+    if source_has_audio:
+        command.extend(["-map", "0:a:0"])
+    else:
+        command.extend(["-map", "1:a:0", "-shortest"])
+
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-ac",
+            "2",
+            "-ar",
+            str(_AUDIO_SAMPLE_RATE),
+            "-movflags",
+            "+faststart",
+            "-threads",
+            "1",
+            str(output_path),
+        ]
+    )
+    _run_command(command, failure_prefix=f"Failed to render edit segment for {input_path}")
+
+
+def _concat_segments(
+    *,
+    segment_paths: list[Path],
+    output_path: Path,
+    ffmpeg_bin: str,
+) -> None:
+    concat_file = output_path.with_suffix(".concat.txt")
+    concat_file.write_text(
+        "\n".join(f"file '{_ffmpeg_concat_path(path)}'" for path in segment_paths) + "\n",
+        encoding="utf-8",
+    )
+    _run_command(
+        [
+            ffmpeg_bin,
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_file),
+            "-c",
+            "copy",
+            str(output_path),
+        ],
+        failure_prefix="Failed to concatenate scene edit segments",
     )
 
 
@@ -336,6 +547,10 @@ def _storage_object_suffix(*, storage_uri: str, content_type: str | None) -> str
         if normalized_content_type in _CONTENT_TYPE_EXTENSIONS:
             return _CONTENT_TYPE_EXTENSIONS[normalized_content_type]
     return ".mp4"
+
+
+def _ffmpeg_concat_path(path: Path) -> str:
+    return path.resolve().as_posix().replace("'", "'\\''")
 
 
 def _run_command(command: list[str], *, failure_prefix: str) -> subprocess.CompletedProcess[str]:

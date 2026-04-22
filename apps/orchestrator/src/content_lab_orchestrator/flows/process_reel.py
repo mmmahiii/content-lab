@@ -27,7 +27,10 @@ from content_lab_creative import (
     PostingPlanPageContext,
     PostingPlanVariantContext,
     ScriptGeneratorPath,
+    build_creative_trace,
     build_posting_plan,
+    compile_provider_prompt,
+    compile_scene_plan,
     generate_script_output,
     plan_creative_brief,
 )
@@ -456,6 +459,7 @@ class PhaseOneProcessReelExecutor:
         repetition_history_store: RepetitionHistoryStore | None = None,
         script_generator: ScriptGenerator | None = None,
         script_generator_path: ScriptGeneratorPathLike = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
+        emit_creative_trace: bool = True,
         ffmpeg_bin: str = "ffmpeg",
         ffprobe_bin: str = "ffprobe",
     ) -> None:
@@ -471,6 +475,7 @@ class PhaseOneProcessReelExecutor:
         self._repetition_history_store = repetition_history_store
         self._script_generator = script_generator
         self._script_generator_path = script_generator_path
+        self._emit_creative_trace = emit_creative_trace
         self._ffmpeg_bin = ffmpeg_bin
         self._ffprobe_bin = ffprobe_bin
 
@@ -494,6 +499,8 @@ class PhaseOneProcessReelExecutor:
         script_payload = script.model_dump(mode="json")
         script_generation = _script_generation_metadata(script_payload)
         script_lint = _script_lint_result(script_payload)
+        scene_plan = compile_scene_plan(brief=brief, script=script)
+        scene_plan_payload = scene_plan.model_dump(mode="json")
         posting_plan = build_posting_plan(
             policy=brief.policy,
             page=PostingPlanPageContext(
@@ -524,12 +531,15 @@ class PhaseOneProcessReelExecutor:
                 "script": script_payload,
                 "script_generation": script_generation,
                 "script_lint": script_lint,
+                "scene_plan": scene_plan_payload,
                 "posting_plan": posting_plan.model_dump(mode="json"),
                 "creative_blocked": True,
             }
-        prompt = _build_primary_asset_prompt(
-            brief_payload=brief.model_dump(mode="json"), script=script
+        compiled_prompt = _build_primary_asset_prompt(
+            brief_payload=brief.model_dump(mode="json"),
+            scene_plan=scene_plan,
         )
+        compiled_prompt_payload = compiled_prompt.model_dump(mode="json")
         duration_seconds = min(
             max(brief.duration_seconds, 5),
             RUNWAY_GEN45_MAX_DURATION_SECONDS,
@@ -539,13 +549,18 @@ class PhaseOneProcessReelExecutor:
             "script": script_payload,
             "script_generation": script_generation,
             "script_lint": script_lint,
+            "scene_plan": scene_plan_payload,
+            "compiled_prompt": compiled_prompt_payload,
             "posting_plan": posting_plan.model_dump(mode="json"),
             "primary_asset_request": {
                 "asset_class": _PRIMARY_ASSET_CLASS,
                 "provider": _PRIMARY_ASSET_PROVIDER,
                 "model": _PRIMARY_ASSET_MODEL,
-                "prompt": prompt,
-                "negative_prompt": "text overlays, captions, watermarks",
+                "prompt": compiled_prompt.prompt,
+                "scene_plan": scene_plan_payload,
+                "compiled_prompt": compiled_prompt_payload,
+                "prompt_trace": compiled_prompt_payload["trace"],
+                "negative_prompt": compiled_prompt.negative_prompt,
                 "seed": context.brief_index + 1,
                 "duration_seconds": duration_seconds,
                 "fps": 24,
@@ -587,6 +602,7 @@ class PhaseOneProcessReelExecutor:
             json.dumps(
                 {
                     "overlay_timeline": overlay_timeline,
+                    "scene_plan": _mapping(creative_output.get("scene_plan")),
                     "spoken_script": _mapping(creative_output.get("script")).get(
                         "spoken_script", []
                     ),
@@ -669,6 +685,13 @@ class PhaseOneProcessReelExecutor:
         editing_output = _step_output(execution, "editing")
         workdir = self._run_workdir(execution, "package")
         workdir.mkdir(parents=True, exist_ok=True)
+        creative_trace = None
+        if self._emit_creative_trace:
+            creative_trace = build_creative_trace(
+                reel_id=execution.reel_id,
+                run_id=execution.run_id,
+                creative_output=creative_output,
+            ).model_dump(mode="json")
         built = build_ready_to_post_package(
             client=cast(Any, self._storage_client),
             layout=self._package_layout,
@@ -689,6 +712,7 @@ class PhaseOneProcessReelExecutor:
                 asset_output=asset_output,
                 editing_output=editing_output,
             ),
+            creative_trace=creative_trace,
             temp_root=workdir,
             upload_metadata={
                 "reel-id": execution.reel_id,
@@ -724,6 +748,7 @@ def build_phase_one_process_reel_executor(
     repetition_history_store: RepetitionHistoryStore | None = None,
     script_generator: ScriptGenerator | None = None,
     script_generator_path: ScriptGeneratorPathLike = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
+    emit_creative_trace: bool = True,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> PhaseOneProcessReelExecutor:
@@ -744,6 +769,7 @@ def build_phase_one_process_reel_executor(
         repetition_history_store=repetition_history_store,
         script_generator=script_generator,
         script_generator_path=script_generator_path,
+        emit_creative_trace=emit_creative_trace,
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin,
     )
@@ -982,18 +1008,18 @@ def _step_output(execution: ProcessReelExecution, step: str) -> dict[str, Any]:
     return dict(payload)
 
 
-def _build_primary_asset_prompt(*, brief_payload: Mapping[str, Any], script: Any) -> str:
-    title = _required_text(brief_payload.get("title"), field_name="brief.title")
-    description = _required_text(
-        brief_payload.get("description") or title,
-        field_name="brief.description",
+def _build_primary_asset_prompt(
+    *,
+    brief_payload: Mapping[str, Any],
+    scene_plan: Any,
+) -> Any:
+    return compile_provider_prompt(
+        brief_payload=brief_payload,
+        scene_plan=scene_plan,
+        provider=_PRIMARY_ASSET_PROVIDER,
+        model=_PRIMARY_ASSET_MODEL,
+        negative_prompt="text overlays, captions, watermarks",
     )
-    hook_text = _required_text(getattr(script, "hook_text", None), field_name="script.hook_text")
-    content_pillar = _optional_text(brief_payload.get("content_pillar"))
-    fragments = [title, description, hook_text]
-    if content_pillar is not None:
-        fragments.append(f"Visual focus: {content_pillar}")
-    return ". ".join(fragment.rstrip(".") for fragment in fragments if fragment).strip()
 
 
 def _build_package_provenance(
@@ -1038,6 +1064,8 @@ def _build_package_provenance(
             or _mapping(creative_output.get("script"))
         ),
         "script_lint": _mapping(creative_output.get("script_lint")),
+        "scene_plan": _mapping(creative_output.get("scene_plan")),
+        "prompt_trace": _mapping(_mapping(creative_output.get("compiled_prompt")).get("trace")),
         "source_run_id": execution.run_id,
         "asset_ids": _asset_ids(asset_output),
         "upstream_refs": {

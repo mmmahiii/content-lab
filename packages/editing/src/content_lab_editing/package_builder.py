@@ -14,6 +14,7 @@ from uuid import UUID
 from content_lab_storage import (
     CAPTION_VARIANTS_FILENAME,
     COVER_IMAGE_FILENAME,
+    CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
@@ -23,6 +24,7 @@ from content_lab_storage import (
 )
 from content_lab_storage.checksums import checksum_file
 from content_lab_storage.reel_packages import (
+    REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES,
     StoredReelPackage,
     assert_reel_package_complete,
     persist_reel_package_directory,
@@ -61,6 +63,7 @@ def build_package_directory(
     caption_variants: str | Sequence[str] | Sequence[Mapping[str, Any]],
     posting_plan: Mapping[str, Any],
     provenance: Mapping[str, Any],
+    creative_trace: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
 ) -> LocalReelPackage:
@@ -82,6 +85,8 @@ def build_package_directory(
     )
     _write_json(package_directory / POSTING_PLAN_FILENAME, posting_plan)
     _write_json(package_directory / PROVENANCE_FILENAME, provenance)
+    if creative_trace is not None:
+        _write_json(package_directory / CREATIVE_TRACE_FILENAME, creative_trace)
 
     manifest_payload: dict[str, Any] | None = None
     if include_manifest:
@@ -108,6 +113,7 @@ def build_ready_to_post_package(
     caption_variants: str | Sequence[str] | Sequence[Mapping[str, Any]],
     posting_plan: Mapping[str, Any],
     provenance: Mapping[str, Any],
+    creative_trace: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
     upload_metadata: Mapping[str, str] | None = None,
@@ -121,6 +127,7 @@ def build_ready_to_post_package(
         caption_variants=caption_variants,
         posting_plan=posting_plan,
         provenance=provenance,
+        creative_trace=creative_trace,
         temp_root=temp_root,
         include_manifest=include_manifest,
     )
@@ -140,6 +147,7 @@ def build_ready_to_post_package(
             stored_package=stored_package,
             manifest=local_package.manifest,
             provenance=provenance,
+            creative_trace=creative_trace,
         ),
     )
 
@@ -182,12 +190,27 @@ def _build_manifest(*, reel_id: str, package_directory: Path) -> dict[str, Any]:
             kind="json",
         ),
     ]
+    creative_trace_path = package_directory / CREATIVE_TRACE_FILENAME
+    if creative_trace_path.exists() and creative_trace_path.is_file():
+        artifacts.append(
+            _manifest_artifact(
+                name="creative_trace",
+                filename=CREATIVE_TRACE_FILENAME,
+                package_directory=package_directory,
+                content_type="application/json",
+                kind="json",
+            )
+        )
     assert_reel_package_complete(artifacts)
     return {
         "version": _MANIFEST_VERSION,
         "reel_id": reel_id,
         "artifact_count": len(artifacts),
-        "required_artifacts": [artifact["name"] for artifact in artifacts],
+        "required_artifacts": [
+            artifact["name"]
+            for artifact in artifacts
+            if artifact["name"] in REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES
+        ],
         "complete": True,
         "artifacts": artifacts,
     }
@@ -219,9 +242,11 @@ def _package_payload(
     stored_package: StoredReelPackage,
     manifest: Mapping[str, Any] | None,
     provenance: Mapping[str, Any],
+    creative_trace: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     artifacts = [artifact.as_payload() for artifact in stored_package.artifacts]
     provenance_artifact = stored_package.artifact_by_name("provenance")
+    creative_trace_artifact = stored_package.artifact_by_name("creative_trace")
     manifest_artifact = stored_package.artifact_by_name("package_manifest")
     return {
         "reel_id": reel_id,
@@ -230,6 +255,10 @@ def _package_payload(
         "manifest": {} if manifest is None else dict(manifest),
         "provenance_uri": None if provenance_artifact is None else provenance_artifact.storage_uri,
         "provenance": dict(provenance),
+        "creative_trace_uri": (
+            None if creative_trace_artifact is None else creative_trace_artifact.storage_uri
+        ),
+        "creative_trace": {} if creative_trace is None else dict(creative_trace),
         "artifacts": artifacts,
     }
 

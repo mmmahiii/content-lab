@@ -30,7 +30,7 @@ class EditInstruction(DomainModel):
 
 
 class EditPlan(DomainModel):
-    """An ordered list of edit instructions that form a complete editing pipeline."""
+    """Legacy instruction plan kept for operation-level editing compatibility."""
 
     run_id: str
     instructions: list[EditInstruction] = Field(default_factory=list)
