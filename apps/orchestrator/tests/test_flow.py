@@ -32,8 +32,8 @@ from content_lab_storage.refs import StorageRef
 from content_lab_api.services import (
     InMemoryProcessReelRepository,
     ProcessReelExecution,
+    ProcessReelPersistenceService,
     ProcessReelQAResult,
-    ProcessReelService,
 )
 from content_lab_core.types import Platform
 from content_lab_orchestrator.flows import (
@@ -835,7 +835,9 @@ def _install_service(
     monkeypatch: pytest.MonkeyPatch,
     *,
     qa_passes: bool = True,
-) -> tuple[ProcessReelService, InMemoryProcessReelRepository, RecordingProcessReelExecutor]:
+) -> tuple[
+    ProcessReelPersistenceService, InMemoryProcessReelRepository, RecordingProcessReelExecutor
+]:
     repository = InMemoryProcessReelRepository()
     repository.seed_reel(
         reel_id="reel-42",
@@ -844,7 +846,7 @@ def _install_service(
         reel_family_id="family-9",
     )
     executor = RecordingProcessReelExecutor(qa_passes=qa_passes)
-    service = ProcessReelService(repository=repository, executor=executor)
+    service = ProcessReelPersistenceService(repository=repository, executor=executor)
     monkeypatch.setattr(process_reel_flow_module, "build_process_reel_runtime", lambda: service)
     return service, repository, executor
 
@@ -856,7 +858,7 @@ def _install_phase_one_service(
     asset_resolver: object | None = None,
     script_generator_path: ScriptGeneratorPath | str = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
 ) -> tuple[
-    ProcessReelService,
+    ProcessReelPersistenceService,
     InMemoryProcessReelRepository,
     FakeProcessReelEventSink,
     FakeStorageClient,
@@ -884,7 +886,7 @@ def _install_phase_one_service(
         temp_root=tmp_path / "phase-one",
         script_generator_path=script_generator_path,
     )
-    service = ProcessReelService(repository=repository, executor=executor)
+    service = ProcessReelPersistenceService(repository=repository, executor=executor)
     event_sink = FakeProcessReelEventSink()
     monkeypatch.setattr(process_reel_flow_module, "build_process_reel_runtime", lambda: service)
     monkeypatch.setattr(
@@ -986,7 +988,7 @@ def test_daily_reel_factory_creates_work_units_and_dispatches_reels(
         lambda: EnforcingGuardrails(),
     )
 
-    def _record_process_call(reel: ReelVariantWorkUnit) -> str:
+    def _record_process_call(reel: ReelVariantWorkUnit, **_: object) -> str:
         process_calls.append(reel.reel_id)
         return f"processed {reel.reel_id}"
 
@@ -1086,12 +1088,13 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "get_budget_guardrail_checker",
         lambda: BlockingGuardrails(),
     )
+    def _forbid_process_reel(reel: ReelVariantWorkUnit, **_: object) -> str:
+        raise AssertionError(f"process_reel should not run for {reel.reel_id}")
+
     monkeypatch.setattr(
         daily_reel_factory_module,
         "run_process_reel",
-        lambda reel: (_ for _ in ()).throw(
-            AssertionError(f"process_reel should not run for {reel.reel_id}")
-        ),
+        _forbid_process_reel,
     )
 
     result = _result_payload(
@@ -1119,11 +1122,13 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "skipped",
     ]
     run_summary = _run_summary_payload(result)
+    assert run_summary["factory_dispatch_mode"] == "production"
     assert cast(dict[str, object], run_summary["counts"]) == {
         "pages": 1,
         "families": 2,
         "reels": 4,
         "dispatched": 0,
+        "smoke_noop": 0,
         "skipped": 4,
         "blocked_pages": 1,
     }
@@ -1227,7 +1232,7 @@ def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_bloc
         lambda: MixedGuardrails(),
     )
 
-    def _record_process_call(reel: ReelVariantWorkUnit) -> str:
+    def _record_process_call(reel: ReelVariantWorkUnit, **_: object) -> str:
         process_calls.append(reel.reel_id)
         return f"processed {reel.reel_id}"
 
@@ -1237,9 +1242,15 @@ def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_bloc
         _record_process_call,
     )
 
-    result = _result_payload(daily_reel_factory_module.daily_reel_factory(name="seed-page"))
+    result = _result_payload(
+        daily_reel_factory_module.daily_reel_factory(
+            name="seed-page",
+            factory_dispatch_mode="production",
+        )
+    )
 
     assert result["status"] == "partially_scheduled"
+    assert result["factory_dispatch_mode"] == "production"
     assert result["page_count"] == 2
     assert result["family_count"] == 4
     assert result["reel_count"] == 8
@@ -1248,16 +1259,19 @@ def test_daily_reel_factory_processes_multiple_pages_and_summarizes_partial_bloc
     assert process_calls == ["reel-1", "reel-2", "reel-3", "reel-4"]
 
     run_summary = _run_summary_payload(result)
+    assert run_summary["factory_dispatch_mode"] == "production"
     assert cast(dict[str, object], run_summary["counts"]) == {
         "pages": 2,
         "families": 4,
         "reels": 8,
         "dispatched": 4,
+        "smoke_noop": 0,
         "skipped": 4,
         "blocked_pages": 1,
     }
     summary_pages = cast(list[dict[str, object]], run_summary["pages"])
     assert [page["dispatched_reels"] for page in summary_pages] == [4, 0]
+    assert [page["smoke_noop_reels"] for page in summary_pages] == [0, 0]
     assert [page["skipped_reels"] for page in summary_pages] == [0, 4]
     assert [page["family_modes"] for page in summary_pages] == [
         ["mutation", "exploit"],
@@ -1298,7 +1312,7 @@ def test_daily_reel_factory_reduces_dispatches_when_budget_guardrail_limits_page
         lambda: service,
     )
 
-    def _record_limited_process_call(reel: ReelVariantWorkUnit) -> str:
+    def _record_limited_process_call(reel: ReelVariantWorkUnit, **_: object) -> str:
         process_calls.append(reel.reel_id)
         return f"processed {reel.reel_id}"
 

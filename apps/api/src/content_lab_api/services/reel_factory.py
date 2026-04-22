@@ -1,4 +1,10 @@
-"""Owned-page, policy, and reel-creation helpers for the daily reel factory."""
+"""Owned-page, policy, and reel-creation helpers for the daily reel factory.
+
+Row-creation and policy loading for Postgres are owned by the API layer. The
+orchestrator's ``daily_reel_factory`` / ``process_reel`` flows call these helpers
+(through the API DB session) to plan and attach work; they do not re-implement
+that persistence here.
+"""
 
 from __future__ import annotations
 
