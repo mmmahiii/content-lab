@@ -123,6 +123,36 @@ export default async function PackageDetailPage({
         />
       </SectionCard>
 
+      {packageDetail.outbox_notification ? (
+        <SectionCard
+          title="Package-ready notification"
+          description="Whether the terminal package-ready outbox event was written and successfully dispatched to configured sinks."
+        >
+          <p className="cl-panel-description">{packageDetail.outbox_notification.message}</p>
+          <MetaGrid
+            items={[
+              {
+                label: 'Delivery status',
+                value: packageDetail.outbox_notification.delivery_status ?? '—',
+              },
+              {
+                label: 'Attempts',
+                value:
+                  packageDetail.outbox_notification.attempt_count !== null
+                    ? String(packageDetail.outbox_notification.attempt_count)
+                    : '—',
+              },
+              {
+                label: 'Dispatched at',
+                value: packageDetail.outbox_notification.dispatched_at
+                  ? formatTimestamp(packageDetail.outbox_notification.dispatched_at)
+                  : '—',
+              },
+            ]}
+          />
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         title="Provenance"
         description="Use provenance and manifest files to confirm audit context before this package is handed off."

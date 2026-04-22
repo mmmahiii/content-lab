@@ -27,6 +27,7 @@ from content_lab_api.schemas.runs import (
     RunDetailOut,
     RunOut,
     WorkflowKey,
+    outbox_for_run,
     run_to_detail,
     run_to_out,
 )
@@ -401,7 +402,17 @@ def create_run(
 @router.get("/orgs/{org_id}/runs/{run_id}", response_model=RunDetailOut)
 def get_run(org_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db)) -> RunDetailOut:
     run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
-    return run_to_detail(run)
+    outbox_rows = (
+        db.query(OutboxEvent)
+        .filter(
+            OutboxEvent.org_id == org_id,
+            OutboxEvent.aggregate_type == "run",
+            OutboxEvent.aggregate_id == str(run_id),
+        )
+        .order_by(OutboxEvent.created_at.asc())
+        .all()
+    )
+    return run_to_detail(run, outbox=outbox_for_run(outbox_rows))
 
 
 @router.get("/orgs/{org_id}/pages/{page_id}/runs", response_model=list[RunOut])

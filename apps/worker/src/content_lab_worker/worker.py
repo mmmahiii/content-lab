@@ -19,6 +19,11 @@ dramatiq.set_broker(broker)
 
 ACTOR_REGISTRATION: Final[ActorRegistration] = register_actor_modules()
 
+# Start the outbox drain chain once the broker and actors are registered.
+from content_lab_worker.actors.outbox_dispatcher import enqueue_initial_outbox_drain  # noqa: E402
+
+enqueue_initial_outbox_drain()
+
 
 def _require_actor(actor_name: str) -> ActorLike:
     for actor in ACTOR_REGISTRATION.actors:

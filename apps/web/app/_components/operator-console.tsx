@@ -280,6 +280,12 @@ function RunsTable({ runs, orgId }: { runs: CurrentRun[]; orgId: string | null }
                     {run.pageName ?? 'Unknown page'} - {formatStatus(run.flowTrigger)} -{' '}
                     {run.taskSummary}
                   </span>
+                  {run.outboxSummary ? (
+                    <span className="cl-resource-meta">
+                      {run.outboxBacklog ? 'Outbox backlog: ' : 'Outbox: '}
+                      {run.outboxSummary}
+                    </span>
+                  ) : null}
                 </div>
               </td>
               <td>{formatTimestamp(run.updatedAt)}</td>

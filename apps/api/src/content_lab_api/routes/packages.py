@@ -8,10 +8,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
+
 from content_lab_api.deps import get_db
-from content_lab_api.models import Org, Run
+from content_lab_api.models import Org, OutboxEvent, Run
 from content_lab_api.routes._storage import build_signed_download
-from content_lab_api.schemas.packages import PackageArtifactOut, PackageDetailOut
+from content_lab_api.schemas.packages import (
+    PackageArtifactOut,
+    PackageDetailOut,
+    PackageOutboxNotificationOut,
+)
 from content_lab_shared.settings import Settings
 from content_lab_storage import (
     CAPTION_VARIANTS_FILENAME,
@@ -50,6 +56,49 @@ def _get_run_or_404(db: Session, *, org_id: uuid.UUID, run_id: uuid.UUID) -> Run
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Package not found")
     return run
+
+
+def _package_ready_outbox(
+    db: Session,
+    *,
+    org_id: uuid.UUID,
+    run_id: uuid.UUID,
+) -> PackageOutboxNotificationOut:
+    row = (
+        db.query(OutboxEvent)
+        .filter(
+            OutboxEvent.org_id == org_id,
+            OutboxEvent.aggregate_type == "run",
+            OutboxEvent.aggregate_id == str(run_id),
+            OutboxEvent.event_type == PROCESS_REEL_PACKAGE_READY_EVENT,
+        )
+        .one_or_none()
+    )
+    if row is None:
+        return PackageOutboxNotificationOut(
+            message="No package-ready outbox event recorded yet for this run.",
+        )
+    st = (row.delivery_status or "pending").lower()
+    is_pending = st == "pending"
+    is_failed = st == "failed"
+    message: str | None
+    if is_pending:
+        message = (
+            "Package-ready notification is still pending; the worker outbox drainer will send it on schedule."
+        )
+    elif st == "sent":
+        message = "Package-ready notification was dispatched from the outbox."
+    else:
+        message = "Package-ready notification delivery failed; the outbox will retry per policy."
+    return PackageOutboxNotificationOut(
+        event_type=row.event_type,
+        delivery_status=row.delivery_status,
+        attempt_count=row.attempt_count,
+        dispatched_at=row.dispatched_at,
+        is_pending=is_pending,
+        is_failed=is_failed,
+        message=message,
+    )
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -289,6 +338,7 @@ def get_package(
             for artifact in artifacts
             if artifact["name"].strip().lower() not in _SUPPORT_ARTIFACT_NAMES
         ],
+        outbox_notification=_package_ready_outbox(db, org_id=org_id, run_id=run_id),
         created_at=run.created_at,
         updated_at=run.updated_at,
     )

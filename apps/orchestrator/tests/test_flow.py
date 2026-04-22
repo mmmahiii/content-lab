@@ -85,6 +85,7 @@ provider_job_sweeper_flow_module = importlib.import_module(
 storage_integrity_flow_module = importlib.import_module(
     "content_lab_orchestrator.flows.storage_integrity_check"
 )
+outbox_drain_module = importlib.import_module("content_lab_orchestrator.flows.outbox_drain")
 
 
 class RecordingFactoryService:
@@ -936,10 +937,31 @@ def test_example_flow_alias_uses_default_phase1_flow() -> None:
 def test_flow_discovery_lists_phase1_flows() -> None:
     assert list_flow_names() == (
         "daily_reel_factory",
+        "outbox_drain",
         "process_reel",
         "provider_job_sweeper",
         "storage_integrity_check",
     )
+
+
+def test_outbox_drain_flow_invokes_worker_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_dispatch(*, batch_size: int = 25, **_kwargs: object) -> dict[str, int]:
+        captured["batch_size"] = batch_size
+        return {"claimed": 0, "sent": 0, "failed": 0}
+
+    monkeypatch.setattr(
+        outbox_drain_module,
+        "dispatch_pending_outbox_events",
+        _fake_dispatch,
+    )
+    result = outbox_drain_module.outbox_drain(batch_size=7)
+
+    assert captured["batch_size"] == 7
+    assert result == {"claimed": 0, "sent": 0, "failed": 0}
 
 
 def test_default_flow_registration_points_at_daily_factory() -> None:

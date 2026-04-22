@@ -159,6 +159,14 @@ describe('shared-ts contracts', () => {
       task_status_counts: {
         queued: 1,
       },
+      outbox: {
+        events: [],
+        pending_count: 0,
+        sent_count: 0,
+        failed_count: 0,
+        has_backlog: false,
+        summary: null,
+      },
     };
 
     const policy: PolicyStateOut = {
@@ -231,6 +239,7 @@ describe('shared-ts contracts', () => {
           },
         },
       ],
+      outbox_notification: null,
       created_at: '2026-04-09T10:00:00Z',
       updated_at: '2026-04-09T10:15:00Z',
     };
@@ -373,6 +382,14 @@ describe('shared-ts contracts', () => {
       task_status_counts: {
         queued: 1,
       },
+      outbox: {
+        events: [],
+        pending_count: 0,
+        sent_count: 0,
+        failed_count: 0,
+        has_backlog: false,
+        summary: null,
+      },
     };
 
     const packageDetail: PackageDetailOut = {
@@ -416,6 +433,7 @@ describe('shared-ts contracts', () => {
           },
         },
       ],
+      outbox_notification: null,
       created_at: '2026-04-09T12:04:00.000Z',
       updated_at: '2026-04-09T12:10:00.000Z',
     };

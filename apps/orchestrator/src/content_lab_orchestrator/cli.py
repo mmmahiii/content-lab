@@ -45,6 +45,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--reel-id", default="demo-reel")
     run_cmd.add_argument("--run-id", default=None)
     run_cmd.add_argument("--dry-run", action="store_true")
+    run_cmd.add_argument(
+        "--batch-size",
+        type=int,
+        default=25,
+        help="For outbox_drain only: number of outbox events to process per batch. Other flows ignore this flag.",
+    )
     run_cmd.set_defaults(func=_run_selected_flow)
 
     return parser

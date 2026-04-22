@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -87,6 +87,34 @@ class TaskSummaryOut(BaseModel):
     updated_at: datetime
 
 
+class OutboxEventItemOut(BaseModel):
+    """One transactional outbox row for this run (aggregate id = run)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    event_type: str
+    delivery_status: str
+    attempt_count: int
+    created_at: datetime
+    dispatched_at: datetime | None
+    next_attempt_at: datetime | None
+    pending_age_seconds: float | None = None
+
+
+class RunOutboxOut(BaseModel):
+    """Outbox delivery visibility for operator-facing run pages."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    events: list[OutboxEventItemOut] = Field(default_factory=list)
+    pending_count: int = 0
+    sent_count: int = 0
+    failed_count: int = 0
+    has_backlog: bool = False
+    summary: str | None = None
+
+
 class RunOut(BaseModel):
     """Serialized run response."""
 
@@ -109,10 +137,11 @@ class RunOut(BaseModel):
 
 
 class RunDetailOut(RunOut):
-    """Run detail response enriched with task-level visibility."""
+    """Run detail response enriched with task-level and outbox delivery visibility."""
 
     tasks: list[TaskSummaryOut] = Field(default_factory=list)
     task_status_counts: dict[str, int] = Field(default_factory=dict)
+    outbox: RunOutboxOut = Field(default_factory=RunOutboxOut)
 
 
 def task_to_summary(task: Task) -> TaskSummaryOut:
@@ -151,8 +180,12 @@ def run_to_out(run: Run) -> RunOut:
     )
 
 
-def run_to_detail(run: Run) -> RunDetailOut:
-    """Build a detailed run response including task summaries."""
+def run_to_detail(
+    run: Run,
+    *,
+    outbox: RunOutboxOut | None = None,
+) -> RunDetailOut:
+    """Build a detailed run response including task summaries and optional outbox state."""
 
     tasks = sorted(run.tasks, key=lambda task: (task.created_at, task.id))
     counts = Counter(task.status for task in tasks)
@@ -161,4 +194,68 @@ def run_to_detail(run: Run) -> RunDetailOut:
         **base.model_dump(),
         tasks=[task_to_summary(task) for task in tasks],
         task_status_counts=dict(sorted(counts.items())),
+        outbox=outbox or RunOutboxOut(),
+    )
+
+
+def outbox_for_run(
+    events: list[Any],  # list[OutboxEvent] to avoid ORM import cycles in typing-only paths
+    *,
+    now: datetime | None = None,
+) -> RunOutboxOut:
+    """Turn ORM outbox rows into a compact delivery summary (expects aggregate run scope)."""
+
+    from content_lab_api.models.outbox import OutboxEvent  # local import
+
+    if not events:
+        return RunOutboxOut()
+
+    current = now or datetime.now(UTC)
+    items: list[OutboxEventItemOut] = []
+    pending = sent = failed = 0
+    for row in events:
+        if not isinstance(row, OutboxEvent):
+            continue
+        st = (row.delivery_status or "pending").lower()
+        if st == "pending":
+            pending += 1
+        elif st == "sent":
+            sent += 1
+        else:
+            failed += 1
+        age: float | None = None
+        if st == "pending" and row.created_at is not None:
+            created = row.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            age = max(0.0, (current - created.astimezone(UTC)).total_seconds())
+        items.append(
+            OutboxEventItemOut(
+                id=row.id,
+                event_type=row.event_type,
+                delivery_status=row.delivery_status,
+                attempt_count=row.attempt_count,
+                created_at=row.created_at,
+                dispatched_at=row.dispatched_at,
+                next_attempt_at=row.next_attempt_at,
+                pending_age_seconds=age,
+            )
+        )
+
+    has_backlog = pending > 0
+    message: str | None = None
+    if has_backlog:
+        message = f"{pending} notification(s) still pending dispatch; worker outbox drainer is active."
+    elif failed > 0 and pending == 0:
+        message = f"{failed} outbox event(s) failed delivery; see attempt_count and next_attempt_at for retries."
+    elif sent > 0 and not has_backlog:
+        message = "All recorded outbox events for this run have been dispatched."
+
+    return RunOutboxOut(
+        events=items,
+        pending_count=pending,
+        sent_count=sent,
+        failed_count=failed,
+        has_backlog=has_backlog,
+        summary=message,
     )

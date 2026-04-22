@@ -278,6 +278,28 @@ export interface TaskSummaryOut {
   updated_at: ISODateTimeString;
 }
 
+/** One transactional outbox row scoped to a run (aggregate). */
+export interface OutboxEventItemOut {
+  id: UUID;
+  event_type: string;
+  delivery_status: string;
+  attempt_count: number;
+  created_at: ISODateTimeString;
+  dispatched_at: ISODateTimeString | null;
+  next_attempt_at: ISODateTimeString | null;
+  /** Seconds the row has been pending, when still pending. */
+  pending_age_seconds: number | null;
+}
+
+export interface RunOutboxOut {
+  events: OutboxEventItemOut[];
+  pending_count: number;
+  sent_count: number;
+  failed_count: number;
+  has_backlog: boolean;
+  summary: string | null;
+}
+
 export interface RunMetadata extends JsonObject {
   submitted_via?: string;
   flow_trigger?: FlowTrigger;
@@ -308,6 +330,7 @@ export interface RunOut {
 export interface RunDetailOut extends RunOut {
   tasks: TaskSummaryOut[];
   task_status_counts: Partial<Record<TaskStatus, number>>;
+  outbox: RunOutboxOut;
 }
 
 export interface SignedDownloadOut {
@@ -328,6 +351,16 @@ export interface PackageArtifactOut {
 export type PackageManifestMetadata = JsonObject;
 export type PackageProvenance = JsonObject;
 
+export interface PackageOutboxNotificationOut {
+  event_type: string | null;
+  delivery_status: string | null;
+  attempt_count: number | null;
+  dispatched_at: ISODateTimeString | null;
+  is_pending: boolean;
+  is_failed: boolean;
+  message: string | null;
+}
+
 export interface PackageDetailOut {
   run_id: UUID;
   org_id: UUID;
@@ -342,6 +375,7 @@ export interface PackageDetailOut {
   provenance_uri: string | null;
   provenance_download: SignedDownloadOut | null;
   artifacts: PackageArtifactOut[];
+  outbox_notification: PackageOutboxNotificationOut | null;
   created_at: ISODateTimeString;
   updated_at: ISODateTimeString;
 }

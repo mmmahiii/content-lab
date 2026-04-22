@@ -61,6 +61,10 @@ export type CurrentRun = {
   pageName: string | null;
   reelId: string | null;
   packageStatus: PackageStatus;
+  /** Human-readable outbox / notification delivery state for this run. */
+  outboxSummary: string | null;
+  /** True when at least one outbox event is still pending delivery. */
+  outboxBacklog: boolean;
 };
 
 export type ReviewQueueItem = {
@@ -109,6 +113,14 @@ type ApiRunTask = {
   status: string;
 };
 
+type ApiRunOutbox = {
+  pending_count: number;
+  sent_count: number;
+  failed_count: number;
+  has_backlog: boolean;
+  summary: string | null;
+};
+
 type ApiRunDetail = {
   id: string;
   workflow_key: string;
@@ -120,6 +132,7 @@ type ApiRunDetail = {
   run_metadata: JsonRecord;
   task_status_counts: Record<string, number>;
   tasks: ApiRunTask[];
+  outbox: ApiRunOutbox;
 };
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
@@ -383,6 +396,26 @@ function deriveCurrentStep(run: ApiRunDetail, matchedReel: RecentReel | null): s
   return matchedReel?.currentStep ?? null;
 }
 
+function deriveOutboxVisibility(outbox: ApiRunOutbox | undefined): {
+  summary: string | null;
+  backlog: boolean;
+} {
+  if (!outbox) {
+    return { summary: null, backlog: false };
+  }
+  if (outbox.summary) {
+    return { summary: outbox.summary, backlog: outbox.has_backlog };
+  }
+  const total = outbox.pending_count + outbox.sent_count + outbox.failed_count;
+  if (total === 0) {
+    return { summary: 'No outbox events recorded for this run yet.', backlog: false };
+  }
+  return {
+    summary: `Pending ${outbox.pending_count}, sent ${outbox.sent_count}, failed ${outbox.failed_count}.`,
+    backlog: outbox.has_backlog,
+  };
+}
+
 async function loadCurrentRuns(
   context: OperatorContext,
   reels: RecentReel[],
@@ -419,6 +452,7 @@ async function loadCurrentRuns(
     const run = result.value;
     const target = asRecord(run.run_metadata.target);
     const matchedReel = reelByRunId.get(run.id) ?? null;
+    const { summary: outboxSummary, backlog: outboxBacklog } = deriveOutboxVisibility(run.outbox);
 
     loadedRuns.push({
       id: run.id,
@@ -432,6 +466,8 @@ async function loadCurrentRuns(
       pageName: matchedReel?.pageName ?? null,
       reelId: readString(target, 'reel_id'),
       packageStatus: deriveRunPackageStatus(run, matchedReel),
+      outboxSummary,
+      outboxBacklog,
     });
   }
 
