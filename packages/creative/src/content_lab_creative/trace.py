@@ -67,6 +67,34 @@ class CreativeTraceArtifact(BaseModel):
         return sanitized if isinstance(sanitized, dict) else {}
 
 
+def build_alignment_context(
+    creative_output: Mapping[str, Any],
+    *,
+    editing_output: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Extract the fields alignment QA and observability tools compare.
+
+    Values are JSON-friendly and safe to embed next to package format/repetition QA.
+    """
+
+    brief = _mapping(creative_output.get("brief"))
+    script = _mapping(creative_output.get("script"))
+    compiled_prompt = _mapping(creative_output.get("compiled_prompt"))
+    editing = _mapping(editing_output) if editing_output is not None else {}
+    lead = (
+        str(brief.get("narrative_goal", "") or "").strip()
+        or str(brief.get("title", "") or "").strip()
+    )
+    return {
+        "lead_message": lead,
+        "content_pillar": str(brief.get("content_pillar", "") or ""),
+        "hook_text": str(script.get("hook_text", "") or ""),
+        "compiled_prompt_excerpt": str(compiled_prompt.get("prompt", "") or "")[:400],
+        "cover_frame_timestamp_seconds": editing.get("cover_frame_timestamp_seconds"),
+        "duration_seconds": editing.get("duration_seconds"),
+    }
+
+
 def build_creative_trace(
     *,
     reel_id: str,

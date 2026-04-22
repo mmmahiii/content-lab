@@ -32,6 +32,7 @@ from content_lab_creative.script_generator import (
 from content_lab_creative.trace import (
     CreativeTraceArtifact,
     CreativeTraceGeneratorSelection,
+    build_alignment_context,
     build_creative_trace,
     sanitize_trace_payload,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "ScenePurpose",
     "ScriptGeneratorPath",
     "build_script_generator",
+    "build_alignment_context",
     "build_creative_trace",
     "build_posting_plan",
     "compile_provider_prompt",

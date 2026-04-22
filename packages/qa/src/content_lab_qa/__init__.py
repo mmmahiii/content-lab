@@ -1,5 +1,11 @@
 """Quality assurance gates and content validation."""
 
+from content_lab_qa.alignment import (
+    AlignmentFinding,
+    AlignmentQAConstraints,
+    AlignmentQAReport,
+    evaluate_alignment_qa,
+)
 from content_lab_qa.format import (
     FormatQAConstraints,
     FormatQAReport,
@@ -27,6 +33,9 @@ from content_lab_qa.semantic_script import (
 )
 
 __all__ = [
+    "AlignmentFinding",
+    "AlignmentQAConstraints",
+    "AlignmentQAReport",
     "PackageQAResult",
     "QAGate",
     "QAResult",
@@ -42,6 +51,7 @@ __all__ = [
     "SemanticScriptFinding",
     "SemanticScriptQARequest",
     "SemanticScriptQAReport",
+    "evaluate_alignment_qa",
     "evaluate_format_qa",
     "evaluate_package",
     "evaluate_repetition",

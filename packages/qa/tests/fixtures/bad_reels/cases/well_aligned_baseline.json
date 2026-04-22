@@ -1,0 +1,84 @@
+{
+  "case_id": "well_aligned_baseline",
+  "schema_version": "bad_reel_fixture_v1",
+  "brief": {
+    "title": "Roastery barista morning workflow",
+    "narrative_goal": "Highlight artisan roastery barista workflows for morning customers with fresh beans and steamed milk.",
+    "content_pillar": "roastery",
+    "tags": ["#coffee", "#roastery", "#barista"]
+  },
+  "script": {
+    "schema_version": "phase_1",
+    "provider_name": "fixture",
+    "generator_path": "fixture",
+    "brief_title": "Roastery barista morning workflow",
+    "duration_seconds": 12,
+    "hook_text": "The roastery barista workflow starts with fresh beans and steamed milk for morning service",
+    "spoken_script": [
+      {
+        "start_seconds": 0,
+        "end_seconds": 4,
+        "narration": "We film the roastery barista pouring and serving morning customers at the bar"
+      }
+    ],
+    "overlay_timeline": [
+      {
+        "start_seconds": 0,
+        "end_seconds": 2,
+        "text": "Fresh roast",
+        "emphasis": "hook"
+      }
+    ],
+    "caption_variants": [
+      { "variant": "short", "text": "Morning roastery barista workflow in one reel." },
+      {
+        "variant": "standard",
+        "text": "See how the roastery barista steams, pours, and serves morning customers."
+      }
+    ],
+    "hashtags": ["#coffee", "#roastery"]
+  },
+  "scene_plan": {
+    "schema_version": "phase_1",
+    "compiler_name": "fixture",
+    "brief_title": "Roastery barista morning workflow",
+    "duration_seconds": 12,
+    "scenes": [
+      {
+        "scene_id": "s1",
+        "purpose": "hook",
+        "start_seconds": 0,
+        "end_seconds": 3,
+        "visual_intent": "macro coffee beans and steam in warm roastery light",
+        "shot_guidance": "close handheld dolly in",
+        "overlay_role": "hook",
+        "overlay_text": "Fresh roast",
+        "narration_refs": [0]
+      },
+      {
+        "scene_id": "s2",
+        "purpose": "value",
+        "start_seconds": 3,
+        "end_seconds": 12,
+        "visual_intent": "barista hand pours latte art at the roastery bar",
+        "shot_guidance": "slow top-down",
+        "overlay_role": "emphasis",
+        "overlay_text": "Learn the pour",
+        "narration_refs": [1]
+      }
+    ]
+  },
+  "compiled_prompt": {
+    "prompt": "macro coffee beans, steam, warm roastery light, then barista hand pours latte art in slow top-down; cinematic, vertical 9:16"
+  },
+  "editing": {
+    "final_video_path": "C:/fixtures/dummy/final_video.mp4",
+    "cover_path": "C:/fixtures/dummy/cover.png",
+    "cover_frame_timestamp_seconds": 0.4,
+    "duration_seconds": 12.0
+  },
+  "asset_resolution": {
+    "asset_key_hash": "fixture-asset-key-hash-well-aligned",
+    "policy": {}
+  }
+}
