@@ -13,6 +13,10 @@ from urllib.parse import urlparse
 from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_frame
 from content_lab_editing.edit_plan import SceneAwareEditPlan
 from content_lab_editing.overlays import OverlayTimeline, build_overlay_video_filter
+from content_lab_editing.templates import (
+    EditorialTemplate,
+    apply_editorial_template,
+)
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
@@ -72,6 +76,9 @@ class BasicEditorArtifact:
     cover_frame_timestamp_seconds: float
     source_had_audio_track: bool
     has_audio_track: bool
+    editorial_template_id: str | None = None
+    editorial_template_version: str | None = None
+    applied_edit_plan: SceneAwareEditPlan | None = None
 
 
 def render_basic_vertical_edit(
@@ -81,6 +88,7 @@ def render_basic_vertical_edit(
     storage_client: ObjectStorageClient | None = None,
     overlay_timeline: OverlayTimeline | None = None,
     edit_plan: SceneAwareEditPlan | None = None,
+    editorial_template: EditorialTemplate | None = None,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> BasicEditorArtifact:
@@ -94,13 +102,20 @@ def render_basic_vertical_edit(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if edit_plan is not None:
+        applied_plan = edit_plan
+        if editorial_template is not None:
+            applied_plan = apply_editorial_template(
+                plan=edit_plan,
+                template=editorial_template,
+            )
         return _render_scene_aware_edit(
             source_uri=source_uri,
-            edit_plan=edit_plan,
+            edit_plan=applied_plan,
             staged_dir=staged_dir,
             output_dir=output_dir,
             storage_client=storage_client,
             overlay_timeline=overlay_timeline,
+            editorial_template=editorial_template,
             ffmpeg_bin=ffmpeg_bin,
             ffprobe_bin=ffprobe_bin,
         )
@@ -156,6 +171,9 @@ def render_basic_vertical_edit(
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=source_probe.has_audio_track,
         has_audio_track=output_probe.has_audio_track,
+        editorial_template_id=None,
+        editorial_template_version=None,
+        applied_edit_plan=None,
     )
 
 
@@ -167,6 +185,7 @@ def _render_scene_aware_edit(
     output_dir: Path,
     storage_client: ObjectStorageClient | None,
     overlay_timeline: OverlayTimeline | None,
+    editorial_template: EditorialTemplate | None,
     ffmpeg_bin: str,
     ffprobe_bin: str,
 ) -> BasicEditorArtifact:
@@ -245,6 +264,13 @@ def _render_scene_aware_edit(
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=combined_probe.has_audio_track,
         has_audio_track=output_probe.has_audio_track,
+        editorial_template_id=(
+            editorial_template.template_id if editorial_template is not None else None
+        ),
+        editorial_template_version=(
+            editorial_template.template_version if editorial_template is not None else None
+        ),
+        applied_edit_plan=edit_plan,
     )
 
 

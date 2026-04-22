@@ -14,6 +14,11 @@ from content_lab_editing.editor_basic import (
     render_basic_vertical_edit,
 )
 from content_lab_editing.instructions import EditInstruction, EditOperation
+from content_lab_editing.templates import (
+    EDITORIAL_TEMPLATE_METADATA_KEY,
+    EDITORIAL_TEMPLATE_VERSION_METADATA_KEY,
+    HOOK_FIRST_V1,
+)
 
 from ._media_helpers import build_fixture_clip, extract_png_bytes, probe_media
 
@@ -198,3 +203,102 @@ def test_render_basic_vertical_edit_assembles_scene_aware_plan(tmp_path: Path) -
     first_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.2)
     second_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.9)
     assert first_frame != second_frame
+
+
+def test_render_basic_vertical_edit_applies_editorial_template(tmp_path: Path) -> None:
+    hook_source = tmp_path / "hook-red.mp4"
+    value_source = tmp_path / "value-blue.mp4"
+    close_source = tmp_path / "close-green.mp4"
+    build_fixture_clip(
+        output_path=hook_source,
+        width=640,
+        height=640,
+        include_audio=False,
+        duration_seconds=0.9,
+        video_source="color=c=red:size=640x640:rate=24",
+    )
+    build_fixture_clip(
+        output_path=value_source,
+        width=640,
+        height=640,
+        include_audio=False,
+        duration_seconds=0.9,
+        video_source="color=c=blue:size=640x640:rate=24",
+    )
+    build_fixture_clip(
+        output_path=close_source,
+        width=640,
+        height=640,
+        include_audio=False,
+        duration_seconds=0.9,
+        video_source="color=c=green:size=640x640:rate=24",
+    )
+    # Deliberately supply segments out of hook-first order so the template
+    # reorder is observable in the applied plan.
+    edit_plan = SceneAwareEditPlan(
+        segments=[
+            SceneEditPlanSegment(
+                segment_id="segment-001",
+                scene_id="scene-value",
+                purpose="value",
+                source_uri=str(value_source),
+                duration_seconds=0.7,
+                timeline_start_seconds=0.0,
+            ),
+            SceneEditPlanSegment(
+                segment_id="segment-002",
+                scene_id="scene-hook",
+                purpose="hook",
+                source_uri=str(hook_source),
+                duration_seconds=0.9,
+                timeline_start_seconds=0.7,
+            ),
+            SceneEditPlanSegment(
+                segment_id="segment-003",
+                scene_id="scene-close",
+                purpose="close",
+                source_uri=str(close_source),
+                duration_seconds=0.7,
+                timeline_start_seconds=1.6,
+            ),
+        ]
+    )
+
+    artifact = render_basic_vertical_edit(
+        source_uri=hook_source,
+        workdir=tmp_path / "job-template",
+        edit_plan=edit_plan,
+        editorial_template=HOOK_FIRST_V1,
+    )
+
+    assert artifact.editorial_template_id == HOOK_FIRST_V1.template_id
+    assert artifact.editorial_template_version == HOOK_FIRST_V1.template_version
+    applied = artifact.applied_edit_plan
+    assert applied is not None
+    assert [segment.scene_id for segment in applied.segments] == [
+        "scene-hook",
+        "scene-value",
+        "scene-close",
+    ]
+    # Hook is clamped into [hook_min, hook_max]; 0.9s fits inside [0.6, 1.4].
+    assert applied.segments[0].duration_seconds == pytest.approx(0.9)
+    # Close is clamped into [end_card_min, end_card_max]; 0.7s fits inside [0.5, 1.2].
+    assert applied.segments[-1].duration_seconds == pytest.approx(0.7)
+    # Contiguous timeline retimed from zero.
+    assert applied.segments[0].timeline_start_seconds == pytest.approx(0.0)
+    assert applied.segments[1].timeline_start_seconds == pytest.approx(0.9)
+    assert applied.segments[2].timeline_start_seconds == pytest.approx(1.6)
+    # Template identity is visible in plan metadata for packaging/trace.
+    assert applied.metadata[EDITORIAL_TEMPLATE_METADATA_KEY] == (HOOK_FIRST_V1.template_id)
+    assert applied.metadata[EDITORIAL_TEMPLATE_VERSION_METADATA_KEY] == (
+        HOOK_FIRST_V1.template_version
+    )
+
+    output_probe = probe_media(artifact.final_video_path)
+    assert output_probe["width"] == 1080
+    assert output_probe["height"] == 1920
+    # Hook should render first; sample the first 200ms and confirm it is red,
+    # not blue (the original first segment in the unapplied plan).
+    hook_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.2)
+    late_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=1.2)
+    assert hook_frame != late_frame
