@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from content_lab_creative.brief import CreativeBrief
+from content_lab_creative.lint import lint_script_output
 from content_lab_creative.persona import PageConstraints
 from content_lab_creative.types import (
     CaptionVariant,
@@ -62,34 +63,33 @@ class DeterministicScriptGenerator:
         context = _normalize_brief(brief)
         hook_text = _build_hook(context)
         spoken_script = _build_spoken_script(context, hook_text)
-        overlay_timeline = _build_overlay_timeline(
-            context,
-            hook_text=hook_text,
-            spoken_script=spoken_script,
-        )
         hashtags = _build_hashtags(context)
-        caption_variants = _build_caption_variants(
-            context,
-            hook_text=hook_text,
-            hashtags=hashtags,
-        )
-        pinned_comments = _build_pinned_comments(context)
-        return GeneratedScriptOutput(
-            provider_name=self.provider_name,
-            generator_path=self.generator_path,
-            generation_metadata={
-                "generator_path": self.generator_path,
-                "fallback": True,
-                "strategy": "deterministic_phase_1_stub",
-            },
-            brief_title=context.title,
-            duration_seconds=context.duration_seconds,
-            hook_text=hook_text,
-            spoken_script=spoken_script,
-            overlay_timeline=overlay_timeline,
-            caption_variants=caption_variants,
-            hashtags=hashtags,
-            pinned_comments=pinned_comments,
+        return _attach_lint_result(
+            GeneratedScriptOutput(
+                provider_name=self.provider_name,
+                generator_path=self.generator_path,
+                generation_metadata={
+                    "generator_path": self.generator_path,
+                    "fallback": True,
+                    "strategy": "deterministic_phase_1_stub",
+                },
+                brief_title=context.title,
+                duration_seconds=context.duration_seconds,
+                hook_text=hook_text,
+                spoken_script=spoken_script,
+                overlay_timeline=_build_overlay_timeline(
+                    context,
+                    hook_text=hook_text,
+                    spoken_script=spoken_script,
+                ),
+                caption_variants=_build_caption_variants(
+                    context,
+                    hook_text=hook_text,
+                    hashtags=hashtags,
+                ),
+                hashtags=hashtags,
+                pinned_comments=_build_pinned_comments(context),
+            )
         )
 
 
@@ -108,31 +108,33 @@ class RulesPlusProviderScriptGenerator:
         hook_text = _build_provider_hook(context)
         spoken_script = _build_provider_spoken_script(context, hook_text)
         hashtags = _build_hashtags(context)
-        return GeneratedScriptOutput(
-            provider_name=self.provider_name,
-            generator_path=self.generator_path,
-            generation_metadata={
-                "generator_path": self.generator_path,
-                "fallback": False,
-                "strategy": "rules_plus_provider_v1",
-                "provider_name": self.provider_name,
-            },
-            brief_title=context.title,
-            duration_seconds=context.duration_seconds,
-            hook_text=hook_text,
-            spoken_script=spoken_script,
-            overlay_timeline=_build_overlay_timeline(
-                context,
+        return _attach_lint_result(
+            GeneratedScriptOutput(
+                provider_name=self.provider_name,
+                generator_path=self.generator_path,
+                generation_metadata={
+                    "generator_path": self.generator_path,
+                    "fallback": False,
+                    "strategy": "rules_plus_provider_v1",
+                    "provider_name": self.provider_name,
+                },
+                brief_title=context.title,
+                duration_seconds=context.duration_seconds,
                 hook_text=hook_text,
                 spoken_script=spoken_script,
-            ),
-            caption_variants=_build_provider_caption_variants(
-                context,
-                hook_text=hook_text,
+                overlay_timeline=_build_overlay_timeline(
+                    context,
+                    hook_text=hook_text,
+                    spoken_script=spoken_script,
+                ),
+                caption_variants=_build_provider_caption_variants(
+                    context,
+                    hook_text=hook_text,
+                    hashtags=hashtags,
+                ),
                 hashtags=hashtags,
-            ),
-            hashtags=hashtags,
-            pinned_comments=_build_pinned_comments(context),
+                pinned_comments=_build_pinned_comments(context),
+            )
         )
 
 
@@ -145,7 +147,10 @@ def generate_script_output(
     """Generate structured script output with a swappable provider implementation."""
 
     active_generator = generator or build_script_generator(generator_path)
-    return active_generator.generate(brief)
+    output = active_generator.generate(brief)
+    if "creative_lint" in output.generation_metadata:
+        return output
+    return _attach_lint_result(output)
 
 
 def build_script_generator(
@@ -184,6 +189,13 @@ def normalize_script_generator_path(
         raise ValueError(
             f"Unknown script generator path {raw_path!r}; expected one of: {allowed}"
         ) from exc
+
+
+def _attach_lint_result(output: GeneratedScriptOutput) -> GeneratedScriptOutput:
+    lint_result = lint_script_output(output).model_dump(mode="json")
+    generation_metadata = dict(output.generation_metadata)
+    generation_metadata["creative_lint"] = lint_result
+    return output.model_copy(update={"generation_metadata": generation_metadata})
 
 
 def _normalize_brief(brief: BriefLike) -> ScriptBriefContext:
@@ -226,6 +238,14 @@ def _build_hook(context: ScriptBriefContext) -> str:
     return f"{context.title}: fast hook"
 
 
+def _build_provider_hook(context: ScriptBriefContext) -> str:
+    pillar = (context.content_pillar or context.title).lower()
+    if context.audience:
+        audience = _trim_phrase(context.audience, max_words=5).lower()
+        return f"The {pillar} reset {audience} can do today"
+    return f"The {pillar} reset worth saving today"
+
+
 def _build_spoken_script(
     context: ScriptBriefContext,
     hook_text: str,
@@ -246,39 +266,18 @@ def _build_spoken_script(
         "Show the payoff beat with one concrete example on screen.",
         "End on a simple resolution card with room for captions.",
     ]
-    boundaries = _segment_boundaries(context.duration_seconds, len(lines))
-    return [
-        ScriptBeat(
-            start_seconds=boundaries[index],
-            end_seconds=boundaries[index + 1],
-            narration=line,
-            shot_direction=shots[index],
-        )
-        for index, line in enumerate(lines)
-    ]
-
-
-def _build_provider_hook(context: ScriptBriefContext) -> str:
-    if context.narrative_goal:
-        goal = _trim_phrase(context.narrative_goal, max_words=7)
-        return f"Stop guessing: {goal}"
-    if context.content_pillar and context.audience:
-        audience = _trim_phrase(context.audience, max_words=5).lower()
-        return f"{context.content_pillar.title()} that finally works for {audience}"
-    if context.content_pillar:
-        return f"The {context.content_pillar.lower()} move worth saving"
-    return f"{context.title}: the part viewers need first"
+    return _script_beats(context.duration_seconds, lines, shots)
 
 
 def _build_provider_spoken_script(
     context: ScriptBriefContext,
     hook_text: str,
 ) -> list[ScriptBeat]:
-    audience = context.audience or "the viewer"
+    audience = context.audience or "your day"
     pillar = context.content_pillar or context.title
     lines = [
         hook_text,
-        f"Name the {pillar.lower()} problem in the words {audience.lower()} already use.",
+        f"{audience.capitalize()} can make {pillar.lower()} feel harder than it needs to.",
         _provider_value_line(context),
         _close_line(context),
     ]
@@ -292,7 +291,15 @@ def _build_provider_spoken_script(
         "Demonstrate the useful step with a tight cutaway and readable hands.",
         "Hold the final frame long enough for the CTA or disclosure to land.",
     ]
-    boundaries = _segment_boundaries(context.duration_seconds, len(lines))
+    return _script_beats(context.duration_seconds, lines, shots)
+
+
+def _script_beats(
+    duration_seconds: int,
+    lines: list[str],
+    shots: list[str],
+) -> list[ScriptBeat]:
+    boundaries = _segment_boundaries(duration_seconds, len(lines))
     return [
         ScriptBeat(
             start_seconds=boundaries[index],
@@ -305,9 +312,11 @@ def _build_provider_spoken_script(
 
 
 def _provider_value_line(context: ScriptBriefContext) -> str:
-    if context.narrative_goal:
-        return f"Make the payoff concrete: {_trim_phrase(context.narrative_goal, max_words=10)}."
-    return "Make the payoff concrete with one action the viewer can repeat today."
+    safe_goal = _safe_narrative_goal(context)
+    if safe_goal is not None:
+        return _trim_phrase(safe_goal, max_words=14).rstrip(".") + "."
+    pillar = context.content_pillar or "this"
+    return f"Try one slow {pillar.lower()} reset, breathe through the tight point, then repeat."
 
 
 def _build_overlay_timeline(
@@ -332,7 +341,7 @@ def _build_overlay_timeline(
         OverlayCue(
             start_seconds=spoken_script[2].start_seconds,
             end_seconds=spoken_script[2].end_seconds,
-            text=_short_overlay_text(context.narrative_goal or "Show the payoff"),
+            text=_short_overlay_text(_safe_narrative_goal(context) or "One repeatable move"),
             emphasis=ScriptOverlayEmphasis.VALUE,
         ),
     ]
@@ -391,18 +400,18 @@ def _build_provider_caption_variants(
     return [
         CaptionVariant(
             variant=CaptionVariantName.SHORT,
-            text=f"{hook_text}. Save this for your next {pillar.lower()} pass.{disclosure}".strip(),
+            text=f"{hook_text}. Save it for your next {pillar.lower()} reset.{disclosure}".strip(),
         ),
         CaptionVariant(
             variant=CaptionVariantName.STANDARD,
             text=(
-                f"{_base_caption(context)} Built around one clear hook, one proof beat, "
-                f"and one action. {standard_cta} {' '.join(hashtags)}{disclosure}"
+                f"{_base_caption(context)} Use the first move today, then keep the final "
+                f"takeaway close for next time. {standard_cta} {' '.join(hashtags)}{disclosure}"
             ).strip(),
         ),
         CaptionVariant(
             variant=CaptionVariantName.ENGAGEMENT,
-            text=f"{hook_text}. Which beat should become the next reel?{disclosure}".strip(),
+            text=f"{hook_text}. Where do you feel this most right now?{disclosure}".strip(),
         ),
     ]
 
@@ -465,32 +474,52 @@ def _value_line(context: ScriptBriefContext) -> str:
     return "Show the useful proof point before the viewer can scroll away."
 
 
+def _safe_narrative_goal(context: ScriptBriefContext) -> str | None:
+    value = context.narrative_goal
+    if value is None:
+        return None
+    lowered = value.lower()
+    meta_markers = (
+        "fresh angle",
+        "persona",
+        "planner",
+        "hook",
+        "set up",
+        "setup",
+        "plain-language",
+        "show the payoff",
+    )
+    if any(marker in lowered for marker in meta_markers):
+        return None
+    return value
+
+
 def _close_line(context: ScriptBriefContext) -> str:
     if context.primary_call_to_action and context.constraints.allow_direct_cta:
         return context.primary_call_to_action
     if context.constraints.required_disclosures:
         return context.constraints.required_disclosures[0]
-    return "End with one practical takeaway the editor can hold on screen."
+    return "Use the takeaway the next time this problem shows up."
 
 
 def _close_overlay_text(context: ScriptBriefContext) -> str:
     if context.primary_call_to_action and context.constraints.allow_direct_cta:
         return context.primary_call_to_action
-    return "Clean ending beat"
+    return "Save this reset"
 
 
 def _base_caption(context: ScriptBriefContext) -> str:
     if context.description:
         return context.description
     if context.content_pillar and context.page_name:
-        return f"{context.page_name} breaks down {context.content_pillar} in a practical short-form reel."
-    return f"{context.title} is packaged as a practical short-form reel."
+        return f"{context.page_name} breaks down {context.content_pillar} in a practical way."
+    return f"{context.title} gives viewers one practical move to use today."
 
 
 def _caption_close(context: ScriptBriefContext) -> str:
     if context.primary_call_to_action and context.constraints.allow_direct_cta:
         return context.primary_call_to_action
-    return "Keep the ending clean and useful."
+    return "Save the step you can use today."
 
 
 def _disclosure_suffix(context: ScriptBriefContext) -> str:
@@ -550,8 +579,8 @@ __all__ = [
     "BriefLike",
     "DeterministicScriptGenerator",
     "RulesPlusProviderScriptGenerator",
-    "ScriptGeneratorPathLike",
     "ScriptGenerator",
+    "ScriptGeneratorPathLike",
     "build_script_generator",
     "generate_script_output",
     "normalize_script_generator_path",

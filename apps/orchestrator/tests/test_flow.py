@@ -1409,18 +1409,17 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     script_output = cast(dict[str, Any], creative_output["script"])
     assert script_output["generator_path"] == "rules_plus_provider"
     assert script_output["provider_name"] == "rules_provider"
-    assert creative_output["script_generation"] == {
-        "generator_path": "rules_plus_provider",
-        "provider_name": "rules_provider",
-        "metadata": {
-            "fallback": False,
-            "generator_path": "rules_plus_provider",
-            "provider_name": "rules_provider",
-            "strategy": "rules_plus_provider_v1",
-        },
-    }
+    assert creative_output["script_lint"]["outcome"] == "pass"
+    script_generation = cast(dict[str, Any], creative_output["script_generation"])
+    assert script_generation["generator_path"] == "rules_plus_provider"
+    assert script_generation["provider_name"] == "rules_provider"
+    script_generation_metadata = cast(dict[str, Any], script_generation["metadata"])
+    assert script_generation_metadata["fallback"] is False
+    assert script_generation_metadata["strategy"] == "rules_plus_provider_v1"
+    assert script_generation_metadata["creative_lint"] == creative_output["script_lint"]
     package_provenance = cast(dict[str, Any], result["package"]["provenance"])
     assert package_provenance["script_generation"] == creative_output["script_generation"]
+    assert package_provenance["script_lint"] == creative_output["script_lint"]
 
     run_id = result["run_id"]
     assert repository.reels["reel-42"].status == "ready"
@@ -1468,9 +1467,42 @@ def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> N
 
     assert production_plan["script_generation"]["generator_path"] == "rules_plus_provider"
     assert production_plan["script"]["provider_name"] == "rules_provider"
+    assert production_plan["script_lint"]["outcome"] == "pass"
     assert stub_plan["script_generation"]["generator_path"] == "deterministic_stub"
     assert stub_plan["script"]["provider_name"] == "deterministic_stub"
+    assert stub_plan["script_lint"]["outcome"] == "fail"
+    assert stub_plan["creative_blocked"] is True
+    assert "primary_asset_request" not in stub_plan
     assert production_plan["script"].keys() == stub_plan["script"].keys()
+
+
+def test_process_reel_flow_hard_fails_lint_before_asset_spend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, repository, event_sink, _, asset_resolver = _install_phase_one_service(
+        monkeypatch,
+        tmp_path=tmp_path,
+        script_generator_path=ScriptGeneratorPath.DETERMINISTIC_STUB,
+    )
+
+    result = process_reel(reel_id="reel-42", dry_run=False)
+
+    assert asset_resolver is not None
+    assert asset_resolver.calls == 0
+    assert result["run_status"] == "failed"
+    assert result["task_statuses"]["creative_planning"] == "succeeded"
+    assert result["task_statuses"]["asset_resolution"] == "failed"
+    assert result["task_statuses"]["editing"] == "skipped"
+    creative_output = cast(dict[str, Any], result["step_outputs"]["creative_planning"])
+    assert creative_output["creative_blocked"] is True
+    assert creative_output["script_lint"]["outcome"] == "fail"
+    assert "primary_asset_request" not in creative_output
+
+    run_id = result["run_id"]
+    assert repository.runs[run_id].status == "failed"
+    assert len(event_sink.events) == 1
+    assert event_sink.events[0]["event_type"] == "process_reel.failed"
 
 
 def test_process_reel_flow_emits_failure_event_and_stops_before_ready(

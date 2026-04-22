@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from content_lab_core.types import Platform
 from content_lab_creative.brief import CreativeBrief
 from content_lab_creative.director import PhaseOneDirector
@@ -58,6 +60,8 @@ def test_deterministic_script_generator_is_stable_for_planned_briefs() -> None:
     assert first.provider_name == "deterministic_stub"
     assert first.generator_path == "deterministic_stub"
     assert first.generation_metadata["fallback"] is True
+    first_lint = cast(dict[str, Any], first.generation_metadata["creative_lint"])
+    assert first_lint["outcome"] == "fail"
     assert first.hook_text == "Mobility reset for busy professionals who want"
     assert [variant.variant.value for variant in first.caption_variants] == [
         "short",
@@ -100,6 +104,8 @@ def test_generate_script_output_defaults_to_production_rules_provider() -> None:
     assert output.provider_name == "rules_provider"
     assert output.generator_path == "rules_plus_provider"
     assert output.generation_metadata["fallback"] is False
+    lint_result = cast(dict[str, Any], output.generation_metadata["creative_lint"])
+    assert lint_result["outcome"] == "pass"
     assert output.hook_text != "Mobility reset for busy professionals who want"
 
 
@@ -127,6 +133,7 @@ def test_schema_compatibility_across_generator_paths() -> None:
         assert round_tripped.hook_text
         assert round_tripped.spoken_script
         assert round_tripped.overlay_timeline
+        assert "creative_lint" in round_tripped.generation_metadata
         assert {variant.variant.value for variant in round_tripped.caption_variants} == {
             "short",
             "standard",

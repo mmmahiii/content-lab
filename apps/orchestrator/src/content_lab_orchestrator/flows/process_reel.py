@@ -491,7 +491,9 @@ class PhaseOneProcessReelExecutor:
             generator=self._script_generator,
             generator_path=self._script_generator_path,
         )
-        script_generation = _script_generation_metadata(script.model_dump(mode="json"))
+        script_payload = script.model_dump(mode="json")
+        script_generation = _script_generation_metadata(script_payload)
+        script_lint = _script_lint_result(script_payload)
         posting_plan = build_posting_plan(
             policy=brief.policy,
             page=PostingPlanPageContext(
@@ -516,6 +518,15 @@ class PhaseOneProcessReelExecutor:
                 duration_seconds=brief.duration_seconds,
             ),
         )
+        if _script_lint_failed(script_lint):
+            return {
+                "brief": brief.model_dump(mode="json"),
+                "script": script_payload,
+                "script_generation": script_generation,
+                "script_lint": script_lint,
+                "posting_plan": posting_plan.model_dump(mode="json"),
+                "creative_blocked": True,
+            }
         prompt = _build_primary_asset_prompt(
             brief_payload=brief.model_dump(mode="json"), script=script
         )
@@ -525,8 +536,9 @@ class PhaseOneProcessReelExecutor:
         )
         return {
             "brief": brief.model_dump(mode="json"),
-            "script": script.model_dump(mode="json"),
+            "script": script_payload,
             "script_generation": script_generation,
+            "script_lint": script_lint,
             "posting_plan": posting_plan.model_dump(mode="json"),
             "primary_asset_request": {
                 "asset_class": _PRIMARY_ASSET_CLASS,
@@ -873,6 +885,32 @@ def _qa_passed(execution_payload: dict[str, Any]) -> bool:
     return bool(qa_payload.get("passed"))
 
 
+def _creative_lint_failed(execution_payload: dict[str, Any]) -> bool:
+    outputs = execution_payload.get("outputs", {})
+    if not isinstance(outputs, dict):
+        return False
+    creative_payload = outputs.get("creative_planning", {})
+    if not isinstance(creative_payload, dict):
+        return False
+    lint_payload = _mapping(creative_payload.get("script_lint"))
+    return lint_payload.get("outcome") == "fail" or bool(creative_payload.get("creative_blocked"))
+
+
+def _creative_lint_error(execution_payload: dict[str, Any]) -> str:
+    outputs = execution_payload.get("outputs", {})
+    creative_payload = outputs.get("creative_planning", {}) if isinstance(outputs, dict) else {}
+    lint_payload = _mapping(
+        creative_payload.get("script_lint") if isinstance(creative_payload, dict) else None
+    )
+    findings = lint_payload.get("findings")
+    if isinstance(findings, list) and findings:
+        first = _mapping(findings[0])
+        code = _optional_text(first.get("code")) or "creative_lint_failed"
+        message = _optional_text(first.get("message")) or "Creative script lint failed."
+        return f"{code}: {message}"
+    return "creative_lint_failed: Creative script lint failed."
+
+
 @flow(name="process_reel")
 def process_reel(
     reel_id: str = "demo-reel",
@@ -889,6 +927,14 @@ def process_reel(
     try:
         execution = start_process_reel(validated_reel_id, dry_run=dry_run, run_id=run_id)
         execution = execute_creative_planning(execution)
+        if _creative_lint_failed(execution):
+            summary = mark_process_reel_failed(
+                execution,
+                failed_step="asset_resolution",
+                error_message=_creative_lint_error(execution),
+            )
+            emit_process_reel_terminal_event(summary)
+            return summary
         current_step = "asset_resolution"
         execution = execute_asset_resolution(execution)
         current_step = "editing"
@@ -991,6 +1037,7 @@ def _build_package_provenance(
             _mapping(creative_output.get("script_generation"))
             or _mapping(creative_output.get("script"))
         ),
+        "script_lint": _mapping(creative_output.get("script_lint")),
         "source_run_id": execution.run_id,
         "asset_ids": _asset_ids(asset_output),
         "upstream_refs": {
@@ -1013,6 +1060,18 @@ def _script_generation_metadata(script_output: Mapping[str, Any]) -> dict[str, A
         "provider_name": provider_name,
         "metadata": metadata,
     }
+
+
+def _script_lint_result(script_output: Mapping[str, Any]) -> dict[str, Any]:
+    generation_metadata = _mapping(script_output.get("generation_metadata"))
+    lint_result = _mapping(generation_metadata.get("creative_lint"))
+    if lint_result:
+        return lint_result
+    return {"outcome": "pass", "passed": True, "findings": [], "checked_fields": []}
+
+
+def _script_lint_failed(lint_result: Mapping[str, Any]) -> bool:
+    return lint_result.get("outcome") == "fail" or lint_result.get("passed") is False
 
 
 def _asset_ids(asset_output: Mapping[str, Any]) -> list[str]:
