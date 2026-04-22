@@ -57,12 +57,13 @@ from content_lab_api.services import (
     record_provider_job_submission,
 )
 from content_lab_api.services.process_reel import ProcessReelExecution, ProcessReelQAResult
-from content_lab_core.types import Platform
+from content_lab_core.types import Platform, QAVerdict
 from content_lab_orchestrator.correlation import orchestrator_service_context
 from content_lab_qa import (
     RepetitionGateRequest,
     RepetitionHistoryStore,
     RepetitionPolicy,
+    evaluate_alignment_qa,
     evaluate_format_qa,
     evaluate_repetition,
 )
@@ -622,6 +623,7 @@ class PhaseOneProcessReelExecutor:
             "final_video_uri": artifact.final_video_path.as_uri(),
             "cover_path": str(artifact.cover_image_path),
             "cover_uri": artifact.cover_image_path.as_uri(),
+            "cover_frame_timestamp_seconds": artifact.cover_frame_timestamp_seconds,
             "timeline_uri": timeline_path.as_uri(),
             "duration_seconds": artifact.duration_seconds,
             "width": artifact.width,
@@ -630,6 +632,7 @@ class PhaseOneProcessReelExecutor:
         }
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
+        creative_output = _step_output(execution, "creative_planning")
         editing_output = _step_output(execution, "editing")
         asset_output = _step_output(execution, "asset_resolution")
         format_report = evaluate_format_qa(
@@ -654,12 +657,24 @@ class PhaseOneProcessReelExecutor:
             ),
             history_store=self._repetition_history_store,
         )
+        alignment_report = evaluate_alignment_qa(
+            brief=_mapping(creative_output.get("brief")),
+            script=_mapping(creative_output.get("script")),
+            scene_plan=_mapping(creative_output.get("scene_plan")),
+            compiled_prompt=_mapping(creative_output.get("compiled_prompt")),
+            editing=editing_output,
+        )
+        alignment_gate = alignment_report.as_qa_result()
         repetition_failed = repetition_result.verdict.value == "fail"
-        passed = format_report.passed and not repetition_failed
+        alignment_failed = alignment_report.blocks_readiness
+        passed = format_report.passed and not repetition_failed and not alignment_failed
         verdict = "pass"
         if not passed:
             verdict = "fail"
-        elif repetition_result.verdict.value == "warn":
+        elif (
+            repetition_result.verdict.value == "warn"
+            or alignment_report.verdict == QAVerdict.WARN
+        ):
             verdict = "warn"
 
         return ProcessReelQAResult(
@@ -669,6 +684,7 @@ class PhaseOneProcessReelExecutor:
                 "checks": [
                     *[check.as_payload() for check in format_report.checks],
                     repetition_result.as_payload(),
+                    alignment_gate.as_payload(),
                 ],
                 "format": {
                     "verdict": format_report.verdict.value,
@@ -676,6 +692,15 @@ class PhaseOneProcessReelExecutor:
                     "failure_reasons": list(format_report.failure_reasons),
                 },
                 "repetition": repetition_result.as_payload(),
+                "alignment": {
+                    "verdict": alignment_report.verdict.value,
+                    "message": alignment_report.message,
+                    "findings": [finding.model_dump(mode="json") for finding in alignment_report.findings],
+                    "metrics": dict(alignment_report.metrics),
+                    "skipped": alignment_report.skipped,
+                    "skip_reason": alignment_report.skip_reason,
+                    "lead_text": alignment_report.lead_text,
+                },
             },
         )
 
