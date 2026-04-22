@@ -1,9 +1,11 @@
+import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from content_lab_api.constants import X_REQUEST_ID_HEADER
@@ -21,8 +23,26 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+def _parse_cors_origins() -> list[str]:
+    # Comma-separated list. Default to the local operator console's dev origins so
+    # the web workspace can call the API directly from the browser out of the box.
+    raw = os.getenv(
+        "CONTENT_LAB_API_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 app = FastAPI(title="Content Lab API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_parse_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=[X_REQUEST_ID_HEADER],
+)
 app.include_router(api_router)
 
 
