@@ -22,6 +22,7 @@ from content_lab_creative import (
     PageMetadata,
     PersonaProfile,
     PolicyStateDocument,
+    ScriptGeneratorPath,
 )
 from content_lab_storage.client import RetrievedObject, StoredObject
 from content_lab_storage.integrity import S3ObjectIntegrityVerifier
@@ -850,6 +851,7 @@ def _install_phase_one_service(
     *,
     tmp_path: Path,
     asset_resolver: object | None = None,
+    script_generator_path: ScriptGeneratorPath | str = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
 ) -> tuple[
     ProcessReelService,
     InMemoryProcessReelRepository,
@@ -877,6 +879,7 @@ def _install_phase_one_service(
         storage_client=storage_client,
         package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="content-lab"),
         temp_root=tmp_path / "phase-one",
+        script_generator_path=script_generator_path,
     )
     service = ProcessReelService(repository=repository, executor=executor)
     event_sink = FakeProcessReelEventSink()
@@ -1402,6 +1405,22 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert result["package"]["manifest"]["complete"] is True
     assert result["package"]["package_qa"]["passed"] is True
     assert result["step_outputs"]["packaging"]["ready_for_publish"] is True
+    creative_output = cast(dict[str, Any], result["step_outputs"]["creative_planning"])
+    script_output = cast(dict[str, Any], creative_output["script"])
+    assert script_output["generator_path"] == "rules_plus_provider"
+    assert script_output["provider_name"] == "rules_provider"
+    assert creative_output["script_generation"] == {
+        "generator_path": "rules_plus_provider",
+        "provider_name": "rules_provider",
+        "metadata": {
+            "fallback": False,
+            "generator_path": "rules_plus_provider",
+            "provider_name": "rules_provider",
+            "strategy": "rules_plus_provider_v1",
+        },
+    }
+    package_provenance = cast(dict[str, Any], result["package"]["provenance"])
+    assert package_provenance["script_generation"] == creative_output["script_generation"]
 
     run_id = result["run_id"]
     assert repository.reels["reel-42"].status == "ready"
@@ -1421,6 +1440,37 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
         f"s3://content-lab/reels/packages/{result['reel_id']}/package_manifest.json" in stored_uris
     )
     assert f"s3://content-lab/reels/packages/{result['reel_id']}/final_video.mp4" in stored_uris
+
+
+def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> None:
+    execution = ProcessReelExecution(
+        reel_id="reel-42",
+        org_id="org-1",
+        page_id="page-7",
+        reel_family_id="family-9",
+        run_id="run-1",
+        dry_run=False,
+    )
+    common_kwargs = {
+        "planning_context_loader": FakePlanningContextLoader(),
+        "asset_resolver": cast(Any, FailingProcessReelAssetResolver()),
+        "storage_client": FakeStorageClient(),
+        "package_layout": process_reel_flow_module.CanonicalStorageLayout(bucket="content-lab"),
+    }
+    production_plan = PhaseOneProcessReelExecutor(
+        **common_kwargs,
+        script_generator_path=ScriptGeneratorPath.RULES_PLUS_PROVIDER,
+    ).create_creative_plan(execution)
+    stub_plan = PhaseOneProcessReelExecutor(
+        **common_kwargs,
+        script_generator_path=ScriptGeneratorPath.DETERMINISTIC_STUB,
+    ).create_creative_plan(execution)
+
+    assert production_plan["script_generation"]["generator_path"] == "rules_plus_provider"
+    assert production_plan["script"]["provider_name"] == "rules_provider"
+    assert stub_plan["script_generation"]["generator_path"] == "deterministic_stub"
+    assert stub_plan["script"]["provider_name"] == "deterministic_stub"
+    assert production_plan["script"].keys() == stub_plan["script"].keys()
 
 
 def test_process_reel_flow_emits_failure_event_and_stops_before_ready(

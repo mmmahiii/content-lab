@@ -199,6 +199,13 @@ class PinnedCommentPurpose(str, Enum):
     DISCLOSURE = "disclosure"
 
 
+class ScriptGeneratorPath(str, Enum):
+    """Named script generation paths available to runtime configuration."""
+
+    DETERMINISTIC_STUB = "deterministic_stub"
+    RULES_PLUS_PROVIDER = "rules_plus_provider"
+
+
 class ScriptBeat(BaseModel):
     """A timed beat of spoken narration for editing and voiceover planning."""
 
@@ -258,6 +265,8 @@ class GeneratedScriptOutput(BaseModel):
 
     schema_version: Literal["phase_1"] = "phase_1"
     provider_name: str = Field(min_length=1, max_length=80)
+    generator_path: str = Field(default="unspecified", min_length=1, max_length=80)
+    generation_metadata: dict[str, object] = Field(default_factory=dict)
     brief_title: str = Field(min_length=1, max_length=200)
     duration_seconds: int = Field(ge=5, le=180)
     hook_text: str = Field(min_length=1, max_length=200)

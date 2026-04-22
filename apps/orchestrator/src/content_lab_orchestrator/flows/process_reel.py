@@ -26,10 +26,12 @@ from content_lab_creative import (
     PostingPlanFamilyContext,
     PostingPlanPageContext,
     PostingPlanVariantContext,
+    ScriptGeneratorPath,
     build_posting_plan,
     generate_script_output,
     plan_creative_brief,
 )
+from content_lab_creative.script_generator import ScriptGenerator, ScriptGeneratorPathLike
 from content_lab_editing import build_ready_to_post_package, render_basic_vertical_edit
 from content_lab_outbox import (
     build_process_reel_event_payload,
@@ -452,6 +454,8 @@ class PhaseOneProcessReelExecutor:
         package_layout: CanonicalStorageLayout,
         temp_root: str | Path | None = None,
         repetition_history_store: RepetitionHistoryStore | None = None,
+        script_generator: ScriptGenerator | None = None,
+        script_generator_path: ScriptGeneratorPathLike = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
         ffmpeg_bin: str = "ffmpeg",
         ffprobe_bin: str = "ffprobe",
     ) -> None:
@@ -465,6 +469,8 @@ class PhaseOneProcessReelExecutor:
             else Path(tempfile.gettempdir()) / _DEFAULT_TEMP_ROOT_NAME
         )
         self._repetition_history_store = repetition_history_store
+        self._script_generator = script_generator
+        self._script_generator_path = script_generator_path
         self._ffmpeg_bin = ffmpeg_bin
         self._ffprobe_bin = ffprobe_bin
 
@@ -480,7 +486,12 @@ class PhaseOneProcessReelExecutor:
                 duration_seconds=context.duration_seconds,
             )
         )
-        script = generate_script_output(brief)
+        script = generate_script_output(
+            brief,
+            generator=self._script_generator,
+            generator_path=self._script_generator_path,
+        )
+        script_generation = _script_generation_metadata(script.model_dump(mode="json"))
         posting_plan = build_posting_plan(
             policy=brief.policy,
             page=PostingPlanPageContext(
@@ -515,6 +526,7 @@ class PhaseOneProcessReelExecutor:
         return {
             "brief": brief.model_dump(mode="json"),
             "script": script.model_dump(mode="json"),
+            "script_generation": script_generation,
             "posting_plan": posting_plan.model_dump(mode="json"),
             "primary_asset_request": {
                 "asset_class": _PRIMARY_ASSET_CLASS,
@@ -661,6 +673,7 @@ class PhaseOneProcessReelExecutor:
             posting_plan=_mapping(creative_output.get("posting_plan")),
             provenance=_build_package_provenance(
                 execution=execution,
+                creative_output=creative_output,
                 asset_output=asset_output,
                 editing_output=editing_output,
             ),
@@ -697,6 +710,8 @@ def build_phase_one_process_reel_executor(
     storage_client: ProcessReelStorageClient | None = None,
     temp_root: str | Path | None = None,
     repetition_history_store: RepetitionHistoryStore | None = None,
+    script_generator: ScriptGenerator | None = None,
+    script_generator_path: ScriptGeneratorPathLike = ScriptGeneratorPath.RULES_PLUS_PROVIDER,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> PhaseOneProcessReelExecutor:
@@ -715,6 +730,8 @@ def build_phase_one_process_reel_executor(
         package_layout=CanonicalStorageLayout(bucket=resolved_settings.minio_bucket),
         temp_root=temp_root,
         repetition_history_store=repetition_history_store,
+        script_generator=script_generator,
+        script_generator_path=script_generator_path,
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin,
     )
@@ -936,6 +953,7 @@ def _build_primary_asset_prompt(*, brief_payload: Mapping[str, Any], script: Any
 def _build_package_provenance(
     *,
     execution: ProcessReelExecution,
+    creative_output: Mapping[str, Any],
     asset_output: Mapping[str, Any],
     editing_output: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -969,6 +987,10 @@ def _build_package_provenance(
         ),
         "assets": assets,
         "provider_jobs": [provider_payload],
+        "script_generation": _script_generation_metadata(
+            _mapping(creative_output.get("script_generation"))
+            or _mapping(creative_output.get("script"))
+        ),
         "source_run_id": execution.run_id,
         "asset_ids": _asset_ids(asset_output),
         "upstream_refs": {
@@ -977,6 +999,19 @@ def _build_package_provenance(
                 field_name="editing.timeline_uri",
             ),
         },
+    }
+
+
+def _script_generation_metadata(script_output: Mapping[str, Any]) -> dict[str, Any]:
+    generator_path = _optional_text(script_output.get("generator_path")) or "unspecified"
+    provider_name = _optional_text(script_output.get("provider_name")) or "unspecified"
+    metadata = _mapping(script_output.get("generation_metadata")) or _mapping(
+        script_output.get("metadata")
+    )
+    return {
+        "generator_path": generator_path,
+        "provider_name": provider_name,
+        "metadata": metadata,
     }
 
 

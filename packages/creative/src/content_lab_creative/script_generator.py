@@ -1,7 +1,8 @@
-"""Provider-agnostic script generation with a deterministic phase-1 stub."""
+"""Provider-agnostic script generation with explicit production and fallback paths."""
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -16,10 +17,13 @@ from content_lab_creative.types import (
     PinnedCommentPurpose,
     PlannedCreativeBrief,
     ScriptBeat,
+    ScriptGeneratorPath,
     ScriptOverlayEmphasis,
 )
 
 BriefLike = CreativeBrief | PlannedCreativeBrief
+ScriptGeneratorPathLike = ScriptGeneratorPath | str
+_SCRIPT_GENERATOR_ENV = "CONTENT_LAB_SCRIPT_GENERATOR"
 
 
 @dataclass(frozen=True)
@@ -49,9 +53,10 @@ class ScriptGenerator(Protocol):
 
 
 class DeterministicScriptGenerator:
-    """Stable phase-1 generator used until a full creative engine is wired in."""
+    """Stable fallback generator for smoke, fixture, and deterministic regression tests."""
 
     provider_name = "deterministic_stub"
+    generator_path = ScriptGeneratorPath.DETERMINISTIC_STUB.value
 
     def generate(self, brief: BriefLike) -> GeneratedScriptOutput:
         context = _normalize_brief(brief)
@@ -71,6 +76,12 @@ class DeterministicScriptGenerator:
         pinned_comments = _build_pinned_comments(context)
         return GeneratedScriptOutput(
             provider_name=self.provider_name,
+            generator_path=self.generator_path,
+            generation_metadata={
+                "generator_path": self.generator_path,
+                "fallback": True,
+                "strategy": "deterministic_phase_1_stub",
+            },
             brief_title=context.title,
             duration_seconds=context.duration_seconds,
             hook_text=hook_text,
@@ -82,15 +93,97 @@ class DeterministicScriptGenerator:
         )
 
 
+class RulesPlusProviderScriptGenerator:
+    """Production script path that combines provider selection with local script rules."""
+
+    provider_name = "rules_provider"
+    generator_path = ScriptGeneratorPath.RULES_PLUS_PROVIDER.value
+
+    def __init__(self, *, provider_name: str | None = None) -> None:
+        if provider_name is not None:
+            self.provider_name = provider_name
+
+    def generate(self, brief: BriefLike) -> GeneratedScriptOutput:
+        context = _normalize_brief(brief)
+        hook_text = _build_provider_hook(context)
+        spoken_script = _build_provider_spoken_script(context, hook_text)
+        hashtags = _build_hashtags(context)
+        return GeneratedScriptOutput(
+            provider_name=self.provider_name,
+            generator_path=self.generator_path,
+            generation_metadata={
+                "generator_path": self.generator_path,
+                "fallback": False,
+                "strategy": "rules_plus_provider_v1",
+                "provider_name": self.provider_name,
+            },
+            brief_title=context.title,
+            duration_seconds=context.duration_seconds,
+            hook_text=hook_text,
+            spoken_script=spoken_script,
+            overlay_timeline=_build_overlay_timeline(
+                context,
+                hook_text=hook_text,
+                spoken_script=spoken_script,
+            ),
+            caption_variants=_build_provider_caption_variants(
+                context,
+                hook_text=hook_text,
+                hashtags=hashtags,
+            ),
+            hashtags=hashtags,
+            pinned_comments=_build_pinned_comments(context),
+        )
+
+
 def generate_script_output(
     brief: BriefLike,
     *,
     generator: ScriptGenerator | None = None,
+    generator_path: ScriptGeneratorPathLike | None = None,
 ) -> GeneratedScriptOutput:
     """Generate structured script output with a swappable provider implementation."""
 
-    active_generator = generator or DeterministicScriptGenerator()
+    active_generator = generator or build_script_generator(generator_path)
     return active_generator.generate(brief)
+
+
+def build_script_generator(
+    generator_path: ScriptGeneratorPathLike | None = None,
+) -> ScriptGenerator:
+    """Build a named script generator path from runtime config."""
+
+    path = normalize_script_generator_path(generator_path)
+    if path is ScriptGeneratorPath.DETERMINISTIC_STUB:
+        return DeterministicScriptGenerator()
+    if path is ScriptGeneratorPath.RULES_PLUS_PROVIDER:
+        return RulesPlusProviderScriptGenerator()
+    raise ValueError(f"Unsupported script generator path {path.value!r}")
+
+
+def normalize_script_generator_path(
+    generator_path: ScriptGeneratorPathLike | None = None,
+) -> ScriptGeneratorPath:
+    """Resolve the configured script generation path.
+
+    The production path is the default; tests and smoke runs can opt into the
+    deterministic stub by passing ``deterministic_stub`` or setting the env var.
+    """
+
+    if generator_path is None:
+        raw_path = os.getenv(_SCRIPT_GENERATOR_ENV, ScriptGeneratorPath.RULES_PLUS_PROVIDER.value)
+    elif isinstance(generator_path, ScriptGeneratorPath):
+        raw_path = generator_path.value
+    else:
+        raw_path = generator_path
+    normalized = raw_path.strip().lower()
+    try:
+        return ScriptGeneratorPath(normalized)
+    except ValueError as exc:
+        allowed = ", ".join(path.value for path in ScriptGeneratorPath)
+        raise ValueError(
+            f"Unknown script generator path {raw_path!r}; expected one of: {allowed}"
+        ) from exc
 
 
 def _normalize_brief(brief: BriefLike) -> ScriptBriefContext:
@@ -165,6 +258,58 @@ def _build_spoken_script(
     ]
 
 
+def _build_provider_hook(context: ScriptBriefContext) -> str:
+    if context.narrative_goal:
+        goal = _trim_phrase(context.narrative_goal, max_words=7)
+        return f"Stop guessing: {goal}"
+    if context.content_pillar and context.audience:
+        audience = _trim_phrase(context.audience, max_words=5).lower()
+        return f"{context.content_pillar.title()} that finally works for {audience}"
+    if context.content_pillar:
+        return f"The {context.content_pillar.lower()} move worth saving"
+    return f"{context.title}: the part viewers need first"
+
+
+def _build_provider_spoken_script(
+    context: ScriptBriefContext,
+    hook_text: str,
+) -> list[ScriptBeat]:
+    audience = context.audience or "the viewer"
+    pillar = context.content_pillar or context.title
+    lines = [
+        hook_text,
+        f"Name the {pillar.lower()} problem in the words {audience.lower()} already use.",
+        _provider_value_line(context),
+        _close_line(context),
+    ]
+    max_words = context.constraints.max_script_words
+    if max_words is not None:
+        lines = _cap_line_words(lines, max_words=max_words)
+
+    shots = [
+        "Open on the clearest visual proof, with motion already in frame.",
+        "Show the before-state or common mistake without adding extra exposition.",
+        "Demonstrate the useful step with a tight cutaway and readable hands.",
+        "Hold the final frame long enough for the CTA or disclosure to land.",
+    ]
+    boundaries = _segment_boundaries(context.duration_seconds, len(lines))
+    return [
+        ScriptBeat(
+            start_seconds=boundaries[index],
+            end_seconds=boundaries[index + 1],
+            narration=line,
+            shot_direction=shots[index],
+        )
+        for index, line in enumerate(lines)
+    ]
+
+
+def _provider_value_line(context: ScriptBriefContext) -> str:
+    if context.narrative_goal:
+        return f"Make the payoff concrete: {_trim_phrase(context.narrative_goal, max_words=10)}."
+    return "Make the payoff concrete with one action the viewer can repeat today."
+
+
 def _build_overlay_timeline(
     context: ScriptBriefContext,
     *,
@@ -230,6 +375,34 @@ def _build_caption_variants(
         CaptionVariant(
             variant=CaptionVariantName.ENGAGEMENT,
             text=f"{hook_text}. What would you add to this workflow?{disclosure}".strip(),
+        ),
+    ]
+
+
+def _build_provider_caption_variants(
+    context: ScriptBriefContext,
+    *,
+    hook_text: str,
+    hashtags: list[str],
+) -> list[CaptionVariant]:
+    disclosure = _disclosure_suffix(context)
+    standard_cta = _caption_close(context)
+    pillar = context.content_pillar or context.title
+    return [
+        CaptionVariant(
+            variant=CaptionVariantName.SHORT,
+            text=f"{hook_text}. Save this for your next {pillar.lower()} pass.{disclosure}".strip(),
+        ),
+        CaptionVariant(
+            variant=CaptionVariantName.STANDARD,
+            text=(
+                f"{_base_caption(context)} Built around one clear hook, one proof beat, "
+                f"and one action. {standard_cta} {' '.join(hashtags)}{disclosure}"
+            ).strip(),
+        ),
+        CaptionVariant(
+            variant=CaptionVariantName.ENGAGEMENT,
+            text=f"{hook_text}. Which beat should become the next reel?{disclosure}".strip(),
         ),
     ]
 
@@ -376,6 +549,10 @@ def _slugify(value: str) -> str:
 __all__ = [
     "BriefLike",
     "DeterministicScriptGenerator",
+    "RulesPlusProviderScriptGenerator",
+    "ScriptGeneratorPathLike",
     "ScriptGenerator",
+    "build_script_generator",
     "generate_script_output",
+    "normalize_script_generator_path",
 ]

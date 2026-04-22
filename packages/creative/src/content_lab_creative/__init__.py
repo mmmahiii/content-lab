@@ -18,13 +18,17 @@ from content_lab_creative.posting_plan import (
 )
 from content_lab_creative.script_generator import (
     DeterministicScriptGenerator,
+    RulesPlusProviderScriptGenerator,
+    build_script_generator,
     generate_script_output,
+    normalize_script_generator_path,
 )
 from content_lab_creative.types import (
     DirectorPlanInput,
     GeneratedScriptOutput,
     PlannedCreativeBrief,
     PolicyStateDocument,
+    ScriptGeneratorPath,
 )
 
 __all__ = [
@@ -42,8 +46,12 @@ __all__ = [
     "PostingPlanFamilyContext",
     "PostingPlanPageContext",
     "PostingPlanVariantContext",
+    "RulesPlusProviderScriptGenerator",
+    "ScriptGeneratorPath",
+    "build_script_generator",
     "build_posting_plan",
     "generate_script_output",
+    "normalize_script_generator_path",
     "plan_creative_brief",
     "validate_page_metadata",
     "validate_persona_profile",

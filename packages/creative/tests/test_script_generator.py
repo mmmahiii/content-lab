@@ -6,9 +6,17 @@ from content_lab_creative.director import PhaseOneDirector
 from content_lab_creative.persona import PageConstraints, PageMetadata, PersonaProfile
 from content_lab_creative.script_generator import (
     DeterministicScriptGenerator,
+    RulesPlusProviderScriptGenerator,
+    build_script_generator,
     generate_script_output,
 )
-from content_lab_creative.types import DirectorPlanInput, PolicyStateDocument, ScriptOverlayEmphasis
+from content_lab_creative.types import (
+    DirectorPlanInput,
+    GeneratedScriptOutput,
+    PolicyStateDocument,
+    ScriptGeneratorPath,
+    ScriptOverlayEmphasis,
+)
 
 
 def _planned_brief(
@@ -48,6 +56,8 @@ def test_deterministic_script_generator_is_stable_for_planned_briefs() -> None:
 
     assert first.model_dump() == second.model_dump()
     assert first.provider_name == "deterministic_stub"
+    assert first.generator_path == "deterministic_stub"
+    assert first.generation_metadata["fallback"] is True
     assert first.hook_text == "Mobility reset for busy professionals who want"
     assert [variant.variant.value for variant in first.caption_variants] == [
         "short",
@@ -59,7 +69,7 @@ def test_deterministic_script_generator_is_stable_for_planned_briefs() -> None:
 def test_deterministic_script_generator_respects_constraints() -> None:
     brief = PhaseOneDirector().plan(_planned_brief(allow_direct_cta=False, max_hashtags=2))
 
-    output = generate_script_output(brief)
+    output = generate_script_output(brief, generator_path=ScriptGeneratorPath.DETERMINISTIC_STUB)
 
     assert len(output.hashtags) == 2
     assert output.overlay_timeline[-1].emphasis is ScriptOverlayEmphasis.DISCLOSURE
@@ -75,8 +85,52 @@ def test_generate_script_output_supports_legacy_creative_brief() -> None:
         tags=["sale", "summer"],
     )
 
-    output = generate_script_output(brief)
+    output = generate_script_output(brief, generator_path="deterministic_stub")
 
     assert output.brief_title == "Summer Sale Reel"
     assert output.pinned_comments == []
     assert output.hashtags == ["#sale", "#summer", "#neutral"]
+
+
+def test_generate_script_output_defaults_to_production_rules_provider() -> None:
+    brief = PhaseOneDirector().plan(_planned_brief())
+
+    output = generate_script_output(brief)
+
+    assert output.provider_name == "rules_provider"
+    assert output.generator_path == "rules_plus_provider"
+    assert output.generation_metadata["fallback"] is False
+    assert output.hook_text != "Mobility reset for busy professionals who want"
+
+
+def test_generator_selection_can_force_stub_or_production() -> None:
+    assert isinstance(
+        build_script_generator(ScriptGeneratorPath.DETERMINISTIC_STUB),
+        DeterministicScriptGenerator,
+    )
+    assert isinstance(
+        build_script_generator("rules_plus_provider"), RulesPlusProviderScriptGenerator
+    )
+
+
+def test_schema_compatibility_across_generator_paths() -> None:
+    brief = PhaseOneDirector().plan(_planned_brief())
+
+    outputs = [
+        generate_script_output(brief, generator_path=ScriptGeneratorPath.DETERMINISTIC_STUB),
+        generate_script_output(brief, generator_path=ScriptGeneratorPath.RULES_PLUS_PROVIDER),
+    ]
+
+    for output in outputs:
+        round_tripped = GeneratedScriptOutput.model_validate(output.model_dump(mode="json"))
+        assert round_tripped.schema_version == "phase_1"
+        assert round_tripped.hook_text
+        assert round_tripped.spoken_script
+        assert round_tripped.overlay_timeline
+        assert {variant.variant.value for variant in round_tripped.caption_variants} == {
+            "short",
+            "standard",
+            "engagement",
+        }
+        assert round_tripped.hashtags
+        assert round_tripped.pinned_comments
