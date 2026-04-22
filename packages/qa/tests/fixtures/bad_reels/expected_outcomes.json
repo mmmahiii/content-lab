@@ -1,0 +1,22 @@
+{
+  "intent_drift_solar_mismatch": {
+    "failure_domain": "semantic",
+    "quality_axis": "alignment",
+    "description": "Brief is coffee/roastery; script, captions, scene plan, and provider prompt are solar — classic nonsense drift.",
+    "alignment": {
+      "verdict": "fail",
+      "blocks_readiness": true,
+      "must_include_fail_codes": ["messaging_drift", "asset_prompt_drift"]
+    }
+  },
+  "well_aligned_baseline": {
+    "failure_domain": "none",
+    "quality_axis": "alignment",
+    "description": "Control: consistent roastery/coffee vocabulary across brief, script, prompt, and scenes. Heuristics may still WARN (e.g. cover timing) but must not FAIL.",
+    "alignment": {
+      "verdicts_allowed": ["pass", "warn"],
+      "blocks_readiness": false,
+      "must_not_include_severities": ["fail"]
+    }
+  }
+}
