@@ -8,8 +8,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
-
 from content_lab_api.deps import get_db
 from content_lab_api.models import Org, OutboxEvent, Run
 from content_lab_api.routes._storage import build_signed_download
@@ -18,6 +16,7 @@ from content_lab_api.schemas.packages import (
     PackageDetailOut,
     PackageOutboxNotificationOut,
 )
+from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
 from content_lab_shared.settings import Settings
 from content_lab_storage import (
     CAPTION_VARIANTS_FILENAME,
@@ -83,9 +82,7 @@ def _package_ready_outbox(
     is_failed = st == "failed"
     message: str | None
     if is_pending:
-        message = (
-            "Package-ready notification is still pending; the worker outbox drainer will send it on schedule."
-        )
+        message = "Package-ready notification is still pending; the worker outbox drainer will send it on schedule."
     elif st == "sent":
         message = "Package-ready notification was dispatched from the outbox."
     else:

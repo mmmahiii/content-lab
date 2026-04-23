@@ -1,1 +1,43 @@
-../pyproject.toml
+# Mirrors ../pyproject.toml; paths are relative to this directory.
+[tool.poetry]
+name = "content-lab-editing"
+version = "0.1.0"
+description = "Video/image editing pipeline and Runway adapter integration"
+authors = ["Ryan <you@example.com>"]
+packages = [{ include = "content_lab_editing", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+content-lab-shared = {path = "../../shared/py", develop = true}
+content-lab-core = {path = "../../core", develop = true}
+content-lab-storage = {path = "../../storage", develop = true}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+mypy = "^1.10.0"
+ruff = "^0.4.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["content_lab_editing", "content_lab_core", "content_lab_shared", "content_lab_storage"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: exercises the builder against a live S3-compatible endpoint",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

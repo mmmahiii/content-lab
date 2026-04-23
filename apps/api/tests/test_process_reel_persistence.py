@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from content_lab_runs import RunStatus, TaskStatus
-
 from content_lab_api.services import (
     InMemoryProcessReelRepository,
     ProcessReelPersistenceService,
     StubProcessReelExecutor,
     build_process_reel_persistence_service,
 )
+from content_lab_runs import RunStatus, TaskStatus
 
 
 def test_build_persistence_service_returns_process_reel_persistence() -> None:

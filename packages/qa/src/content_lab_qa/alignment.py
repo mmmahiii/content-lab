@@ -178,18 +178,22 @@ def evaluate_alignment_qa(
     duration = _optional_float(editing_payload.get("duration_seconds"))
     hook_end = _hook_window_end_seconds(hook_scene, scene_plan, duration)
 
+    messaging_base_cov = _coverage(intent_for_metrics, combined_messaging)
+    messaging_cov = _coverage(intent_for_metrics, messaging_with_overlays)
+    prompt_cov = _coverage(intent_for_metrics, provider_prompt)
+    hook_scene_cov = _coverage(intent_for_metrics, hook_scene_blob)
+    caption_only_cov = _coverage(intent_for_metrics, caption_blob)
+
     metrics: dict[str, object] = {
         "intent_token_count": len(intent_for_metrics),
-        "messaging_coverage": _coverage(intent_for_metrics, combined_messaging),
-        "messaging_with_overlays_coverage": _coverage(intent_for_metrics, messaging_with_overlays),
-        "prompt_coverage": _coverage(intent_for_metrics, provider_prompt),
-        "hook_scene_coverage": _coverage(intent_for_metrics, hook_scene_blob),
-        "caption_only_coverage": _coverage(intent_for_metrics, caption_blob),
+        "messaging_coverage": messaging_base_cov,
+        "messaging_with_overlays_coverage": messaging_cov,
+        "prompt_coverage": prompt_cov,
+        "hook_scene_coverage": hook_scene_cov,
+        "caption_only_coverage": caption_only_cov,
     }
 
     findings: list[AlignmentFinding] = []
-
-    messaging_cov = float(metrics["messaging_with_overlays_coverage"])
     if messaging_cov < effective.fail_messaging_coverage:
         findings.append(
             AlignmentFinding(
@@ -203,7 +207,6 @@ def evaluate_alignment_qa(
             )
         )
 
-    prompt_cov = float(metrics["prompt_coverage"])
     if prompt_cov < effective.fail_prompt_coverage:
         findings.append(
             AlignmentFinding(
@@ -219,7 +222,7 @@ def evaluate_alignment_qa(
 
     script_without_captions = f"{hook_text} {narration_blob} {' '.join(overlay_hooks)}".strip()
     script_cov = _coverage(intent_for_metrics, script_without_captions)
-    caption_cov = float(metrics["caption_only_coverage"])
+    caption_cov = caption_only_cov
     if (
         script_cov - caption_cov > effective.warn_caption_messaging_gap
         and script_cov > effective.warn_caption_messaging_gap
@@ -236,7 +239,6 @@ def evaluate_alignment_qa(
             )
         )
 
-    hook_scene_cov = float(metrics["hook_scene_coverage"])
     if (
         hook_scene_blob
         and prompt_cov < effective.warn_hook_scene_prompt_gap
@@ -398,10 +400,16 @@ def _hook_overlay_texts(overlay_timeline: object) -> list[str]:
 def _optional_int(value: object) -> int | None:
     if value is None or isinstance(value, bool):
         return None
-    try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip(), 10)
+        except ValueError:
+            return None
+    if isinstance(value, float):
+        return int(value)
+    return None
 
 
 def _optional_float(value: object) -> float | None:

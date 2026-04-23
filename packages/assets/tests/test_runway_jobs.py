@@ -79,7 +79,7 @@ def test_sanitize_provider_payload_redacts_nested_secrets() -> None:
         },
         "nested": [
             {"access_token": "***REDACTED***"},
-            "***REDACTED***",
+            "api_key=***REDACTED***",
         ],
     }
 

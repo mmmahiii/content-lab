@@ -30,11 +30,7 @@ class _RecordingStore:
         lease_seconds: int = 300,
     ) -> tuple[OutboxEntry, ...]:
         _ = now, lease_seconds
-        pending = [
-            e
-            for e in self._by_id.values()
-            if e.delivery_status == DeliveryStatus.PENDING
-        ]
+        pending = [e for e in self._by_id.values() if e.delivery_status == DeliveryStatus.PENDING]
         return tuple(pending[:limit])
 
     def mark_sent(

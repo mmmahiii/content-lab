@@ -666,9 +666,7 @@ def _normalize_factory_dispatch_mode(value: str) -> str:
     normalized = value.strip()
     if normalized not in _FACTORY_DISPATCH_MODES:
         allowed = ", ".join(sorted(_FACTORY_DISPATCH_MODES))
-        raise ValueError(
-            f"factory_dispatch_mode must be one of ({allowed}), got {value!r}"
-        )
+        raise ValueError(f"factory_dispatch_mode must be one of ({allowed}), got {value!r}")
     return normalized
 
 

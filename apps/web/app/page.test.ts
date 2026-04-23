@@ -64,6 +64,8 @@ const readyDashboard: OperatorDashboardSnapshot = {
         pageName: 'Northwind Fitness',
         reelId: 'reel-1',
         packageStatus: 'pending',
+        outboxSummary: null,
+        outboxBacklog: false,
       },
     ],
   },

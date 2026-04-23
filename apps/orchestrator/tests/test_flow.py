@@ -1110,6 +1110,7 @@ def test_daily_reel_factory_skips_dispatch_when_guardrails_block_page(
         "get_budget_guardrail_checker",
         lambda: BlockingGuardrails(),
     )
+
     def _forbid_process_reel(reel: ReelVariantWorkUnit, **_: object) -> str:
         raise AssertionError(f"process_reel should not run for {reel.reel_id}")
 
@@ -1835,10 +1836,25 @@ def _stub_passing_format_report(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(process_reel_flow_module, "evaluate_format_qa", _fake_format)
 
 
+def _stub_passing_alignment_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    from content_lab_core.types import QAVerdict
+    from content_lab_qa.alignment import AlignmentQAReport
+
+    def _fake_alignment(**_kwargs: Any) -> AlignmentQAReport:
+        return AlignmentQAReport(
+            verdict=QAVerdict.PASS,
+            message="ok",
+            findings=(),
+        )
+
+    monkeypatch.setattr(process_reel_flow_module, "evaluate_alignment_qa", _fake_alignment)
+
+
 def test_process_reel_qa_passes_when_semantic_and_format_are_healthy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_passing_format_report(monkeypatch)
+    _stub_passing_alignment_report(monkeypatch)
     executor = PhaseOneProcessReelExecutor(
         planning_context_loader=FakePlanningContextLoader(),
         asset_resolver=cast(Any, FailingProcessReelAssetResolver()),
@@ -1860,6 +1876,7 @@ def test_process_reel_qa_fails_when_script_is_semantically_weak(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_passing_format_report(monkeypatch)
+    _stub_passing_alignment_report(monkeypatch)
     weak_creative = _strong_creative_output()
     weak_creative["script"]["hook_text"] = "Quick fix:"
     weak_creative["script"]["spoken_script"] = [
@@ -2007,7 +2024,7 @@ def test_process_reel_flow_marks_qa_failed_on_semantically_weak_script(
             raise AssertionError("packaging should not run for semantically failed reel")
 
     executor = WeakSemanticExecutor()
-    service = ProcessReelService(repository=repository, executor=cast(Any, executor))
+    service = ProcessReelPersistenceService(repository=repository, executor=cast(Any, executor))
     event_sink = FakeProcessReelEventSink()
     monkeypatch.setattr(process_reel_flow_module, "build_process_reel_runtime", lambda: service)
     monkeypatch.setattr(

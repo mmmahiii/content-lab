@@ -245,7 +245,9 @@ def outbox_for_run(
     has_backlog = pending > 0
     message: str | None = None
     if has_backlog:
-        message = f"{pending} notification(s) still pending dispatch; worker outbox drainer is active."
+        message = (
+            f"{pending} notification(s) still pending dispatch; worker outbox drainer is active."
+        )
     elif failed > 0 and pending == 0:
         message = f"{failed} outbox event(s) failed delivery; see attempt_count and next_attempt_at for retries."
     elif sent > 0 and not has_backlog:
