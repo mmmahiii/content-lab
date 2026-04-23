@@ -184,6 +184,11 @@ make migrate
 # or: cd apps/api && poetry run alembic upgrade head
 ```
 
+Read-only inspection of runs, tasks, outbox, provider jobs, assets, and
+`run_assets` (aligned with the live ORM) is documented in
+[`docs/RUNTIME_DB_INSPECT.md`](docs/RUNTIME_DB_INSPECT.md); entrypoint:
+`scripts/db_runtime_inspect.py`.
+
 ## Docker (full stack)
 
 Infra only (Postgres + Redis + MinIO):
