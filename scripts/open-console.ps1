@@ -67,12 +67,14 @@ function Invoke-PreflightRevisionCheck {
             $exit = $LASTEXITCODE
         }
 
-        $stderrText = if (Test-Path -LiteralPath $errFile) {
+        $rawErr = if (Test-Path -LiteralPath $errFile) {
             Get-Content -LiteralPath $errFile -Raw
         }
         else {
-            ""
+            $null
         }
+        # Get-Content -Raw can return $null for an empty file; StrictMode rejects $null.Length downstream.
+        $stderrText = if ($null -eq $rawErr) { "" } else { [string]$rawErr }
         return [PSCustomObject]@{
             ExitCode = $exit
             Stdout   = $stdout
@@ -807,7 +809,7 @@ try {
                 $parsed = $null
             }
         }
-        $stderrTail = $pf.Stderr
+        $stderrTail = [string]$pf.Stderr
         if ($stderrTail.Length -gt 2000) {
             $stderrTail = $stderrTail.Substring($stderrTail.Length - 2000)
         }
