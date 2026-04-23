@@ -1,7 +1,10 @@
 import type {
+  JsonObject,
   PackageDetailOut,
   PageOut,
   PolicyStateOut,
+  ProcessReelOperatorDebugOut,
+  ReelDetailOut,
   ReelOut,
   RunDetailOut,
   SignedDownloadOut,
@@ -22,7 +25,7 @@ type PageDetailRecord = {
 
 type ReelDetailRecord = {
   page: PageOut;
-  reel: ReelOut;
+  reel: ReelDetailOut;
   relatedRun: RunDetailOut | null;
   packageDetail: PackageDetailOut | null;
 };
@@ -30,7 +33,7 @@ type ReelDetailRecord = {
 type RunDetailRecord = {
   run: RunDetailOut;
   page: PageOut | null;
-  reel: ReelOut | null;
+  reel: ReelDetailOut | null;
   packageDetail: PackageDetailOut | null;
 };
 
@@ -38,7 +41,7 @@ type PackageRecord = {
   packageDetail: PackageDetailOut;
   run: RunDetailOut;
   page: PageOut | null;
-  reel: ReelOut | null;
+  reel: ReelDetailOut | null;
 };
 
 type WorkspaceSummary = {
@@ -213,6 +216,68 @@ function buildDownload(path: string): SignedDownloadOut {
   };
 }
 
+const demoOperatorDebug: ProcessReelOperatorDebugOut = {
+  creative_trace: {
+    storage_uri: `s3://content-lab/reels/packages/${demoIds.reelId}/creative_trace.json`,
+    schema_version: 'phase_1',
+    artifact_type: 'creative_trace',
+    reel_id: demoIds.reelId,
+    run_id: demoIds.runId,
+    generator: { provider_name: 'demo', generator_path: 'rules_plus_provider' },
+    body: {
+      brief: { title: 'Operator diary opener', narrative_goal: 'Show calm ops wins' },
+      scene_plan: { title: 'Demo beats', beats: [{ id: '1' }, { id: '2' }] },
+    },
+  },
+  scene_plan: {
+    title: 'Demo beats',
+    beats: [
+      { id: '1', label: 'Hook' },
+      { id: '2', label: 'Proof' },
+    ],
+    duration_seconds: 12,
+  },
+  scene_plan_summary: {
+    beat_count: 2,
+    duration_seconds: 12,
+    title: 'Demo beats',
+  },
+  prompt_trace: {
+    steps: [{ role: 'system' }, { role: 'user' }],
+    summary: 'Steady-paced ops explainer with concrete habits.',
+  },
+  prompt_trace_summary: {
+    step_count: 2,
+    excerpt: 'Steady-paced ops explainer with concrete habits.',
+  },
+  qa: {
+    passed: true,
+    verdict: 'pass',
+    semantic_script: {
+      verdict: 'warn',
+      message: 'Hook is clear; one overlay is thin on specifics.',
+      findings: [
+        {
+          code: 'thin_overlay',
+          outcome: 'warn',
+          message: 'Overlay two repeats a generic phrase instead of a concrete win.',
+        },
+        {
+          code: 'cta_balance',
+          outcome: 'warn',
+          message: 'CTA density is borderline for this runtime—watch viewer fatigue.',
+        },
+      ],
+      failure_reasons: [],
+    },
+    format: { verdict: 'pass', message: 'Within technical limits.', failure_reasons: [] },
+    repetition: { gate_name: 'repetition', verdict: 'pass', passed: true, message: 'No block' },
+    alignment: { verdict: 'pass', message: 'Script aligns with brief.', findings: [] },
+    checks: [],
+  },
+  package_qa: { passed: true, message: 'Package complete', checks: [] },
+};
+
 const packagedRun: RunDetailOut = {
   id: demoIds.runId,
   org_id: demoIds.orgId,
@@ -229,6 +294,30 @@ const packagedRun: RunDetailOut = {
     priority: 'high',
   },
   output_payload: {
+    step_outputs: {
+      creative_planning: {
+        brief: {
+          title: 'Operator diary opener',
+          narrative_goal: 'Show calm ops wins without hype',
+          content_pillar: 'operations',
+        },
+        script: {
+          hook_text: 'If your week feels reactive, three habits buy you an hour back.',
+          overlay_timeline: [
+            { start: 0, text: 'Reactive weeks' },
+            { start: 4, text: 'Three habits' },
+          ],
+          caption_variants: [{ variant: 'A', text: 'Habits beat heroics' }],
+          spoken_script: ['Beat intro', 'Beat proof', 'Beat CTA'],
+        },
+        scene_plan: demoOperatorDebug.scene_plan,
+        compiled_prompt: {
+          prompt: 'vertical ops reel, calm educator tone',
+          trace: demoOperatorDebug.prompt_trace,
+        },
+      },
+      qa: demoOperatorDebug.qa as unknown as JsonObject,
+    },
     package: {
       reel_id: demoIds.reelId,
       package_root_uri: `s3://content-lab/reels/packages/${demoIds.reelId}`,
@@ -403,6 +492,7 @@ const packagedRun: RunDetailOut = {
     has_backlog: false,
     summary: 'All recorded outbox events for this run have been dispatched.',
   },
+  operator_debug: demoOperatorDebug,
 };
 
 const factoryRun: RunDetailOut = {
@@ -472,6 +562,7 @@ const factoryRun: RunDetailOut = {
     has_backlog: false,
     summary: null,
   },
+  operator_debug: null,
 };
 
 const packagedArtifactPath = `reels/packages/${demoIds.reelId}`;
@@ -496,6 +587,9 @@ const packageDetail: PackageDetailOut = {
   },
   provenance_uri: `s3://content-lab/${packagedArtifactPath}/provenance.json`,
   provenance_download: buildDownload(`${packagedArtifactPath}/provenance.json`),
+  creative_trace_uri: `s3://content-lab/${packagedArtifactPath}/creative_trace.json`,
+  creative_trace_download: buildDownload(`${packagedArtifactPath}/creative_trace.json`),
+  operator_debug: demoOperatorDebug,
   outbox_notification: {
     event_type: 'process_reel.package_ready',
     delivery_status: 'sent',
@@ -684,7 +778,10 @@ export async function getReelDetail(
   const relatedRun = relatedRunForReel(orgId, reelId);
   return {
     page: currentPage,
-    reel: currentReel,
+    reel: {
+      ...currentReel,
+      operator_debug: relatedRun?.operator_debug ?? null,
+    },
     relatedRun,
     packageDetail: relatedRun === null ? null : findPackage(orgId, relatedRun.id),
   };
@@ -703,11 +800,19 @@ export async function getRunDetail(orgId: string, runId: string): Promise<RunDet
     typeof pageId === 'string' && typeof reelId === 'string'
       ? findReel(orgId, pageId, reelId)
       : null;
+  const reelDetail: ReelDetailOut | null =
+    currentReel === null
+      ? null
+      : {
+          ...currentReel,
+          operator_debug:
+            String(currentReel.id) === String(reelId ?? '') ? run.operator_debug ?? null : null,
+        };
 
   return {
     run,
     page: currentPage,
-    reel: currentReel,
+    reel: reelDetail,
     packageDetail: findPackage(orgId, runId),
   };
 }
@@ -729,11 +834,19 @@ export async function getPackageDetail(
     typeof pageId === 'string' && typeof reelId === 'string'
       ? findReel(orgId, pageId, reelId)
       : null;
+  const reelDetail: ReelDetailOut | null =
+    currentReel === null
+      ? null
+      : {
+          ...currentReel,
+          operator_debug:
+            String(currentReel.id) === String(reelId ?? '') ? run.operator_debug ?? null : null,
+        };
 
   return {
     packageDetail: currentPackage,
     run,
     page: currentPage,
-    reel: currentReel,
+    reel: reelDetail,
   };
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 
+import { CreativeReviewPanel } from '../../../../_components/creative-review-panel';
 import {
   DetailFrame,
   ExternalAction,
@@ -11,6 +12,7 @@ import {
   StatusBadge,
   formatTimestamp,
 } from '../../../../_components/detail-ui';
+import { creativePlanningFromRun, mergeOperatorDebug } from '../../../../_lib/creative-review';
 import {
   pagePath,
   pageRunsPath,
@@ -47,6 +49,14 @@ export default async function PackageDetailPage({
   }
 
   const { packageDetail, run, page, reel } = detail;
+  const pageIdForReview =
+    page?.id ?? (typeof run.input_params.page_id === 'string' ? run.input_params.page_id : '');
+  const reelIdForReview =
+    reel?.id ??
+    packageDetail.reel_id ??
+    (typeof run.input_params.reel_id === 'string' ? run.input_params.reel_id : '');
+  const operatorDebug = mergeOperatorDebug(reel, run, packageDetail);
+  const creativePlanning = creativePlanningFromRun(run);
 
   return (
     <DetailFrame
@@ -107,6 +117,18 @@ export default async function PackageDetailPage({
         },
       ]}
     >
+      {pageIdForReview && reelIdForReview ? (
+        <CreativeReviewPanel
+          orgId={packageDetail.org_id}
+          pageId={pageIdForReview}
+          reelId={reelIdForReview}
+          runId={run.id}
+          operatorDebug={operatorDebug}
+          creativePlanning={creativePlanning}
+          packageDetail={packageDetail}
+        />
+      ) : null}
+
       <SectionCard
         title="Package summary"
         description="Start here to see which run and reel produced the package and where it lives."
