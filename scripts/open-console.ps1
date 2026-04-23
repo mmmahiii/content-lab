@@ -26,6 +26,90 @@ function Invoke-Compose {
     }
 }
 
+function Invoke-PreflightRevisionCheck {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    $errFile = [System.IO.Path]::GetTempFileName()
+    try {
+        if ($env:CONTENT_LAB_PREFLIGHT_DATABASE_URL) {
+            $dbUrl = $env:CONTENT_LAB_PREFLIGHT_DATABASE_URL
+        }
+        else {
+            # Host port must match infra/docker-compose.yml (postgres 5433:5432).
+            $dbUrl = "postgresql+psycopg://contentlab:contentlab@127.0.0.1:5433/contentlab"
+        }
+
+        $poetry = Get-Command poetry -ErrorAction SilentlyContinue
+        $apiDir = Join-Path $RepoRoot "apps/api"
+        if ($poetry -and (Test-Path -LiteralPath (Join-Path $apiDir "pyproject.toml"))) {
+            $savedDbUrl = $env:DATABASE_URL
+            try {
+                $env:DATABASE_URL = $dbUrl
+                Push-Location $apiDir
+                $stdout = & poetry run python migrations/preflight_revision_check.py 2>$errFile
+                $exit = $LASTEXITCODE
+            }
+            finally {
+                if ($null -ne $savedDbUrl) {
+                    $env:DATABASE_URL = $savedDbUrl
+                }
+                else {
+                    Remove-Item -Path Env:DATABASE_URL -ErrorAction SilentlyContinue
+                }
+                Pop-Location
+            }
+        }
+        else {
+            $stdout = docker compose --ansi never -f infra/docker-compose.yml --profile app run --rm api poetry run python migrations/preflight_revision_check.py 2>$errFile
+            $exit = $LASTEXITCODE
+        }
+
+        $stderrText = if (Test-Path -LiteralPath $errFile) {
+            Get-Content -LiteralPath $errFile -Raw
+        }
+        else {
+            ""
+        }
+        return [PSCustomObject]@{
+            ExitCode = $exit
+            Stdout   = $stdout
+            Stderr   = $stderrText
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-PostgresDataVolumeName {
+    $raw = docker compose --ansi never -f infra/docker-compose.yml ps -q postgres 2>$null
+    if (-not $raw) {
+        return $null
+    }
+
+    $containerId = $raw.Trim()
+    if ($containerId.Length -eq 0) {
+        return $null
+    }
+
+    $mountsJson = docker inspect --format '{{json .Mounts}}' $containerId 2>$null
+    if (-not $mountsJson) {
+        return $null
+    }
+
+    $mounts = $mountsJson | ConvertFrom-Json
+    foreach ($mount in $mounts) {
+        if ($mount.Destination -eq '/var/lib/postgresql/data' -and $mount.Name) {
+            return [string]$mount.Name
+        }
+    }
+
+    return $null
+}
+
 function Ensure-Command {
     param(
         [Parameter(Mandatory = $true)]
@@ -708,6 +792,101 @@ try {
     }
     else {
         Write-Host "Applying database migrations..." -ForegroundColor Cyan
+        $postgresVol = Get-PostgresDataVolumeName
+
+        # #region agent log
+        $debugLogPath = Join-Path $RepoRoot "debug-bf703d.log"
+        $pf = Invoke-PreflightRevisionCheck -RepoRoot $RepoRoot
+        $jsonLine = ($pf.Stdout -split "`r?`n") | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
+        $parsed = $null
+        if ($jsonLine) {
+            try {
+                $parsed = $jsonLine | ConvertFrom-Json
+            }
+            catch {
+                $parsed = $null
+            }
+        }
+        $stderrTail = $pf.Stderr
+        if ($stderrTail.Length -gt 2000) {
+            $stderrTail = $stderrTail.Substring($stderrTail.Length - 2000)
+        }
+        $logPayload = [ordered]@{
+            sessionId    = "bf703d"
+            runId        = "preflight"
+            hypothesisId = "H1-H5"
+            location     = "open-console.ps1:ApplyMigrations"
+            message      = "preflight_revision_check"
+            data         = @{
+                exitCode              = $pf.ExitCode
+                postgresVolume        = $postgresVol
+                stderrTail            = $stderrTail
+                parsed                = $parsed
+                H1_unknown_revision   = [bool]($parsed -and $parsed.stale -and $parsed.unknown_script_versions -and $parsed.unknown_script_versions.Count -gt 0)
+                H2_empty_db_mismatch  = [bool]($pf.ExitCode -ne 0 -and $parsed -and (-not $parsed.db_versions -or $parsed.db_versions.Count -eq 0))
+                H3_preflight_failed   = [bool]($pf.ExitCode -eq 1)
+                H4_multiple_unknown   = [bool]($parsed -and $parsed.unknown_script_versions -and $parsed.unknown_script_versions.Count -gt 1)
+                H5_no_postgres_volume = [bool](-not $postgresVol)
+            }
+            timestamp    = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        }
+        Add-Content -LiteralPath $debugLogPath -Value (($logPayload | ConvertTo-Json -Compress -Depth 10))
+        # #endregion
+
+        if ($pf.ExitCode -eq 1) {
+            throw "Migration preflight failed (exit $($pf.ExitCode)). Stdout: $($pf.Stdout) Stderr: $($pf.Stderr)"
+        }
+
+        if ($pf.ExitCode -eq 2) {
+            if ($env:CONTENT_LAB_NO_AUTO_DB_RESET -eq "1") {
+                $bad = if ($parsed -and $parsed.unknown_script_versions) { $parsed.unknown_script_versions -join ', ' } else { "?" }
+                throw "Database reports Alembic revision(s) not in this repo ($bad). Unset CONTENT_LAB_NO_AUTO_DB_RESET to allow resetting the local Postgres volume, or run docker compose -f infra/docker-compose.yml down -v (removes compose volumes)."
+            }
+            if (-not $postgresVol) {
+                throw "Migration preflight reports a stale Alembic revision but could not resolve the Postgres Docker volume name."
+            }
+            Write-Host "Local Postgres has an unknown Alembic revision (not in this repo). Resetting Postgres data volume..." -ForegroundColor Yellow
+            Invoke-Compose -ComposeArgs @("stop", "postgres")
+            Invoke-Compose -ComposeArgs @("rm", "-f", "postgres")
+            docker volume rm $postgresVol
+            if ($LASTEXITCODE -ne 0) {
+                throw "docker volume rm failed for $postgresVol"
+            }
+            Invoke-Compose -ComposeArgs @("up", "-d", "postgres")
+            Wait-ForComposeService -Service "postgres" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds
+
+            $pfAfter = Invoke-PreflightRevisionCheck -RepoRoot $RepoRoot
+            $jsonAfter = ($pfAfter.Stdout -split "`r?`n") | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
+            $parsedAfter = $null
+            if ($jsonAfter) {
+                try {
+                    $parsedAfter = $jsonAfter | ConvertFrom-Json
+                }
+                catch {
+                    $parsedAfter = $null
+                }
+            }
+            # #region agent log
+            $logAfter = [ordered]@{
+                sessionId    = "bf703d"
+                runId        = "post-reset"
+                hypothesisId = "H1-H5"
+                location     = "open-console.ps1:ApplyMigrations"
+                message      = "preflight_revision_check_after_volume_reset"
+                data         = @{
+                    exitCode       = $pfAfter.ExitCode
+                    parsed         = $parsedAfter
+                    stale_after    = if ($parsedAfter) { [bool]$parsedAfter.stale } else { $null }
+                }
+                timestamp    = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            }
+            Add-Content -LiteralPath $debugLogPath -Value (($logAfter | ConvertTo-Json -Compress -Depth 10))
+            # #endregion
+            if ($pfAfter.ExitCode -ne 0) {
+                throw "Migration preflight failed after Postgres reset (exit $($pfAfter.ExitCode)). Stdout: $($pfAfter.Stdout) Stderr: $($pfAfter.Stderr)"
+            }
+        }
+
         Invoke-Compose -ComposeArgs @("--profile", "app", "run", "--rm", "api", "poetry", "run", "alembic", "upgrade", "head")
     }
 

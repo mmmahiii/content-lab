@@ -32,7 +32,7 @@ class NoRegenRunner:
     def run(self) -> dict[str, Any]:
         self._step("Checking prerequisites")
         self._assert_command("docker")
-        self._assert_compose_service_running("postgres")
+        self._wait_for_compose_service_ready("postgres")
         self._wait_for_api()
 
         org_id = self._create_org()
@@ -272,26 +272,68 @@ class NoRegenRunner:
             )
         return payload
 
-    def _assert_compose_service_running(self, service_name: str) -> None:
-        completed = self._run_command(
+    def _wait_for_compose_service_ready(self, service_name: str) -> None:
+        self._step(f"Waiting for Docker Compose service {service_name} to be ready")
+        deadline = time.time() + self.args.health_timeout_seconds
+        last_error: str | None = None
+        while time.time() < deadline:
+            completed = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(self.compose_file),
+                    "ps",
+                    "--status",
+                    "running",
+                    "--services",
+                ],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            running_services = {line.strip() for line in completed.stdout.splitlines() if line.strip()}
+            if service_name not in running_services:
+                last_error = json.dumps(
+                    {"service": service_name, "running_services": sorted(running_services)},
+                    sort_keys=True,
+                )
+                time.sleep(2)
+                continue
+            if self._compose_service_accepting_connections(service_name):
+                return
+            last_error = f"{service_name} is running but not ready yet"
+            time.sleep(2)
+        raise NoRegenFailure(
+            f"Timed out waiting for Docker Compose service {service_name} to be ready. "
+            f"Last observed state: {last_error or 'unknown'}"
+        )
+
+    def _compose_service_accepting_connections(self, service_name: str) -> bool:
+        if service_name != "postgres":
+            return True
+        completed = subprocess.run(
             [
                 "docker",
                 "compose",
                 "-f",
                 str(self.compose_file),
-                "ps",
-                "--status",
-                "running",
-                "--services",
+                "exec",
+                "-T",
+                "postgres",
+                "pg_isready",
+                "-U",
+                self._env_setting("POSTGRES_USER") or "contentlab",
+                "-d",
+                self._env_setting("POSTGRES_DB") or "contentlab",
             ],
-            step=f"compose service check for {service_name}",
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        running_services = {line.strip() for line in completed.stdout.splitlines() if line.strip()}
-        self._assert_true(
-            service_name in running_services,
-            "Expected required Docker Compose service to be running before the regression check.",
-            context={"service": service_name, "running_services": sorted(running_services)},
-        )
+        return completed.returncode == 0
 
     def _postgres_query(self, sql: str) -> list[str]:
         completed = self._run_command(

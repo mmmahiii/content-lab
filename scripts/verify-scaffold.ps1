@@ -3,6 +3,26 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Get-Location).Path
 
+function Invoke-CheckedStep {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Description,
+
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Script
+    )
+
+    & $Script
+
+    if (-not $?) {
+        throw "$Description failed."
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE."
+    }
+}
+
 Write-Host "Verifying Content Lab scaffold from: $repoRoot" -ForegroundColor Cyan
 
 # 1) Check required tools exist
@@ -27,7 +47,9 @@ if (-not (Test-Path ".env")) {
 }
 
 # 3) Start infra
-docker compose -f infra/docker-compose.yml up -d postgres redis minio minio-init | Out-Host
+Invoke-CheckedStep "docker compose up infra" {
+    docker compose -f infra/docker-compose.yml up -d postgres redis minio minio-init | Out-Host
+}
 
 # 4) Wait for infra readiness
 $services = @("postgres","redis","minio")
@@ -56,7 +78,7 @@ foreach ($svc in $services) {
 }
 
 # 5) Install Node workspace deps
-pnpm install | Out-Host
+Invoke-CheckedStep "pnpm install" { pnpm install | Out-Host }
 
 # 6) Install and verify all Python projects
 # Note: most packages keep their Poetry project at `packages/<name>`,
@@ -90,16 +112,22 @@ foreach ($p in $pyProjects) {
     Write-Host "`n==> Checking $p" -ForegroundColor Cyan
     Push-Location $p
     try {
-        poetry install --no-interaction | Out-Host
-        poetry run ruff check . | Out-Host
-        poetry run ruff format --check . | Out-Host
+        Invoke-CheckedStep "poetry install --no-interaction ($p)" {
+            poetry install --no-interaction | Out-Host
+        }
+        Invoke-CheckedStep "poetry run ruff check . ($p)" {
+            poetry run ruff check . | Out-Host
+        }
+        Invoke-CheckedStep "poetry run ruff format --check . ($p)" {
+            poetry run ruff format --check . | Out-Host
+        }
         if (Test-Path "src") {
-            poetry run mypy src | Out-Host
+            Invoke-CheckedStep "poetry run mypy src ($p)" { poetry run mypy src | Out-Host }
         } else {
-            poetry run mypy . | Out-Host
+            Invoke-CheckedStep "poetry run mypy . ($p)" { poetry run mypy . | Out-Host }
         }
         if (Test-Path "tests") {
-            poetry run pytest -q | Out-Host
+            Invoke-CheckedStep "poetry run pytest -q ($p)" { poetry run pytest -q | Out-Host }
         } else {
             Write-Host "No tests directory, skipping pytest" -ForegroundColor DarkYellow
         }
@@ -111,13 +139,15 @@ foreach ($p in $pyProjects) {
 
 # 7) Verify TS/Next workspace
 Write-Host "`n==> Checking Node workspace" -ForegroundColor Cyan
-pnpm lint | Out-Host
-pnpm typecheck | Out-Host
-pnpm test | Out-Host
+Invoke-CheckedStep "pnpm lint" { pnpm lint | Out-Host }
+Invoke-CheckedStep "pnpm typecheck" { pnpm typecheck | Out-Host }
+Invoke-CheckedStep "pnpm test" { pnpm test | Out-Host }
 
 # 8) Verify Docker app images build cleanly
 Write-Host "`n==> Building Docker app images" -ForegroundColor Cyan
-docker compose -f infra/docker-compose.yml --profile app --profile web build | Out-Host
+Invoke-CheckedStep "docker compose build app images" {
+    docker compose -f infra/docker-compose.yml --profile app --profile web build | Out-Host
+}
 
 # 9) API smoke test
 Write-Host "`n==> API smoke test" -ForegroundColor Cyan
@@ -126,7 +156,10 @@ Write-Host "`n==> API smoke test" -ForegroundColor Cyan
 # 10) Orchestrator smoke test
 Write-Host "`n==> Orchestrator smoke test" -ForegroundColor Cyan
 Push-Location "apps/orchestrator"
-$flowOutput = poetry run python -m content_lab_orchestrator.cli run --name verify
+$flowOutput = $null
+Invoke-CheckedStep "orchestrator smoke test command" {
+    $script:flowOutput = poetry run python -m content_lab_orchestrator.cli run --name verify
+}
 Pop-Location
 if ($flowOutput -notmatch "hello verify") {
     throw "Orchestrator flow smoke test failed. Output was: $flowOutput"

@@ -11,6 +11,12 @@ function Invoke-Step {
     Push-Location (Join-Path $RepoRoot $RelativePath)
     try {
         & poetry run pytest $TestFile -q
+        if (-not $?) {
+            throw "pytest failed for $RelativePath/$TestFile."
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "pytest failed for $RelativePath/$TestFile with exit code $LASTEXITCODE."
+        }
     } finally {
         Pop-Location
     }
