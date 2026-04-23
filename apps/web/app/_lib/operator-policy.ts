@@ -1,4 +1,4 @@
-import type { PolicyStateDocument, PolicyStateOut } from '@shared/types';
+import type { PagePolicyStateOut, PolicyStateDocument } from '@shared/types';
 
 import {
   type OperatorContext,
@@ -8,11 +8,16 @@ import {
   resolveOperatorContext,
 } from './operator-dashboard';
 
-type PolicyEditorSource = 'saved' | 'default';
+export type PolicyEditorSource = 'saved' | 'inherited';
+
+/** Maps API page-policy view to editor source; explicit overrides are auditable saves, else inherited effective state. */
+export function policyEditorSourceFromApi(policy: PagePolicyStateOut): PolicyEditorSource {
+  return policy.is_explicit_override ? 'saved' : 'inherited';
+}
 
 export type PolicyEditorRecord = {
   page: OwnedPage;
-  policy: PolicyStateOut | null;
+  policy: PagePolicyStateOut;
   baseline: PolicyStateDocument;
   draft: PolicyStateDocument;
   source: PolicyEditorSource;
@@ -22,29 +27,6 @@ export type PolicyEditorSnapshot = {
   context: OperatorContext;
   policies: Resource<PolicyEditorRecord[]>;
 };
-
-function createDefaultPolicyState(): PolicyStateDocument {
-  return {
-    mode_ratios: {
-      exploit: 0.3,
-      explore: 0.4,
-      mutation: 0.2,
-      chaos: 0.1,
-    },
-    budget: {
-      per_run_usd_limit: 10,
-      daily_usd_limit: 40,
-      monthly_usd_limit: 800,
-    },
-    thresholds: {
-      similarity: {
-        warn_at: 0.72,
-        block_at: 0.88,
-      },
-      min_quality_score: 0.55,
-    },
-  };
-}
 
 function clonePolicyState(policy: PolicyStateDocument): PolicyStateDocument {
   return {
@@ -57,10 +39,7 @@ function clonePolicyState(policy: PolicyStateDocument): PolicyStateDocument {
   };
 }
 
-async function fetchPagePolicy(
-  context: OperatorContext,
-  pageId: string,
-): Promise<PolicyStateOut | null> {
+async function fetchPagePolicy(context: OperatorContext, pageId: string): Promise<PagePolicyStateOut> {
   const response = await fetch(
     `${context.apiBaseUrl}/orgs/${context.orgId}/policy/page/${pageId}`,
     {
@@ -70,10 +49,6 @@ async function fetchPagePolicy(
       },
     },
   );
-
-  if (response.status === 404) {
-    return null;
-  }
 
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`.trim();
@@ -90,7 +65,7 @@ async function fetchPagePolicy(
     throw new Error(detail);
   }
 
-  return (await response.json()) as PolicyStateOut;
+  return (await response.json()) as PagePolicyStateOut;
 }
 
 export async function loadPolicyEditorSnapshot(): Promise<PolicyEditorSnapshot> {
@@ -138,7 +113,7 @@ export async function loadPolicyEditorSnapshot(): Promise<PolicyEditorSnapshot> 
 
   const policies: PolicyEditorRecord[] = [];
   let failedPages = 0;
-  let defaultCount = 0;
+  let inheritedCount = 0;
 
   for (const response of policyResponses) {
     if (response.status !== 'fulfilled') {
@@ -147,16 +122,16 @@ export async function loadPolicyEditorSnapshot(): Promise<PolicyEditorSnapshot> 
     }
 
     const policy = response.value.policy;
-    if (policy === null) {
-      defaultCount += 1;
+    if (!policy.is_explicit_override) {
+      inheritedCount += 1;
     }
 
     policies.push({
       page: response.value.page,
       policy,
-      baseline: clonePolicyState(policy?.state ?? createDefaultPolicyState()),
-      draft: clonePolicyState(policy?.state ?? createDefaultPolicyState()),
-      source: policy === null ? 'default' : 'saved',
+      baseline: clonePolicyState(policy.state),
+      draft: clonePolicyState(policy.state),
+      source: policyEditorSourceFromApi(policy),
     });
   }
 
@@ -183,9 +158,9 @@ export async function loadPolicyEditorSnapshot(): Promise<PolicyEditorSnapshot> 
   }
 
   const notes: string[] = [];
-  if (defaultCount > 0) {
+  if (inheritedCount > 0) {
     notes.push(
-      `${defaultCount} page ${defaultCount === 1 ? 'is' : 'are'} using default phase-1 guardrails until a saved page policy exists.`,
+      `${inheritedCount} page ${inheritedCount === 1 ? 'is' : 'are'} inheriting org-wide or built-in guardrails until a saved page override exists.`,
     );
   }
   if (failedPages > 0) {

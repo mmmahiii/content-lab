@@ -779,7 +779,7 @@ export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
 
 export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }) {
   const records = snapshot.policies.state === 'ready' ? snapshot.policies.data : [];
-  const defaultsCount = records.filter((record) => record.source === 'default').length;
+  const inheritedCount = records.filter((record) => record.source === 'inherited').length;
 
   return (
     <DetailFrame
@@ -796,7 +796,7 @@ export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }
         },
         {
           label: 'What you can do here',
-          value: 'Understand current policy source, compare default versus saved values, and patch safe ranges through the audited route.',
+          value: 'Understand explicit overrides versus inherited guardrails, and patch safe ranges through the audited route.',
         },
         {
           label: 'What comes next',
@@ -813,7 +813,10 @@ export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }
             { label: 'Mode ratios', value: 'Control the balance between safer exploitation and more exploratory generation.' },
             { label: 'Budget guardrails', value: 'Set upper bounds on spend per run, per day, and per month.' },
             { label: 'Thresholds', value: 'Define when similarity warns or blocks and the minimum QA score that work should meet.' },
-            { label: 'Pages on defaults', value: snapshot.policies.state === 'ready' ? defaultsCount : 'Unknown' },
+            {
+              label: 'Pages inheriting',
+              value: snapshot.policies.state === 'ready' ? inheritedCount : 'Unknown',
+            },
           ]}
         />
       </SectionCard>

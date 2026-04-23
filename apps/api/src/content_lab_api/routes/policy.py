@@ -17,6 +17,7 @@ from content_lab_api.models.org import Org
 from content_lab_api.models.page import Page
 from content_lab_api.models.policy_state import PolicyState
 from content_lab_api.schemas.policy import (
+    PagePolicyStateOut,
     PolicyScopeType,
     PolicyStateDocument,
     PolicyStateOut,
@@ -24,6 +25,7 @@ from content_lab_api.schemas.policy import (
     dump_policy_state,
     parse_policy_state,
 )
+from content_lab_api.services.policy_resolution import policy_key, resolve_page_policy_for_read
 from content_lab_shared.logging import ANONYMOUS_ACTOR
 
 router = APIRouter(prefix="/orgs/{org_id}/policy", tags=["policy"])
@@ -65,13 +67,6 @@ def _normalize_niche_scope_id(raw_scope_id: str) -> str:
     return normalized
 
 
-def _policy_key(scope_type: PolicyScopeType, *, scope_id: str | None = None) -> str:
-    if scope_type is PolicyScopeType.GLOBAL:
-        return PolicyScopeType.GLOBAL.value
-    assert scope_id is not None
-    return f"{scope_type.value}:{scope_id}"
-
-
 def _load_policy_document(policy: PolicyState) -> PolicyStateDocument:
     try:
         return parse_policy_state(policy.state)
@@ -82,10 +77,10 @@ def _load_policy_document(policy: PolicyState) -> PolicyStateDocument:
         ) from exc
 
 
-def _get_policy_or_404(db: Session, org_id: uuid.UUID, *, policy_key: str) -> PolicyState:
+def _get_policy_or_404(db: Session, org_id: uuid.UUID, *, policy_key_value: str) -> PolicyState:
     policy = (
         db.query(PolicyState)
-        .filter(PolicyState.org_id == org_id, PolicyState.policy_key == policy_key)
+        .filter(PolicyState.org_id == org_id, PolicyState.policy_key == policy_key_value)
         .one_or_none()
     )
     if policy is None:
@@ -143,28 +138,32 @@ def _upsert_policy(
     scope_type: PolicyScopeType,
     scope_id: str | None,
     body: PolicyStateUpdate,
+    empty_row_baseline: PolicyStateDocument | None = None,
 ) -> PolicyStateOut:
-    policy_key = _policy_key(scope_type, scope_id=scope_id)
+    resolved_key = policy_key(scope_type, scope_id=scope_id)
     policy = (
         db.query(PolicyState)
-        .filter(PolicyState.org_id == org_id, PolicyState.policy_key == policy_key)
+        .filter(PolicyState.org_id == org_id, PolicyState.policy_key == resolved_key)
         .one_or_none()
     )
 
     previous_state = _load_policy_document(policy) if policy is not None else None
-    merged_payload = (
-        previous_state.model_dump(mode="json")
-        if previous_state is not None
-        else PolicyStateDocument().model_dump(mode="json")
-    )
+    if previous_state is not None:
+        merged_payload = previous_state.model_dump(mode="json")
+    elif empty_row_baseline is not None:
+        merged_payload = empty_row_baseline.model_dump(mode="json")
+    else:
+        merged_payload = PolicyStateDocument().model_dump(mode="json")
     changes = body.model_dump(exclude_unset=True, exclude_none=True, mode="json")
     merged_payload.update(changes)
     next_state = PolicyStateDocument.model_validate(merged_payload)
 
+    before_snapshot = previous_state if previous_state is not None else empty_row_baseline
+
     if policy is None:
         created = True
         policy = PolicyState(
-            org_id=org_id, policy_key=policy_key, state=dump_policy_state(next_state)
+            org_id=org_id, policy_key=resolved_key, state=dump_policy_state(next_state)
         )
         policy.org = _get_org_or_404(db, org_id)
         db.add(policy)
@@ -182,9 +181,9 @@ def _upsert_policy(
         payload={
             "scope_type": scope_type.value,
             "scope_id": scope_id,
-            "policy_key": policy_key,
+            "policy_key": resolved_key,
             "updated_fields": sorted(changes),
-            "before": None if previous_state is None else previous_state.model_dump(mode="json"),
+            "before": None if before_snapshot is None else before_snapshot.model_dump(mode="json"),
             "after": next_state.model_dump(mode="json"),
         },
     )
@@ -196,7 +195,7 @@ def _upsert_policy(
 @router.get("/global", response_model=PolicyStateOut)
 def get_global_policy(org_id: uuid.UUID, db: Session = Depends(get_db)) -> PolicyStateOut:
     _get_org_or_404(db, org_id)
-    policy = _get_policy_or_404(db, org_id, policy_key=_policy_key(PolicyScopeType.GLOBAL))
+    policy = _get_policy_or_404(db, org_id, policy_key_value=policy_key(PolicyScopeType.GLOBAL))
     return _serialize_policy(policy, scope_type=PolicyScopeType.GLOBAL, scope_id=None)
 
 
@@ -218,37 +217,45 @@ def update_global_policy(
     )
 
 
-@router.get("/page/{page_id}", response_model=PolicyStateOut)
+@router.get("/page/{page_id}", response_model=PagePolicyStateOut)
 def get_page_policy(
     org_id: uuid.UUID,
     page_id: uuid.UUID,
     db: Session = Depends(get_db),
-) -> PolicyStateOut:
+) -> PagePolicyStateOut:
+    _get_org_or_404(db, org_id)
     page = _get_page_or_404(db, org_id, page_id)
-    policy = _get_policy_or_404(
-        db,
-        org_id,
-        policy_key=_policy_key(PolicyScopeType.PAGE, scope_id=str(page.id)),
-    )
-    return _serialize_policy(policy, scope_type=PolicyScopeType.PAGE, scope_id=str(page.id))
+    return resolve_page_policy_for_read(db, org_id, page.id)
 
 
-@router.patch("/page/{page_id}", response_model=PolicyStateOut)
+@router.patch("/page/{page_id}", response_model=PagePolicyStateOut)
 def update_page_policy(
     org_id: uuid.UUID,
     page_id: uuid.UUID,
     body: PolicyStateUpdate,
     request: Request,
     db: Session = Depends(get_db),
-) -> PolicyStateOut:
+) -> PagePolicyStateOut:
     page = _get_page_or_404(db, org_id, page_id)
-    return _upsert_policy(
+    effective = resolve_page_policy_for_read(db, org_id, page.id)
+    saved = _upsert_policy(
         db,
         request,
         org_id=org_id,
         scope_type=PolicyScopeType.PAGE,
         scope_id=str(page.id),
         body=body,
+        empty_row_baseline=effective.state if not effective.is_explicit_override else None,
+    )
+    return PagePolicyStateOut(
+        id=saved.id,
+        org_id=saved.org_id,
+        scope_type=PolicyScopeType.PAGE,
+        scope_id=saved.scope_id,
+        state=saved.state,
+        updated_at=saved.updated_at,
+        is_explicit_override=True,
+        inherited_from=None,
     )
 
 
@@ -263,7 +270,7 @@ def get_niche_policy(
     policy = _get_policy_or_404(
         db,
         org_id,
-        policy_key=_policy_key(PolicyScopeType.NICHE, scope_id=scope_id),
+        policy_key_value=policy_key(PolicyScopeType.NICHE, scope_id=scope_id),
     )
     return _serialize_policy(policy, scope_type=PolicyScopeType.NICHE, scope_id=scope_id)
 

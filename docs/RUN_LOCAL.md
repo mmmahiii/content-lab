@@ -106,6 +106,18 @@ make migrate
 # or: cd apps/api && poetry run alembic upgrade head
 ```
 
+## 3b. Runtime DB inspection (read-only)
+
+For operator debugging, use the canonical snapshot tool (ORM-aligned, no DML):
+
+```bash
+cd apps/api && poetry run python ../../scripts/db_runtime_inspect.py --org-id <ORG_UUID>
+```
+
+See [`RUNTIME_DB_INSPECT.md`](./RUNTIME_DB_INSPECT.md) for flags and expected JSON
+output. Prefer this over ad-hoc `psql` snippets so column names stay in sync
+with migrations.
+
 ## 4. Python apps
 
 ### Install dependencies
