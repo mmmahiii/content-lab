@@ -1,5 +1,5 @@
 import React from 'react';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import { CreativeReviewPanel } from '../../../../../../_components/creative-review-panel';
 import {
@@ -83,7 +83,7 @@ export default async function ReelDetailPage({
   const detail = await loadOperatorReelDetail(orgId, pageId, reelId);
 
   if (detail === null) {
-    notFound();
+    redirect('/pages');
   }
 
   const { page, reel, relatedRun, packageDetail } = detail;

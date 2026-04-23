@@ -1,5 +1,5 @@
 import React from 'react';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import {
   DetailFrame,
@@ -42,7 +42,7 @@ export default async function RunDetailPage({
   const detail = await loadOperatorRunDetail(orgId, runId);
 
   if (detail === null) {
-    notFound();
+    redirect('/pages');
   }
 
   const { run, page, reel, packageDetail } = detail;

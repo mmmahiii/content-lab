@@ -1,5 +1,5 @@
 import React from 'react';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import { CreativeReviewPanel } from '../../../../_components/creative-review-panel';
 import {
@@ -45,7 +45,7 @@ export default async function PackageDetailPage({
   const detail = await loadOperatorPackageDetail(orgId, runId);
 
   if (detail === null) {
-    notFound();
+    redirect('/pages');
   }
 
   const { packageDetail, run, page, reel } = detail;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import { PageOverviewRouteView } from '../../../../_components/page-workspace';
 import { loadPageWorkspaceSnapshot } from '../../../../_lib/operator-page-workspace';
@@ -13,7 +13,7 @@ export default async function PageDetailPage({
   const snapshot = await loadPageWorkspaceSnapshot(orgId, pageId);
 
   if (snapshot === null) {
-    notFound();
+    redirect('/pages');
   }
 
   return <PageOverviewRouteView snapshot={snapshot} />;
