@@ -2,7 +2,7 @@
 
 import React, { useState, type ChangeEvent } from 'react';
 
-import type { PolicyStateOut } from '@shared/types';
+import type { PagePolicyStateOut } from '@shared/types';
 
 import {
   clonePolicyDocument,
@@ -27,7 +27,7 @@ function formatTimestamp(value: string | null): string {
   }).format(new Date(value));
 }
 
-function FeedbackPanel({ feedback }: { feedback: SubmissionFeedback<PolicyStateOut> }) {
+function FeedbackPanel({ feedback }: { feedback: SubmissionFeedback<PagePolicyStateOut> }) {
   if (feedback.kind === 'idle') {
     return null;
   }
@@ -83,7 +83,7 @@ export function PolicyEditor({
   const [selectedPageId, setSelectedPageId] = useState(records[0]?.page.id ?? '');
   const [actorId, setActorId] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<PolicyEditorField>>({});
-  const [feedback, setFeedback] = useState<SubmissionFeedback<PolicyStateOut>>({ kind: 'idle' });
+  const [feedback, setFeedback] = useState<SubmissionFeedback<PagePolicyStateOut>>({ kind: 'idle' });
   const [pending, setPending] = useState(false);
 
   const selectedRecord =
@@ -152,7 +152,7 @@ export function PolicyEditor({
       route: submission.value.actionPath,
     });
 
-    const result = await submitOperatorRequest<PolicyStateOut>(apiBaseUrl, submission.value);
+    const result = await submitOperatorRequest<PagePolicyStateOut>(apiBaseUrl, submission.value);
     setFeedback(result);
     setPending(false);
 
@@ -163,7 +163,7 @@ export function PolicyEditor({
         policy: payload,
         baseline: clonePolicyDocument(payload.state),
         draft: clonePolicyDocument(payload.state),
-        source: 'saved',
+        source: payload.is_explicit_override ? 'saved' : 'inherited',
       }));
     }
   }
@@ -185,7 +185,7 @@ export function PolicyEditor({
               {policyRecords.map((record) => (
                 <option key={record.page.id} value={record.page.id}>
                   {record.page.displayName} (
-                  {record.source === 'saved' ? 'saved policy' : 'default guardrails'})
+                  {record.source === 'saved' ? 'saved override' : 'inherited guardrails'})
                 </option>
               ))}
             </select>
@@ -200,9 +200,11 @@ export function PolicyEditor({
           <article className="cl-meta-card">
             <strong>Policy source</strong>
             <p className="cl-field-note">
-              {selectedRecord.source === 'saved'
-                ? 'Loaded from the page policy route.'
-                : 'Default phase-1 guardrails ready to save.'}
+              {selectedRecord.policy.is_explicit_override
+                ? 'Saved page override (persisted policy_state row).'
+                : selectedRecord.policy.inherited_from === 'global'
+                  ? 'Inherited org-wide policy. Saving creates an explicit page override.'
+                  : 'Built-in phase-1 defaults (no org-wide policy yet). Saving materialises a page override.'}
             </p>
           </article>
           <article className="cl-meta-card">

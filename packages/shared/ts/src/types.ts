@@ -151,6 +151,20 @@ export interface PolicyStateOut {
   updated_at: ISODateTimeString;
 }
 
+export type PolicyInheritanceSource = 'global' | 'default';
+
+/** Effective page policy, including inherited state when no page-level row exists. */
+export interface PagePolicyStateOut {
+  id: UUID | null;
+  org_id: UUID;
+  scope_type: 'page';
+  scope_id: string | null;
+  state: PolicyStateDocument;
+  updated_at: ISODateTimeString | null;
+  is_explicit_override: boolean;
+  inherited_from: PolicyInheritanceSource | null;
+}
+
 export type ReelOrigin = 'generated' | 'observed';
 
 export type GeneratedReelStatus =
@@ -239,6 +253,53 @@ export interface ReelOut {
   posted_by: string | null;
   created_at: ISODateTimeString;
   updated_at: ISODateTimeString;
+}
+
+/** Creative trace + QA rollup surfaced on run / reel / package detail (API `operator_debug`). */
+export interface CreativeTraceSurfaceOut {
+  storage_uri: string | null;
+  schema_version: string | null;
+  artifact_type: string | null;
+  reel_id: string | null;
+  run_id: string | null;
+  generator: JsonObject;
+  body: JsonObject | null;
+}
+
+export interface ScenePlanSummaryOut {
+  beat_count: number | null;
+  duration_seconds: number | null;
+  title: string | null;
+}
+
+export interface PromptTraceSummaryOut {
+  step_count: number | null;
+  excerpt: string | null;
+}
+
+export interface ProcessReelQASurfaceOut {
+  passed: boolean | null;
+  verdict: string | null;
+  semantic_script: JsonObject | null;
+  format: JsonObject | null;
+  repetition: JsonObject | null;
+  alignment: JsonObject | null;
+  checks: JsonObject[];
+}
+
+export interface ProcessReelOperatorDebugOut {
+  creative_trace: CreativeTraceSurfaceOut | null;
+  scene_plan: JsonObject | null;
+  scene_plan_summary: ScenePlanSummaryOut | null;
+  prompt_trace: JsonObject | null;
+  prompt_trace_summary: PromptTraceSummaryOut | null;
+  qa: ProcessReelQASurfaceOut | null;
+  package_qa: JsonObject | null;
+}
+
+/** GET reel detail — includes optional operator debug from last process-reel summary. */
+export interface ReelDetailOut extends ReelOut {
+  operator_debug: ProcessReelOperatorDebugOut | null;
 }
 
 export type WorkflowKey = 'daily_reel_factory' | 'process_reel';
@@ -331,6 +392,7 @@ export interface RunDetailOut extends RunOut {
   tasks: TaskSummaryOut[];
   task_status_counts: Partial<Record<TaskStatus, number>>;
   outbox: RunOutboxOut;
+  operator_debug: ProcessReelOperatorDebugOut | null;
 }
 
 export interface SignedDownloadOut {
@@ -374,6 +436,9 @@ export interface PackageDetailOut {
   provenance: PackageProvenance;
   provenance_uri: string | null;
   provenance_download: SignedDownloadOut | null;
+  creative_trace_uri: string | null;
+  creative_trace_download: SignedDownloadOut | null;
+  operator_debug: ProcessReelOperatorDebugOut | null;
   artifacts: PackageArtifactOut[];
   outbox_notification: PackageOutboxNotificationOut | null;
   created_at: ISODateTimeString;

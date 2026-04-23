@@ -36,10 +36,25 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
         status="succeeded",
         input_params={"reel_id": str(reel_id)},
         output_payload={
+            "step_outputs": {
+                "qa": {
+                    "passed": True,
+                    "verdict": "pass",
+                    "semantic_script": {
+                        "verdict": "pass",
+                        "findings": [{"code": "package_route_semantic", "outcome": "warn"}],
+                    },
+                    "format": {"verdict": "pass"},
+                    "repetition": {"gate_name": "repetition", "passed": True},
+                    "alignment": {"verdict": "pass"},
+                    "checks": [],
+                },
+            },
             "package": {
                 "reel_id": str(reel_id),
                 "package_root_uri": f"s3://content-lab/reels/packages/{reel_id}",
                 "manifest_uri": f"s3://content-lab/reels/packages/{reel_id}/package_manifest.json",
+                "creative_trace_uri": f"s3://content-lab/reels/packages/{reel_id}/creative_trace.json",
                 "manifest": {
                     "version": 1,
                     "artifact_count": 2,
@@ -67,8 +82,13 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
                         "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/provenance.json",
                         "content_type": "application/json",
                     },
+                    {
+                        "name": "creative_trace",
+                        "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/creative_trace.json",
+                        "content_type": "application/json",
+                    },
                 ],
-            }
+            },
         },
     )
     db_session.add(run)
@@ -104,6 +124,15 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
     assert payload["provenance_download"]["url"].startswith(
         f"http://localhost:9000/content-lab/reels/packages/{reel_id}/provenance.json?"
     )
+    assert payload["creative_trace_uri"] == (
+        f"s3://content-lab/reels/packages/{reel_id}/creative_trace.json"
+    )
+    assert payload["creative_trace_download"]["url"].startswith(
+        f"http://localhost:9000/content-lab/reels/packages/{reel_id}/creative_trace.json?"
+    )
+    operator_debug = payload.get("operator_debug")
+    assert operator_debug is not None
+    assert operator_debug["qa"]["semantic_script"]["findings"][0]["code"] == "package_route_semantic"
     artifacts = {artifact["name"]: artifact for artifact in payload["artifacts"]}
     assert set(artifacts) == {"cover", "final_video"}
     assert artifacts["final_video"]["download"]["url"].startswith(

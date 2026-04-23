@@ -330,6 +330,73 @@ def test_reel_trigger_launches_process_reel_and_creates_bootstrap_task(
     assert [row.action for row in audit_rows] == ["reel.triggered"]
 
 
+def test_run_detail_includes_operator_debug_for_process_reel_summary(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+) -> None:
+    org_id = seeded_run_scope["org_id"]
+    reel_id = str(seeded_run_scope["reel_id"])
+
+    run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="reel_trigger",
+        status="succeeded",
+        input_params={"reel_id": reel_id},
+        run_metadata={},
+        output_payload={
+            "step_outputs": {
+                "creative_planning": {
+                    "scene_plan": {
+                        "title": "Operator debug",
+                        "beats": [{"id": "beat-1"}],
+                        "duration_seconds": 12,
+                    },
+                    "compiled_prompt": {
+                        "trace": {"steps": [{"n": 1}], "summary": "short prompt trace"}
+                    },
+                },
+                "qa": {
+                    "passed": True,
+                    "verdict": "pass",
+                    "semantic_script": {
+                        "verdict": "pass",
+                        "findings": [{"code": "semantic_smoke", "outcome": "warn"}],
+                    },
+                    "format": {"verdict": "pass"},
+                    "repetition": {"gate_name": "repetition", "passed": True},
+                    "alignment": {"verdict": "pass"},
+                    "checks": [],
+                },
+            },
+            "package": {
+                "creative_trace_uri": f"s3://content-lab/reels/packages/{reel_id}/creative_trace.json",
+                "creative_trace": {
+                    "schema_version": "phase_1",
+                    "artifact_type": "creative_trace",
+                    "reel_id": reel_id,
+                    "run_id": "run-debug",
+                    "generator_selection": {"provider_name": "test"},
+                },
+            },
+        },
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.expire_all()
+
+    response = runs_client.get(f"/orgs/{org_id}/runs/{run.id}?expand_debug=true")
+    assert response.status_code == 200
+    payload = response.json()
+    debug = payload.get("operator_debug")
+    assert debug is not None
+    assert debug["qa"]["semantic_script"]["findings"][0]["code"] == "semantic_smoke"
+    assert debug["scene_plan"] is not None
+    assert debug["prompt_trace"] is not None
+    assert debug["creative_trace"]["body"] is not None
+
+
 def test_run_detail_includes_task_summaries(
     runs_client: TestClient,
     db_session: Session,

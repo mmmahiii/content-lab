@@ -13,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
+from content_lab_api.schemas.operator_debug import (
+    ProcessReelOperatorDebugOut,
+    build_process_reel_operator_debug,
+)
 
 
 def _clean_optional_text(value: str | None, *, field_name: str, max_length: int) -> str | None:
@@ -142,6 +146,7 @@ class RunDetailOut(RunOut):
     tasks: list[TaskSummaryOut] = Field(default_factory=list)
     task_status_counts: dict[str, int] = Field(default_factory=dict)
     outbox: RunOutboxOut = Field(default_factory=RunOutboxOut)
+    operator_debug: ProcessReelOperatorDebugOut | None = None
 
 
 def task_to_summary(task: Task) -> TaskSummaryOut:
@@ -184,17 +189,25 @@ def run_to_detail(
     run: Run,
     *,
     outbox: RunOutboxOut | None = None,
+    expand_debug: bool = False,
 ) -> RunDetailOut:
     """Build a detailed run response including task summaries and optional outbox state."""
 
     tasks = sorted(run.tasks, key=lambda task: (task.created_at, task.id))
     counts = Counter(task.status for task in tasks)
     base = run_to_out(run)
+    operator_debug = build_process_reel_operator_debug(
+        workflow_key=run.workflow_key,
+        summary=run.output_payload,
+        tasks=tasks,
+        expand_debug=expand_debug,
+    )
     return RunDetailOut(
         **base.model_dump(),
         tasks=[task_to_summary(task) for task in tasks],
         task_status_counts=dict(sorted(counts.items())),
         outbox=outbox or RunOutboxOut(),
+        operator_debug=operator_debug,
     )
 
 

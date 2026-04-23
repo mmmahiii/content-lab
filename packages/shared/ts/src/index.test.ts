@@ -6,6 +6,7 @@ import type {
   PackageDetailOut,
   PageCreate,
   PageOut,
+  PagePolicyStateOut,
   PolicyStateOut,
   ReelFamilyOut,
   ReelOut,
@@ -196,6 +197,20 @@ describe('shared-ts contracts', () => {
       },
       updated_at: '2026-04-09T10:00:00Z',
     };
+
+    const pagePolicy: PagePolicyStateOut = {
+      id: null,
+      org_id: 'org-1',
+      scope_type: 'page',
+      scope_id: 'page-1',
+      state: policy.state,
+      updated_at: policy.updated_at,
+      is_explicit_override: false,
+      inherited_from: 'global',
+    };
+
+    expectTypeOf(pagePolicy.is_explicit_override).toEqualTypeOf<boolean>();
+    expectTypeOf(pagePolicy.inherited_from).toEqualTypeOf<'global' | 'default' | null>();
 
     const packageDetail: PackageDetailOut = {
       run_id: run.id,

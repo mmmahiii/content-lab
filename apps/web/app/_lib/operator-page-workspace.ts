@@ -2,7 +2,8 @@ import type {
   JsonObject,
   PackageDetailOut,
   PageOut,
-  PolicyStateOut,
+  PagePolicyStateOut,
+  ReelDetailOut,
   ReelOut,
   RunDetailOut,
   RunOut,
@@ -47,13 +48,13 @@ export type PageWorkspaceSnapshot = {
   page: PageOut;
   reels: PageWorkspaceReel[];
   runs: PageWorkspaceRun[];
-  policy: PolicyStateOut | null;
+  policy: PagePolicyStateOut | null;
 };
 
 export type OperatorReelDetailSnapshot = {
   context: WorkspaceContext;
   page: PageOut;
-  reel: ReelOut;
+  reel: ReelDetailOut;
   relatedRun: RunDetailOut | null;
   packageDetail: PackageDetailOut | null;
 };
@@ -62,7 +63,7 @@ export type OperatorRunDetailSnapshot = {
   context: WorkspaceContext;
   run: RunDetailOut;
   page: PageOut | null;
-  reel: ReelOut | null;
+  reel: ReelDetailOut | null;
   packageDetail: PackageDetailOut | null;
 };
 
@@ -71,7 +72,7 @@ export type OperatorPackageDetailSnapshot = {
   packageDetail: PackageDetailOut;
   run: RunDetailOut;
   page: PageOut | null;
-  reel: ReelOut | null;
+  reel: ReelDetailOut | null;
 };
 
 function asRecord(value: unknown): JsonObject | null {
@@ -278,7 +279,7 @@ export async function loadPageWorkspaceSnapshot(
   const [reels, runs, policy] = await Promise.all([
     fetchJson<ReelOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/reels`),
     fetchJson<RunOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/runs`),
-    fetchOptionalJson<PolicyStateOut>(context.apiBaseUrl, `/orgs/${orgId}/policy/page/${pageId}`),
+    fetchJson<PagePolicyStateOut>(context.apiBaseUrl, `/orgs/${orgId}/policy/page/${pageId}`),
   ]);
 
   const pageRuns = buildPageWorkspaceRuns(runs, pageId);
@@ -315,7 +316,10 @@ export async function loadOperatorReelDetail(
   const context = await loadWorkspaceContext(orgId);
   const [page, reel] = await Promise.all([
     fetchOptionalJson<PageOut>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}`),
-    fetchOptionalJson<ReelOut>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/reels/${reelId}`),
+    fetchOptionalJson<ReelDetailOut>(
+      context.apiBaseUrl,
+      `/orgs/${orgId}/pages/${pageId}/reels/${reelId}?expand_debug=true`,
+    ),
   ]);
 
   if (page === null || reel === null) {
@@ -336,13 +340,16 @@ export async function loadOperatorReelDetail(
   const relatedRun =
     relatedRunId === null
       ? null
-      : await fetchOptionalJson<RunDetailOut>(context.apiBaseUrl, `/orgs/${orgId}/runs/${relatedRunId}`);
+      : await fetchOptionalJson<RunDetailOut>(
+          context.apiBaseUrl,
+          `/orgs/${orgId}/runs/${relatedRunId}?expand_debug=true`,
+        );
   const packageDetail =
     relatedRunId === null
       ? null
       : await fetchOptionalJson<PackageDetailOut>(
           context.apiBaseUrl,
-          `/orgs/${orgId}/packages/${relatedRunId}`,
+          `/orgs/${orgId}/packages/${relatedRunId}?expand_debug=true`,
         );
 
   return {
@@ -375,7 +382,10 @@ export async function loadOperatorRunDetail(
   }
 
   const context = await loadWorkspaceContext(orgId);
-  const run = await fetchOptionalJson<RunDetailOut>(context.apiBaseUrl, `/orgs/${orgId}/runs/${runId}`);
+  const run = await fetchOptionalJson<RunDetailOut>(
+    context.apiBaseUrl,
+    `/orgs/${orgId}/runs/${runId}?expand_debug=true`,
+  );
   if (run === null) {
     return null;
   }
@@ -388,11 +398,14 @@ export async function loadOperatorRunDetail(
       : fetchOptionalJson<PageOut>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}`),
     pageId === null || reelId === null
       ? Promise.resolve(null)
-      : fetchOptionalJson<ReelOut>(
+      : fetchOptionalJson<ReelDetailOut>(
           context.apiBaseUrl,
-          `/orgs/${orgId}/pages/${pageId}/reels/${reelId}`,
+          `/orgs/${orgId}/pages/${pageId}/reels/${reelId}?expand_debug=true`,
         ),
-    fetchOptionalJson<PackageDetailOut>(context.apiBaseUrl, `/orgs/${orgId}/packages/${runId}`),
+    fetchOptionalJson<PackageDetailOut>(
+      context.apiBaseUrl,
+      `/orgs/${orgId}/packages/${runId}?expand_debug=true`,
+    ),
   ]);
 
   return {
@@ -426,8 +439,14 @@ export async function loadOperatorPackageDetail(
 
   const context = await loadWorkspaceContext(orgId);
   const [packageDetail, run] = await Promise.all([
-    fetchOptionalJson<PackageDetailOut>(context.apiBaseUrl, `/orgs/${orgId}/packages/${runId}`),
-    fetchOptionalJson<RunDetailOut>(context.apiBaseUrl, `/orgs/${orgId}/runs/${runId}`),
+    fetchOptionalJson<PackageDetailOut>(
+      context.apiBaseUrl,
+      `/orgs/${orgId}/packages/${runId}?expand_debug=true`,
+    ),
+    fetchOptionalJson<RunDetailOut>(
+      context.apiBaseUrl,
+      `/orgs/${orgId}/runs/${runId}?expand_debug=true`,
+    ),
   ]);
 
   if (packageDetail === null || run === null) {
@@ -442,9 +461,9 @@ export async function loadOperatorPackageDetail(
       : fetchOptionalJson<PageOut>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}`),
     pageId === null || reelId === null
       ? Promise.resolve(null)
-      : fetchOptionalJson<ReelOut>(
+      : fetchOptionalJson<ReelDetailOut>(
           context.apiBaseUrl,
-          `/orgs/${orgId}/pages/${pageId}/reels/${reelId}`,
+          `/orgs/${orgId}/pages/${pageId}/reels/${reelId}?expand_debug=true`,
         ),
   ]);
 

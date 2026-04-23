@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -117,6 +118,24 @@ class PolicyStateOut(BaseModel):
     scope_id: str | None = None
     state: PolicyStateDocument
     updated_at: datetime
+
+
+PolicyInheritanceSource = Literal["global", "default"]
+
+
+class PagePolicyStateOut(BaseModel):
+    """Page-scoped policy view, including inherited effective state when no page row exists."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID | None
+    org_id: uuid.UUID
+    scope_type: PolicyScopeType = PolicyScopeType.PAGE
+    scope_id: str | None = None
+    state: PolicyStateDocument
+    updated_at: datetime | None
+    is_explicit_override: bool
+    inherited_from: PolicyInheritanceSource | None = None
 
 
 def parse_policy_state(raw_state: dict[str, object] | None) -> PolicyStateDocument:

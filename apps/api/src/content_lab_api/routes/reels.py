@@ -16,7 +16,13 @@ from content_lab_api.models.org import Org
 from content_lab_api.models.page import Page
 from content_lab_api.models.reel import GeneratedReelStatus, Reel, ReelOrigin
 from content_lab_api.models.reel_family import ReelFamily
-from content_lab_api.schemas.reels import ReelCreate, ReelOut, reel_to_out
+from content_lab_api.schemas.reels import (
+    ReelCreate,
+    ReelDetailOut,
+    ReelOut,
+    reel_to_detail,
+    reel_to_out,
+)
 from content_lab_shared.logging import ANONYMOUS_ACTOR
 
 router = APIRouter(tags=["reels"])
@@ -273,17 +279,18 @@ def list_family_reels(
     return [_serialize_reel(reel, page_id=page_id) for reel in reels]
 
 
-@router.get("/orgs/{org_id}/pages/{page_id}/reels/{reel_id}", response_model=ReelOut)
+@router.get("/orgs/{org_id}/pages/{page_id}/reels/{reel_id}", response_model=ReelDetailOut)
 def get_reel(
     org_id: uuid.UUID,
     page_id: uuid.UUID,
     reel_id: uuid.UUID,
+    expand_debug: bool = Query(False),
     db: Session = Depends(get_db),
-) -> ReelOut:
+) -> ReelDetailOut:
     _get_org_or_404(db, org_id)
     _get_page_or_404(db, org_id, page_id)
     reel = _get_reel_or_404(db, org_id=org_id, page_id=page_id, reel_id=reel_id)
-    return _serialize_reel(reel, page_id=page_id)
+    return reel_to_detail(reel, page_id=page_id, expand_debug=expand_debug)
 
 
 @router.post("/orgs/{org_id}/pages/{page_id}/reels/{reel_id}/approve", response_model=ReelOut)

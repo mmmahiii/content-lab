@@ -31,6 +31,14 @@ import type {
   ResourceState,
   ReviewQueueItem,
 } from '../_lib/operator-dashboard';
+import {
+  normalizeQaFailureFilter,
+  queueItemMatchesQaFailureFilter,
+  reelMatchesQaFailureFilter,
+  resolvedQaFailureClass,
+} from '../_lib/qa-failure-triage';
+import { QaFailedWorkbench, type QaWorkbenchRow } from './qa-failed-workbench';
+import { QaFailureClassBadge, QaFailureGatesSummary } from './qa-failure-badge';
 
 type StatusTone = 'neutral' | 'success' | 'warning' | 'danger';
 
@@ -55,6 +63,39 @@ function buildActionPath(values: Record<string, string | null | undefined>): str
 
 function formatQueueLabel(value: ReviewQueueItem['queueState']): string {
   return value === 'ready_for_review' ? 'ready for review' : formatStatus(value);
+}
+
+function reviewQueueToWorkbenchRows(items: ReviewQueueItem[]): QaWorkbenchRow[] {
+  return items
+    .filter((item) => item.queueState === 'qa_failed')
+    .map((item) => ({
+      id: item.id,
+      pageId: item.pageId,
+      pageName: item.pageName,
+      variantLabel: item.variantLabel,
+      qaFailureClass: resolvedQaFailureClass(item.qaFailureClass),
+      qaFailureGates: item.qaFailureGates,
+      qaFailureNextAction: item.qaFailureNextAction,
+      lastRunId: item.lastRunId,
+    }));
+}
+
+function recentReelsToWorkbenchRows(reels: RecentReel[]): QaWorkbenchRow[] {
+  const blocked = reels
+    .filter((reel) => reel.origin === 'generated')
+    .filter((reel) => reel.status === 'qa_failed' || reel.packageStatus === 'failed')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+
+  return blocked.map((reel) => ({
+    id: reel.id,
+    pageId: reel.pageId,
+    pageName: reel.pageName,
+    variantLabel: reel.variantLabel,
+    qaFailureClass: resolvedQaFailureClass(reel.qaFailureClass),
+    qaFailureGates: reel.qaFailureGates,
+    qaFailureNextAction: reel.qaFailureNextAction,
+    lastRunId: reel.lastRunId,
+  }));
 }
 
 function toneForState(state: ResourceState): StatusTone {
@@ -339,6 +380,19 @@ function ReelsTable({ reels, orgId }: { reels: RecentReel[]; orgId: string | nul
                   <StatusBadge status={reel.status} />
                   <span className="cl-resource-meta">{formatStatus(reel.origin)}</span>
                 </div>
+                {reel.status === 'qa_failed' || reel.packageStatus === 'failed' ? (
+                  <div className="cl-resource-title">
+                    {reel.qaFailureClass ? (
+                      <div className="cl-inline-list">
+                        <QaFailureClassBadge failureClass={reel.qaFailureClass} />
+                      </div>
+                    ) : null}
+                    <QaFailureGatesSummary gates={reel.qaFailureGates} />
+                    {reel.qaFailureNextAction ? (
+                      <span className="cl-resource-meta">{reel.qaFailureNextAction}</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </td>
               <td>
                 <div className="cl-resource-title">
@@ -406,6 +460,19 @@ function QueueTable({ queue, orgId }: { queue: ReviewQueueItem[]; orgId: string 
                   <strong>{formatQueueLabel(item.queueState)}</strong>
                   <span className="cl-resource-meta">Lifecycle state: {formatStatus(item.status)}</span>
                 </div>
+                {item.queueState === 'qa_failed' ? (
+                  <div className="cl-resource-title">
+                    {item.qaFailureClass ? (
+                      <div className="cl-inline-list">
+                        <QaFailureClassBadge failureClass={item.qaFailureClass} />
+                      </div>
+                    ) : null}
+                    <QaFailureGatesSummary gates={item.qaFailureGates} />
+                    {item.qaFailureNextAction ? (
+                      <span className="cl-resource-meta">{item.qaFailureNextAction}</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </td>
               <td>
                 <div className="cl-resource-title">
@@ -673,7 +740,22 @@ export function RunsRouteView({ dashboard }: { dashboard: OperatorDashboardSnaps
   );
 }
 
-export function ReelsRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+export function ReelsRouteView({
+  dashboard,
+  qaFailureFilter,
+}: {
+  dashboard: OperatorDashboardSnapshot;
+  qaFailureFilter?: string;
+}) {
+  const triageFilter = normalizeQaFailureFilter(qaFailureFilter);
+  const reels =
+    dashboard.reels.state === 'ready'
+      ? dashboard.reels.data.filter((reel) => reelMatchesQaFailureFilter(reel, triageFilter))
+      : [];
+
+  const workbenchRows =
+    dashboard.reels.state === 'ready' ? recentReelsToWorkbenchRows(dashboard.reels.data) : [];
+
   return (
     <DetailFrame
       breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Reels' }]}
@@ -697,13 +779,36 @@ export function ReelsRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
         },
       ]}
     >
+      {dashboard.reels.state === 'ready' && workbenchRows.length > 0 ? (
+        <SectionCard
+          title="QA failure triage"
+          description="Separate semantic or compliance issues from packaging and integrity problems. Filters narrow the recent reel list; the triage table always lists every blocked reel."
+        >
+          <QaFailedWorkbench
+            orgId={dashboard.context.orgId}
+            basePath="/reels"
+            activeFilter={triageFilter}
+            rows={workbenchRows}
+          />
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         title="Recent reels"
         description="Every reel row explains state in plain language and links to the next relevant workspace."
         note={dashboard.reels.state === 'ready' ? dashboard.reels.message : undefined}
       >
         {dashboard.reels.state === 'ready' ? (
-          <ReelsTable reels={dashboard.reels.data} orgId={dashboard.context.orgId} />
+          reels.length > 0 ? (
+            <ReelsTable reels={reels} orgId={dashboard.context.orgId} />
+          ) : (
+            <EmptyState
+              title="No reels match this QA filter"
+              message="Clear the failure-class filter to see the full recent reel feed again."
+              tone="neutral"
+              actions={<LinkAction href="/reels" label="Show all reels" tone="primary" />}
+            />
+          )
         ) : (
           <ResourceStateBlock
             title="Reels are not available yet"
@@ -717,8 +822,18 @@ export function ReelsRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
   );
 }
 
-export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnapshot }) {
+export function QueueRouteView({
+  dashboard,
+  qaFailureFilter,
+}: {
+  dashboard: OperatorDashboardSnapshot;
+  qaFailureFilter?: string;
+}) {
   const queue = buildPackageReviewQueue(dashboard);
+  const triageFilter = normalizeQaFailureFilter(qaFailureFilter);
+  const workbenchRows = queue.state === 'ready' ? reviewQueueToWorkbenchRows(queue.data) : [];
+  const filteredQueue =
+    queue.state === 'ready' ? queue.data.filter((item) => queueItemMatchesQaFailureFilter(item, triageFilter)) : [];
   const readyCount = queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'ready_for_review').length : 0;
   const qaFailedCount = queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'qa_failed').length : 0;
   const postedCount = queue.state === 'ready' ? queue.data.filter((item) => item.queueState === 'posted').length : 0;
@@ -757,13 +872,36 @@ export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
         />
       </SectionCard>
 
+      {queue.state === 'ready' && workbenchRows.length > 0 ? (
+        <SectionCard
+          title="QA failure triage"
+          description="QA-failed queue items are grouped by whether the problem is mostly creative or mostly packaging. Filters apply to the working list below while this table keeps the full blocked set visible."
+        >
+          <QaFailedWorkbench
+            orgId={dashboard.context.orgId}
+            basePath="/queue"
+            activeFilter={triageFilter}
+            rows={workbenchRows}
+          />
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         title="Review and posting queue"
         description="Each item explains why it is here and offers direct links to the next safe action."
         note={queue.state === 'ready' ? queue.message : undefined}
       >
         {queue.state === 'ready' ? (
-          <QueueTable queue={queue.data} orgId={dashboard.context.orgId} />
+          filteredQueue.length > 0 ? (
+            <QueueTable queue={filteredQueue} orgId={dashboard.context.orgId} />
+          ) : (
+            <EmptyState
+              title="No queue items match this QA filter"
+              message="Clear the failure-class filter to see ready, QA-failed, and posted items together again."
+              tone="neutral"
+              actions={<LinkAction href="/queue" label="Show full queue" tone="primary" />}
+            />
+          )
         ) : (
           <ResourceStateBlock
             title="Queue items are not available yet"
@@ -779,7 +917,7 @@ export function QueueRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
 
 export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }) {
   const records = snapshot.policies.state === 'ready' ? snapshot.policies.data : [];
-  const defaultsCount = records.filter((record) => record.source === 'default').length;
+  const inheritedCount = records.filter((record) => record.source === 'inherited').length;
 
   return (
     <DetailFrame
@@ -796,7 +934,7 @@ export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }
         },
         {
           label: 'What you can do here',
-          value: 'Understand current policy source, compare default versus saved values, and patch safe ranges through the audited route.',
+          value: 'Understand explicit overrides versus inherited guardrails, and patch safe ranges through the audited route.',
         },
         {
           label: 'What comes next',
@@ -813,7 +951,10 @@ export function PolicyRouteView({ snapshot }: { snapshot: PolicyEditorSnapshot }
             { label: 'Mode ratios', value: 'Control the balance between safer exploitation and more exploratory generation.' },
             { label: 'Budget guardrails', value: 'Set upper bounds on spend per run, per day, and per month.' },
             { label: 'Thresholds', value: 'Define when similarity warns or blocks and the minimum QA score that work should meet.' },
-            { label: 'Pages on defaults', value: snapshot.policies.state === 'ready' ? defaultsCount : 'Unknown' },
+            {
+              label: 'Pages inheriting',
+              value: snapshot.policies.state === 'ready' ? inheritedCount : 'Unknown',
+            },
           ]}
         />
       </SectionCard>

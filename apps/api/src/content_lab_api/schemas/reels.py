@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,11 @@ from content_lab_api.models.reel import (
     ReelOrigin,
     validate_reel_origin_status,
 )
+from content_lab_api.schemas.operator_debug import (
+    ProcessReelOperatorDebugOut,
+    build_process_reel_operator_debug,
+)
+from content_lab_api.services.process_reel import PROCESS_REEL_METADATA_KEY
 
 
 def _clean_text(value: str, *, field_name: str, max_length: int) -> str:
@@ -108,6 +114,14 @@ class ReelOut(BaseModel):
     updated_at: datetime
 
 
+class ReelDetailOut(ReelOut):
+    """Reel detail with optional process-reel operator debug (same card as run/package)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operator_debug: ProcessReelOperatorDebugOut | None = None
+
+
 def _parse_review_info(raw_metadata: dict[str, Any]) -> ReelReviewInfo | None:
     review = raw_metadata.get("review")
     if not isinstance(review, dict):
@@ -152,3 +166,27 @@ def reel_to_out(reel: Reel, *, page_id: uuid.UUID) -> ReelOut:
         created_at=reel.created_at,
         updated_at=reel.updated_at,
     )
+
+
+def reel_to_detail(
+    reel: Reel,
+    *,
+    page_id: uuid.UUID,
+    expand_debug: bool = False,
+) -> ReelDetailOut:
+    """Reel detail including last process-reel summary when present on metadata."""
+
+    base = reel_to_out(reel, page_id=page_id)
+    metadata = dict(reel.metadata_ or {})
+    process_block = metadata.get(PROCESS_REEL_METADATA_KEY)
+    summary = None
+    if isinstance(process_block, Mapping):
+        raw_summary = process_block.get("last_summary")
+        summary = raw_summary if isinstance(raw_summary, Mapping) else None
+    operator_debug = build_process_reel_operator_debug(
+        workflow_key="process_reel",
+        summary=summary,
+        tasks=None,
+        expand_debug=expand_debug,
+    )
+    return ReelDetailOut(**base.model_dump(), operator_debug=operator_debug)

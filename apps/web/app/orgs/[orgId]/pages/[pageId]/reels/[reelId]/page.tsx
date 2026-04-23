@@ -1,6 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 
+import { CreativeReviewPanel } from '../../../../../../_components/creative-review-panel';
 import {
   DetailFrame,
   ExternalAction,
@@ -12,6 +13,7 @@ import {
   formatStatus,
   formatTimestamp,
 } from '../../../../../../_components/detail-ui';
+import { creativePlanningFromRun, mergeOperatorDebug } from '../../../../../../_lib/creative-review';
 import {
   packagePath,
   pagePath,
@@ -86,6 +88,8 @@ export default async function ReelDetailPage({
 
   const { page, reel, relatedRun, packageDetail } = detail;
   const timeline = timelineForStatus(reel.origin, reel.status);
+  const operatorDebug = mergeOperatorDebug(reel, relatedRun, packageDetail);
+  const creativePlanning = creativePlanningFromRun(relatedRun);
 
   return (
     <DetailFrame
@@ -143,6 +147,16 @@ export default async function ReelDetailPage({
           ))}
         </div>
       </SectionCard>
+
+      <CreativeReviewPanel
+        orgId={page.org_id}
+        pageId={page.id}
+        reelId={reel.id}
+        runId={relatedRun?.id ?? null}
+        operatorDebug={operatorDebug}
+        creativePlanning={creativePlanning}
+        packageDetail={packageDetail}
+      />
 
       <SectionCard
         title="Operator detail"

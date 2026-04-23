@@ -106,6 +106,8 @@ describe('operator detail routes', () => {
     );
 
     expect(markup).toContain('Lifecycle timeline');
+    expect(markup).toContain('Creative review');
+    expect(markup).toContain('Semantic QA');
     expect(markup).toContain('Package artifacts');
     expect(markup).toContain('Back to page reels');
     expect(markup).toContain('Download final_video');
@@ -137,6 +139,7 @@ describe('operator detail routes', () => {
       }),
     );
 
+    expect(markup).toContain('Creative review');
     expect(markup).toContain('Provenance');
     expect(markup).toContain('Download manifest');
     expect(markup).toContain('Back to page runs');
