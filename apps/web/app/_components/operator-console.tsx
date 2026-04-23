@@ -682,7 +682,6 @@ export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
         description="If the testing page is missing, create a replacement here and it will appear in the Pages directory for the selected org."
       >
         <PageCreatePanel
-          apiBaseUrl={dashboard.context.apiBaseUrl}
           orgId={dashboard.context.orgId}
         />
       </SectionCard>
