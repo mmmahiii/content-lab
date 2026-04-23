@@ -104,6 +104,66 @@ def seeded_reel_scope(db_session: Session) -> dict[str, uuid.UUID]:
     }
 
 
+def test_get_reel_detail_includes_operator_debug_from_process_reel_metadata(
+    reels_client: TestClient,
+    db_session: Session,
+    seeded_reel_scope: dict[str, uuid.UUID],
+) -> None:
+    org_id = seeded_reel_scope["org_id"]
+    page_id = seeded_reel_scope["page_id"]
+    family_id = seeded_reel_scope["family_id"]
+
+    reel = Reel(
+        org_id=org_id,
+        reel_family_id=family_id,
+        origin=ReelOrigin.GENERATED.value,
+        status=GeneratedReelStatus.READY.value,
+        variant_label="debug-metadata",
+        metadata_={
+            "process_reel": {
+                "last_summary": {
+                    "step_outputs": {
+                        "creative_planning": {
+                            "scene_plan": {"beats": [{"id": "b1"}], "title": "meta plan"},
+                            "compiled_prompt": {"trace": {"steps": [1, 2]}},
+                        },
+                        "qa": {
+                            "passed": False,
+                            "verdict": "fail",
+                            "semantic_script": {
+                                "verdict": "fail",
+                                "findings": [{"code": "reel_meta_semantic"}],
+                            },
+                            "format": {"verdict": "pass"},
+                            "repetition": {},
+                            "alignment": {},
+                            "checks": [],
+                        },
+                    },
+                    "package": {
+                        "creative_trace_uri": "s3://content-lab/reels/packages/reel-meta/creative_trace.json",
+                    },
+                }
+            }
+        },
+    )
+    db_session.add(reel)
+    db_session.flush()
+    db_session.expire_all()
+
+    response = reels_client.get(
+        f"/orgs/{org_id}/pages/{page_id}/reels/{reel.id}?expand_debug=false"
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    debug = payload.get("operator_debug")
+    assert debug is not None
+    assert debug["qa"]["semantic_script"]["findings"][0]["code"] == "reel_meta_semantic"
+    assert debug["scene_plan"] is None
+    assert debug["scene_plan_summary"] is not None
+    assert debug["creative_trace"]["storage_uri"] is not None
+
+
 def test_reel_create_get_and_list_are_scoped_and_audited(
     reels_client: TestClient,
     db_session: Session,

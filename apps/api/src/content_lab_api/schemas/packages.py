@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from content_lab_api.schemas.asset import SignedDownloadOut
+from content_lab_api.schemas.operator_debug import ProcessReelOperatorDebugOut
 
 
 class PackageArtifactOut(BaseModel):
@@ -51,6 +52,9 @@ class PackageDetailOut(BaseModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
     provenance_uri: str | None = None
     provenance_download: SignedDownloadOut | None = None
+    creative_trace_uri: str | None = None
+    creative_trace_download: SignedDownloadOut | None = None
+    operator_debug: ProcessReelOperatorDebugOut | None = None
     artifacts: list[PackageArtifactOut] = Field(default_factory=list)
     outbox_notification: PackageOutboxNotificationOut | None = None
     created_at: datetime

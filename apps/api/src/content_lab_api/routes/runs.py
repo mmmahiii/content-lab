@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import insert, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -400,7 +400,12 @@ def create_run(
 
 
 @router.get("/orgs/{org_id}/runs/{run_id}", response_model=RunDetailOut)
-def get_run(org_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db)) -> RunDetailOut:
+def get_run(
+    org_id: uuid.UUID,
+    run_id: uuid.UUID,
+    expand_debug: bool = Query(False),
+    db: Session = Depends(get_db),
+) -> RunDetailOut:
     run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
     outbox_rows = (
         db.query(OutboxEvent)
@@ -412,7 +417,11 @@ def get_run(org_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db))
         .order_by(OutboxEvent.created_at.asc())
         .all()
     )
-    return run_to_detail(run, outbox=outbox_for_run(outbox_rows))
+    return run_to_detail(
+        run,
+        outbox=outbox_for_run(outbox_rows),
+        expand_debug=expand_debug,
+    )
 
 
 @router.get("/orgs/{org_id}/pages/{page_id}/runs", response_model=list[RunOut])
