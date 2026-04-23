@@ -1,7 +1,7 @@
 import type {
   PackageDetailOut,
   PageOut,
-  PolicyStateOut,
+  PagePolicyStateOut,
   ReelOut,
   RunDetailOut,
   SignedDownloadOut,
@@ -16,7 +16,7 @@ export const demoIds = {
 
 type PageDetailRecord = {
   page: PageOut;
-  policy: PolicyStateOut | null;
+  policy: PagePolicyStateOut | null;
   recentReels: ReelOut[];
 };
 
@@ -113,11 +113,13 @@ const competitorPage: PageOut = {
   updated_at: '2026-04-09T07:10:00.000Z',
 };
 
-const pagePolicy: PolicyStateOut = {
+const pagePolicy: PagePolicyStateOut = {
   id: 'ed70ac85-b7d2-4c67-8f0d-c4ab9280eb54',
   org_id: demoIds.orgId,
   scope_type: 'page',
   scope_id: page.id,
+  is_explicit_override: true,
+  inherited_from: null,
   state: {
     mode_ratios: {
       exploit: 0.35,
