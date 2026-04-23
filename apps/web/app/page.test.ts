@@ -7,12 +7,15 @@ vi.mock('next/navigation', () => ({
     new URLSearchParams(
       'orgId=11111111-1111-4111-8111-111111111111&pageId=22222222-2222-4222-8222-222222222222&reelId=33333333-3333-4333-8333-333333333333',
     ),
+  useRouter: () => ({
+    refresh: () => undefined,
+  }),
   redirect: (href: string) => {
     throw new Error(`REDIRECT:${href}`);
   },
 }));
 
-import { DashboardHomeView, QueueRouteView } from './_components/operator-console';
+import { DashboardHomeView, PagesRouteView, QueueRouteView } from './_components/operator-console';
 import type { OperatorDashboardSnapshot } from './_lib/operator-dashboard';
 import { OperatorConsole } from './operator-console';
 import HomePage from './page';
@@ -181,6 +184,25 @@ describe('HomePage', () => {
     expect(element).not.toBeNull();
     const markup = renderToStaticMarkup(element);
     expect(markup).toContain('Reels');
+  });
+
+  it('renders the pages route with an in-place page creator', () => {
+    const markup = renderToStaticMarkup(
+      createElement(PagesRouteView, {
+        dashboard: {
+          ...readyDashboard,
+          pages: {
+            state: 'empty',
+            data: [],
+            message: 'No owned pages are registered for this org yet.',
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('Create a new page');
+    expect(markup).toContain('Create page');
+    expect(markup).toContain('Testing Page');
   });
 });
 

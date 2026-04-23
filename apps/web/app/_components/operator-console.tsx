@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
+import { PageCreatePanel } from './page-create-panel';
 import {
   DetailFrame,
   LinkAction,
@@ -677,6 +678,16 @@ export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
       ]}
     >
       <SectionCard
+        title="Create a new page"
+        description="If the testing page is missing, create a replacement here and it will appear in the Pages directory for the selected org."
+      >
+        <PageCreatePanel
+          apiBaseUrl={dashboard.context.apiBaseUrl}
+          orgId={dashboard.context.orgId}
+        />
+      </SectionCard>
+
+      <SectionCard
         title="Pages in scope"
         description="Each row tells you what the page is, why it matters, and where to go next."
         note={dashboard.pages.state === 'ready' ? dashboard.pages.message : undefined}
@@ -688,7 +699,9 @@ export function PagesRouteView({ dashboard }: { dashboard: OperatorDashboardSnap
             title="Pages are not available yet"
             state={dashboard.pages.state}
             message={dashboard.pages.message}
-            action={<LinkAction href="/" label="Back to Home" />}
+            action={
+              dashboard.context.orgId ? undefined : <LinkAction href="/" label="Back to Home" />
+            }
           />
         )}
       </SectionCard>
