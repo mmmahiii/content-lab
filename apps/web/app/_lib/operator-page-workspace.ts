@@ -141,6 +141,18 @@ async function loadWorkspaceContext(orgId: string): Promise<WorkspaceContext> {
   }
 }
 
+function apiRequestError(
+  response: Response,
+  apiBaseUrl: string,
+  path: string,
+  kind: 'required' | 'optional',
+): Error {
+  const target = `${apiBaseUrl}${path}`;
+  return new Error(
+    `API request failed (${kind}): ${response.status} ${response.statusText} for ${target}`.trim(),
+  );
+}
+
 async function fetchJson<T>(apiBaseUrl: string, path: string): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     cache: 'no-store',
@@ -150,7 +162,7 @@ async function fetchJson<T>(apiBaseUrl: string, path: string): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`.trim());
+    throw apiRequestError(response, apiBaseUrl, path, 'required');
   }
 
   return (await response.json()) as T;
@@ -169,7 +181,7 @@ async function fetchOptionalJson<T>(apiBaseUrl: string, path: string): Promise<T
   }
 
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`.trim());
+    throw apiRequestError(response, apiBaseUrl, path, 'optional');
   }
 
   return (await response.json()) as T;

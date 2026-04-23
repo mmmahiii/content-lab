@@ -189,12 +189,21 @@ function readBoolean(record: JsonRecord | null, key: string): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
+function firstNonEmptyString(...candidates: (string | undefined)[]): string | undefined {
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 export async function resolveOperatorContext(): Promise<OperatorContext> {
-  const apiBaseUrl = (
-    process.env.CONTENT_LAB_API_BASE_URL ??
-    process.env.NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL ??
-    DEFAULT_API_BASE_URL
-  ).replace(/\/$/, '');
+  const rawBase = firstNonEmptyString(
+    process.env.CONTENT_LAB_API_BASE_URL,
+    process.env.NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL,
+  );
+  const apiBaseUrl = (rawBase ?? DEFAULT_API_BASE_URL).replace(/\/$/, '');
   let cookieOrgId: string | undefined;
 
   try {
