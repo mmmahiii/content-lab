@@ -11,12 +11,12 @@ function firstString(value: string | string[] | undefined): string | undefined {
   return value;
 }
 
-export default async function ReelsPage(
-  props: {
-    searchParams?: Record<string, string | string[] | undefined>;
-  } = {},
-) {
-  const searchParams = props.searchParams ?? {};
+type ReelsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function ReelsPage({ searchParams: searchParamsPromise }: ReelsPageProps) {
+  const searchParams = await searchParamsPromise;
   const dashboard = await loadOperatorDashboard();
   const qaFailureFilter = firstString(searchParams.qaFailure);
 
