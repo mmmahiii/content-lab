@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
-from content_lab_api.models import Org, OutboxEvent, Run
+from content_lab_api.models import Org, OutboxEvent, Run, Task
 from content_lab_api.routes._storage import build_signed_download
+from content_lab_api.schemas.operator_debug import build_process_reel_operator_debug
 from content_lab_api.schemas.packages import (
     PackageArtifactOut,
     PackageDetailOut,
@@ -21,6 +22,7 @@ from content_lab_shared.settings import Settings
 from content_lab_storage import (
     CAPTION_VARIANTS_FILENAME,
     COVER_IMAGE_FILENAME,
+    CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
@@ -31,13 +33,16 @@ from content_lab_storage import (
 
 router = APIRouter(prefix="/orgs/{org_id}/packages", tags=["packages"])
 
-_SUPPORT_ARTIFACT_NAMES = frozenset({"manifest", "package_manifest", "provenance"})
+_SUPPORT_ARTIFACT_NAMES = frozenset(
+    {"manifest", "package_manifest", "provenance", "creative_trace"}
+)
 _PACKAGE_ARTIFACT_FILENAMES = {
     "final_video": FINAL_VIDEO_FILENAME,
     "cover": COVER_IMAGE_FILENAME,
     "caption_variants": CAPTION_VARIANTS_FILENAME,
     "posting_plan": POSTING_PLAN_FILENAME,
     "provenance": PROVENANCE_FILENAME,
+    "creative_trace": CREATIVE_TRACE_FILENAME,
     "manifest": PACKAGE_MANIFEST_FILENAME,
     "package_manifest": PACKAGE_MANIFEST_FILENAME,
 }
@@ -230,11 +235,13 @@ def _validate_package_object_uri(
 def get_package(
     org_id: uuid.UUID,
     run_id: uuid.UUID,
+    expand_debug: bool = Query(False),
     db: Session = Depends(get_db),
 ) -> PackageDetailOut:
     _get_org_or_404(db, org_id)
     run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
     package_payload = _extract_package_payload(run)
+    task_rows = db.query(Task).filter(Task.run_id == run_id).all()
     artifacts = _normalized_artifacts(package_payload)
     manifest_metadata = _coerce_mapping(package_payload.get("manifest"))
     provenance = _coerce_mapping(package_payload.get("provenance"))
@@ -247,6 +254,9 @@ def get_package(
         package_payload.get("provenance_uri")
         or provenance.get("storage_uri")
         or _artifact_uri_by_name(artifacts, "provenance")
+    )
+    creative_trace_uri = package_payload.get("creative_trace_uri") or _artifact_uri_by_name(
+        artifacts, "creative_trace"
     )
 
     reel_uuid = _optional_uuid(
@@ -283,6 +293,21 @@ def get_package(
             str(provenance_uri), reel_id=reel_uuid, artifact_name="provenance"
         )
     )
+    validated_creative_trace_uri = (
+        None
+        if creative_trace_uri is None or reel_uuid is None
+        else _validate_package_object_uri(
+            str(creative_trace_uri), reel_id=reel_uuid, artifact_name="creative_trace"
+        )
+    )
+
+    operator_debug = build_process_reel_operator_debug(
+        workflow_key=run.workflow_key,
+        summary=run.output_payload,
+        tasks=task_rows,
+        expand_debug=expand_debug,
+        package_overlay=package_payload,
+    )
 
     return PackageDetailOut(
         run_id=run.id,
@@ -305,6 +330,13 @@ def get_package(
             if validated_provenance_uri is None
             else build_signed_download(storage_uri=validated_provenance_uri)
         ),
+        creative_trace_uri=validated_creative_trace_uri,
+        creative_trace_download=(
+            None
+            if validated_creative_trace_uri is None
+            else build_signed_download(storage_uri=validated_creative_trace_uri)
+        ),
+        operator_debug=operator_debug,
         artifacts=[
             PackageArtifactOut(
                 name=artifact["name"],
