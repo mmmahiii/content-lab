@@ -7,6 +7,8 @@ import {
   resolveOperatorOrgId,
   type OperatorContextSource,
 } from './operator-context';
+import type { QaFailureClass } from './qa-failure-triage';
+import { triageQaFailure } from './qa-failure-triage';
 
 export type ResourceState = 'ready' | 'empty' | 'error' | 'unconfigured';
 export type PackageStatus = 'ready' | 'failed' | 'pending' | 'not_started';
@@ -47,6 +49,9 @@ export type RecentReel = {
   lastRunId: string | null;
   packageStatus: PackageStatus;
   packageMessage: string | null;
+  qaFailureClass: QaFailureClass | null;
+  qaFailureGates: string[];
+  qaFailureNextAction: string | null;
 };
 
 export type CurrentRun = {
@@ -79,6 +84,9 @@ export type ReviewQueueItem = {
   lastRunId: string | null;
   packageStatus: PackageStatus;
   packageMessage: string | null;
+  qaFailureClass: QaFailureClass | null;
+  qaFailureGates: string[];
+  qaFailureNextAction: string | null;
 };
 
 export type OperatorDashboardSnapshot = {
@@ -331,6 +339,10 @@ async function loadRecentReels(
       const metadata = asRecord(reel.metadata) ?? {};
       const processReel = getProcessReelMetadata(metadata);
       const packageState = derivePackageStatus(metadata);
+      const triage = triageQaFailure(metadata, {
+        reelStatus: reel.status,
+        packageStatus: packageState.status,
+      });
 
       loadedReels.push({
         id: reel.id,
@@ -345,6 +357,9 @@ async function loadRecentReels(
         lastRunId: readString(processReel, 'last_run_id'),
         packageStatus: packageState.status,
         packageMessage: packageState.message,
+        qaFailureClass: triage?.failureClass ?? null,
+        qaFailureGates: triage?.gates ?? [],
+        qaFailureNextAction: triage?.nextAction ?? null,
       });
     }
   }
@@ -608,6 +623,9 @@ export function buildPackageReviewQueue(
         lastRunId: reel.lastRunId,
         packageStatus: reel.packageStatus,
         packageMessage: reel.packageMessage,
+        qaFailureClass: reel.qaFailureClass,
+        qaFailureGates: reel.qaFailureGates,
+        qaFailureNextAction: reel.qaFailureNextAction,
       } satisfies ReviewQueueItem;
     })
     .filter((item): item is ReviewQueueItem => item !== null)

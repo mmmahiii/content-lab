@@ -85,6 +85,9 @@ const readyDashboard: OperatorDashboardSnapshot = {
         lastRunId: 'run-1',
         packageStatus: 'ready',
         packageMessage: 'Package is ready for operator review.',
+        qaFailureClass: null,
+        qaFailureGates: [],
+        qaFailureNextAction: null,
       },
     ],
   },
@@ -170,8 +173,14 @@ describe('HomePage', () => {
 
   it('redirects legacy global routes back to Pages', () => {
     expect(() => RunsPage()).toThrow('REDIRECT:/pages');
-    expect(() => ReelsPage()).toThrow('REDIRECT:/pages');
     expect(() => PolicyPage()).toThrow('REDIRECT:/pages');
+  });
+
+  it('serves the reels route as a dashboard view instead of redirecting', async () => {
+    const element = await ReelsPage({});
+    expect(element).not.toBeNull();
+    const markup = renderToStaticMarkup(element);
+    expect(markup).toContain('Reels');
   });
 });
 
@@ -198,6 +207,9 @@ describe('queue view', () => {
                 lastRunId: 'run-2',
                 packageStatus: 'failed',
                 packageMessage: 'Package QA failed.',
+                qaFailureClass: 'technical',
+                qaFailureGates: ['Package readiness'],
+                qaFailureNextAction: 'Inspect the package from the linked run.',
               },
               {
                 id: 'reel-3',
@@ -212,6 +224,9 @@ describe('queue view', () => {
                 lastRunId: 'run-3',
                 packageStatus: 'ready',
                 packageMessage: 'Package is ready for operator review.',
+                qaFailureClass: null,
+                qaFailureGates: [],
+                qaFailureNextAction: null,
               },
             ],
           },
@@ -225,6 +240,7 @@ describe('queue view', () => {
     expect(markup).toContain('posted');
     expect(markup).toContain('Review in Actions');
     expect(markup).toContain('Open reel detail');
+    expect(markup).toContain('QA failure triage');
   });
 });
 
