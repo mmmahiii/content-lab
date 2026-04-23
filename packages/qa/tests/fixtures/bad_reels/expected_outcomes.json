@@ -7,6 +7,10 @@
       "verdict": "fail",
       "blocks_readiness": true,
       "must_include_fail_codes": ["messaging_drift", "asset_prompt_drift"]
+    },
+    "semantic_script": {
+      "must_not_verdict": "pass",
+      "rationale": "Editorially incoherent bundles must not read as a clean semantic_script pass (would mislead 'ready to review' signals)."
     }
   },
   "well_aligned_baseline": {
@@ -17,6 +21,10 @@
       "verdicts_allowed": ["pass", "warn"],
       "blocks_readiness": false,
       "must_not_include_severities": ["fail"]
+    },
+    "semantic_script": {
+      "verdicts_allowed": ["pass", "warn"],
+      "rationale": "Control reel should not hard-fail the script gate; tighten this manifest if the baseline legitimately regresses to FAIL."
     }
   }
 }

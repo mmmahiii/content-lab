@@ -40,6 +40,9 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    # Python + Alembic + scripts/py_check.sh. The QA package runs twice on purpose: the main
+    # pytest sweep (excluding tests/semantic_reel_regression) and a final lightweight lane
+    # that regresses the semantic_script gate and JSON bad-reel contracts (see docs/SEMANTIC_REEL_REGRESSION_LANE.md).
     env:
       DATABASE_URL: postgresql+psycopg://contentlab:contentlab@localhost:5432/contentlab
       CONTENT_LAB_RUN_API_HEALTH_SMOKE: "0"
@@ -58,5 +61,5 @@ jobs:
           cd apps/api
           poetry install --no-interaction
           poetry run alembic upgrade head
-      - name: Python checks across Poetry projects
+      - name: Python checks (ruff, mypy, pytest, semantic_reel_regression lane)
         run: bash ./scripts/py_check.sh

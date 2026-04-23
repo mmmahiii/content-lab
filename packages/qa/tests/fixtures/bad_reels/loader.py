@@ -48,6 +48,24 @@ def list_case_ids() -> tuple[str, ...]:
     return tuple(case_ids)
 
 
+def list_semantic_script_regression_case_ids() -> tuple[str, ...]:
+    """Bad-reel JSON cases that declare a ``semantic_script`` contract in the outcomes manifest.
+
+    Intersects with :func:`list_case_ids` so manifest-only entries are ignored.
+    """
+
+    manifest = load_expected_outcomes()
+    json_ids = set(list_case_ids())
+    case_ids: list[str] = []
+    for case_id, payload in manifest.items():
+        if not isinstance(payload, dict) or "semantic_script" not in payload:
+            continue
+        sid = str(case_id)
+        if sid in json_ids:
+            case_ids.append(sid)
+    return tuple(sorted(case_ids))
+
+
 def load_bad_reel_case(case_id: str) -> dict[str, Any]:
     """Load a full bad-reel bundle: brief, script, scene_plan, compiled_prompt, editing, asset_resolution."""
 

@@ -82,12 +82,26 @@ for p in "${projects[@]}"; do
     poetry run mypy .
   fi
   if [[ -d tests ]] && has_pytest_targets; then
-    poetry run pytest -q
+    if [[ "$p" == "packages/qa" ]] && [[ -d "tests/semantic_reel_regression" ]]; then
+      echo "  (pytest: excluding tests/semantic_reel_regression — dedicated lane below)"
+      poetry run pytest -q --ignore=tests/semantic_reel_regression
+    else
+      poetry run pytest -q
+    fi
   else
     echo "No collected pytest targets, skipping pytest"
   fi
   popd >/dev/null
 done
+
+# packages/qa: phase-1 semantic gate + JSON bad-reel contract (kept out of the main loop for clarity and CI logs).
+if [[ -d "$repo_root/packages/qa/tests/semantic_reel_regression" ]]; then
+  echo "==> Lane: semantic_reel_regression (bad-but-valid / script gate)"
+  (
+    cd "$repo_root/packages/qa"
+    poetry run pytest -q tests/semantic_reel_regression
+  )
+fi
 
 if is_truthy "${CONTENT_LAB_RUN_API_HEALTH_SMOKE:-0}"; then
   run_api_health_smoke

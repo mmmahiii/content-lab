@@ -102,11 +102,31 @@ foreach ($project in $projects) {
     }
 
     if (Test-HasPytestTargets) {
-      Invoke-CheckedStep "poetry run pytest -q" { poetry run pytest -q }
+      $semanticRegDir = Join-Path $projectPath "tests/semantic_reel_regression"
+      if ($project -eq "packages/qa" -and (Test-Path -LiteralPath $semanticRegDir)) {
+        Write-Host "  (pytest: excluding tests/semantic_reel_regression — dedicated lane below)"
+        Invoke-CheckedStep "poetry run pytest -q" { poetry run pytest -q --ignore=tests/semantic_reel_regression }
+      }
+      else {
+        Invoke-CheckedStep "poetry run pytest -q" { poetry run pytest -q }
+      }
     }
     else {
       Write-Host "No collected pytest targets, skipping pytest"
     }
+  }
+  finally {
+    Pop-Location
+  }
+}
+
+$semanticRegLane = Join-Path $repoRoot "packages/qa\tests\semantic_reel_regression"
+if (Test-Path -LiteralPath $semanticRegLane) {
+  Write-Host "==> Lane: semantic_reel_regression (bad-but-valid / script gate)"
+  $qaRoot = Join-Path $repoRoot "packages/qa"
+  Push-Location $qaRoot
+  try {
+    Invoke-CheckedStep "poetry run pytest (semantic_reel_regression)" { poetry run pytest -q tests/semantic_reel_regression }
   }
   finally {
     Pop-Location
