@@ -124,17 +124,32 @@ function relatedRunIdFromReel(reel: ReelOut): string | null {
   return readString(asRecord(asRecord(reel.metadata)?.process_reel), 'last_run_id');
 }
 
+function normalizeServerApiBaseUrl(value: string): string {
+  const fallback = DEFAULT_API_BASE_URL.replace(/\/$/, '');
+  const trimmed = value.trim();
+  if (trimmed === '' || !/^https?:\/\//i.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed.replace(/\/$/, '');
+}
+
+function buildApiHref(baseInput: string, path: string): string {
+  const base = normalizeServerApiBaseUrl(baseInput);
+  const root = base.endsWith('/') ? base : `${base}/`;
+  return new URL(path, root).toString();
+}
+
 async function loadWorkspaceContext(orgId: string): Promise<WorkspaceContext> {
   try {
     const context = await resolveOperatorContext();
     return {
-      apiBaseUrl: context.apiBaseUrl,
+      apiBaseUrl: normalizeServerApiBaseUrl(context.apiBaseUrl),
       orgId,
       source: context.source,
     };
   } catch {
     return {
-      apiBaseUrl: DEFAULT_API_BASE_URL,
+      apiBaseUrl: normalizeServerApiBaseUrl(DEFAULT_API_BASE_URL),
       orgId,
       source: 'unconfigured',
     };
@@ -143,33 +158,41 @@ async function loadWorkspaceContext(orgId: string): Promise<WorkspaceContext> {
 
 function apiRequestError(
   response: Response,
-  apiBaseUrl: string,
-  path: string,
+  requestHref: string,
   kind: 'required' | 'optional',
 ): Error {
-  const target = `${apiBaseUrl}${path}`;
   return new Error(
-    `API request failed (${kind}): ${response.status} ${response.statusText} for ${target}`.trim(),
+    `API request failed (${kind}): ${response.status} ${response.statusText} for ${requestHref}`.trim(),
   );
 }
 
-async function fetchJson<T>(apiBaseUrl: string, path: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+/**
+ * For org/page-scoped list routes. A missing route or 404 (e.g. version skew) degrades
+ * to an empty list so the page workspace can still render.
+ */
+async function fetchJsonListOrEmpty<T extends object[]>(apiBaseUrl: string, path: string): Promise<T> {
+  const href = buildApiHref(apiBaseUrl, path);
+  const response = await fetch(href, {
     cache: 'no-store',
     headers: {
       Accept: 'application/json',
     },
   });
 
+  if (response.status === 404) {
+    return [] as unknown as T;
+  }
+
   if (!response.ok) {
-    throw apiRequestError(response, apiBaseUrl, path, 'required');
+    throw apiRequestError(response, href, 'required');
   }
 
   return (await response.json()) as T;
 }
 
 async function fetchOptionalJson<T>(apiBaseUrl: string, path: string): Promise<T | null> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const href = buildApiHref(apiBaseUrl, path);
+  const response = await fetch(href, {
     cache: 'no-store',
     headers: {
       Accept: 'application/json',
@@ -181,7 +204,7 @@ async function fetchOptionalJson<T>(apiBaseUrl: string, path: string): Promise<T
   }
 
   if (!response.ok) {
-    throw apiRequestError(response, apiBaseUrl, path, 'optional');
+    throw apiRequestError(response, href, 'optional');
   }
 
   return (await response.json()) as T;
@@ -277,9 +300,9 @@ export async function loadPageWorkspaceSnapshot(
   }
 
   const [reels, runs, policy] = await Promise.all([
-    fetchJson<ReelOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/reels`),
-    fetchJson<RunOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/runs`),
-    fetchJson<PagePolicyStateOut>(context.apiBaseUrl, `/orgs/${orgId}/policy/page/${pageId}`),
+    fetchJsonListOrEmpty<ReelOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/reels`),
+    fetchJsonListOrEmpty<RunOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/runs`),
+    fetchOptionalJson<PagePolicyStateOut>(context.apiBaseUrl, `/orgs/${orgId}/policy/page/${pageId}`),
   ]);
 
   const pageRuns = buildPageWorkspaceRuns(runs, pageId);
@@ -328,7 +351,7 @@ export async function loadOperatorReelDetail(
 
   let relatedRunId = relatedRunIdFromReel(reel);
   if (relatedRunId === null) {
-    const pageRuns = await fetchJson<RunOut[]>(
+    const pageRuns = await fetchJsonListOrEmpty<RunOut[]>(
       context.apiBaseUrl,
       `/orgs/${orgId}/pages/${pageId}/runs`,
     );
