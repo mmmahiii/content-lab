@@ -684,6 +684,20 @@ function Start-OrReuseLocalWeb {
         }
     }
 
+    # Another worktree or stray Node may already own the port; if it serves this URL, do not fail.
+    $listeners = @(Get-PortListeners -Port $port)
+    if ($listeners.Count -gt 0) {
+        try {
+            Wait-ForHttpReady -Url $Url -TimeoutSeconds 5
+            Write-Host "Port $port is already in use and $Url responds; skipping a second Next.js dev server." -ForegroundColor Green
+            Write-Host "Stop the other listener if you need this worktree to own the port, or pass -ConsoleUrl with a different port." -ForegroundColor DarkYellow
+            return
+        }
+        catch {
+            throw (Get-PortOwnerMessage -Port $port)
+        }
+    }
+
     Wait-ForPortFree -Port $port -TimeoutSeconds 30
 
     $repoLiteral = Quote-PowerShellString -Value $RepoRoot
