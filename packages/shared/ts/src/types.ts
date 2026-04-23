@@ -151,6 +151,20 @@ export interface PolicyStateOut {
   updated_at: ISODateTimeString;
 }
 
+export type PolicyInheritanceSource = 'global' | 'default';
+
+/** Effective page policy, including inherited state when no page-level row exists. */
+export interface PagePolicyStateOut {
+  id: UUID | null;
+  org_id: UUID;
+  scope_type: 'page';
+  scope_id: string | null;
+  state: PolicyStateDocument;
+  updated_at: ISODateTimeString | null;
+  is_explicit_override: boolean;
+  inherited_from: PolicyInheritanceSource | null;
+}
+
 export type ReelOrigin = 'generated' | 'observed';
 
 export type GeneratedReelStatus =

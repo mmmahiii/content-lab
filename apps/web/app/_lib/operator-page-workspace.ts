@@ -2,7 +2,7 @@ import type {
   JsonObject,
   PackageDetailOut,
   PageOut,
-  PolicyStateOut,
+  PagePolicyStateOut,
   ReelDetailOut,
   ReelOut,
   RunDetailOut,
@@ -48,7 +48,7 @@ export type PageWorkspaceSnapshot = {
   page: PageOut;
   reels: PageWorkspaceReel[];
   runs: PageWorkspaceRun[];
-  policy: PolicyStateOut | null;
+  policy: PagePolicyStateOut | null;
 };
 
 export type OperatorReelDetailSnapshot = {
@@ -267,7 +267,7 @@ export async function loadPageWorkspaceSnapshot(
   const [reels, runs, policy] = await Promise.all([
     fetchJson<ReelOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/reels`),
     fetchJson<RunOut[]>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}/runs`),
-    fetchOptionalJson<PolicyStateOut>(context.apiBaseUrl, `/orgs/${orgId}/policy/page/${pageId}`),
+    fetchJson<PagePolicyStateOut>(context.apiBaseUrl, `/orgs/${orgId}/policy/page/${pageId}`),
   ]);
 
   const pageRuns = buildPageWorkspaceRuns(runs, pageId);

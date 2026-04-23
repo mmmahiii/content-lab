@@ -46,7 +46,13 @@ function buildActionPath(values: Record<string, string | null | undefined>): str
 }
 
 function policySummaryLabel(snapshot: PageWorkspaceSnapshot): string {
-  return snapshot.policy ? 'Saved policy' : 'Default guardrails';
+  if (snapshot.policy === null) {
+    return 'Policy unavailable';
+  }
+  if (snapshot.policy.is_explicit_override) {
+    return 'Saved override';
+  }
+  return snapshot.policy.inherited_from === 'global' ? 'Inherited (org)' : 'Inherited (defaults)';
 }
 
 function buildTabItems(snapshot: PageWorkspaceSnapshot, currentTab: PageWorkspaceTab): TabItem[] {
@@ -402,27 +408,41 @@ function PageRunsTable({ snapshot }: { snapshot: PageWorkspaceSnapshot }) {
 }
 
 function buildPolicyRecord(snapshot: PageWorkspaceSnapshot): PolicyEditorRecord {
-  const baseline =
-    snapshot.policy?.state ?? {
-      mode_ratios: {
-        exploit: 0.3,
-        explore: 0.4,
-        mutation: 0.2,
-        chaos: 0.1,
+  const fallbackState = {
+    mode_ratios: {
+      exploit: 0.3,
+      explore: 0.4,
+      mutation: 0.2,
+      chaos: 0.1,
+    },
+    budget: {
+      per_run_usd_limit: 10,
+      daily_usd_limit: 40,
+      monthly_usd_limit: 800,
+    },
+    thresholds: {
+      similarity: {
+        warn_at: 0.72,
+        block_at: 0.88,
       },
-      budget: {
-        per_run_usd_limit: 10,
-        daily_usd_limit: 40,
-        monthly_usd_limit: 800,
-      },
-      thresholds: {
-        similarity: {
-          warn_at: 0.72,
-          block_at: 0.88,
-        },
-        min_quality_score: 0.55,
-      },
-    };
+      min_quality_score: 0.55,
+    },
+  };
+
+  const policy =
+    snapshot.policy ??
+    ({
+      id: null,
+      org_id: snapshot.context.orgId,
+      scope_type: 'page' as const,
+      scope_id: snapshot.page.id,
+      state: fallbackState,
+      updated_at: null,
+      is_explicit_override: false,
+      inherited_from: 'default' as const,
+    });
+
+  const baseline = policy.state;
 
   return {
     page: {
@@ -433,7 +453,7 @@ function buildPolicyRecord(snapshot: PageWorkspaceSnapshot): PolicyEditorRecord 
       ownership: snapshot.page.ownership,
       updatedAt: snapshot.page.updated_at,
     },
-    policy: snapshot.policy,
+    policy,
     baseline,
     draft: {
       mode_ratios: { ...baseline.mode_ratios },
@@ -443,7 +463,7 @@ function buildPolicyRecord(snapshot: PageWorkspaceSnapshot): PolicyEditorRecord 
         min_quality_score: baseline.thresholds.min_quality_score,
       },
     },
-    source: snapshot.policy ? 'saved' : 'default',
+    source: policy.is_explicit_override ? 'saved' : 'inherited',
   };
 }
 
