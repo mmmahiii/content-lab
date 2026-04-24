@@ -9,10 +9,10 @@ from content_lab_shared.settings import Settings
 
 
 class TestSettingsDefaults:
-    """All defaults must match the local development stack."""
+    """Declared field defaults (no repo .env); use _env_file=None so local .env cannot override."""
 
     def test_infrastructure_defaults(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         assert (
             s.database_url == "postgresql+psycopg://contentlab:contentlab@localhost:5433/contentlab"
         )
@@ -23,7 +23,7 @@ class TestSettingsDefaults:
         assert s.minio_root_password.get_secret_value() == "minioadmin"
 
     def test_provider_key_defaults(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         assert isinstance(s.runway_api_key, SecretStr)
         assert s.runway_api_key.get_secret_value() == "changeme"
         assert s.runway_api_base_url == "https://api.dev.runwayml.com"
@@ -31,23 +31,23 @@ class TestSettingsDefaults:
         assert s.runway_api_mode == "live"
 
     def test_security_defaults(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         assert isinstance(s.api_key_salt, SecretStr)
         assert s.api_key_salt.get_secret_value() == "changeme-salt"
         assert s.jwt_secret is None
 
     def test_storage_prefix_defaults(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.package_storage_prefix == "packages/"
         assert s.asset_storage_prefix == "assets/"
 
     def test_budget_defaults(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.monthly_budget_usd == 100.0
         assert s.budget_alert_threshold_pct == 80.0
 
     def test_runtime_defaults(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.environment == "local"
         assert s.log_level == "INFO"
 
@@ -65,7 +65,7 @@ class TestSettingsEnvOverride:
             "RUNWAY_API_MODE": "mock",
         }
         with patch.dict(os.environ, overrides, clear=False):
-            s = Settings()
+            s = Settings(_env_file=None)
         assert s.redis_url == "redis://custom:6380/1"
         assert s.jwt_secret is not None
         assert s.jwt_secret.get_secret_value() == "super-secret"
@@ -79,13 +79,13 @@ class TestSecretStrFields:
     """Secret-bearing fields must use SecretStr so they don't leak in repr/str."""
 
     def test_secret_fields_hidden_in_repr(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         text = repr(s)
         assert "minioadmin" not in text or "SecretStr" in text
         assert "changeme" not in text or "SecretStr" in text
 
     def test_secret_fields_hidden_in_json(self) -> None:
-        s = Settings()
+        s = Settings(_env_file=None)
         json_str = s.model_dump_json()
         assert "changeme-salt" not in json_str
         assert '"minio_root_password":"**********"' in json_str

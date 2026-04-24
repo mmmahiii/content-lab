@@ -104,7 +104,7 @@ foreach ($project in $projects) {
     if (Test-HasPytestTargets) {
       $semanticRegDir = Join-Path $projectPath "tests/semantic_reel_regression"
       if ($project -eq "packages/qa" -and (Test-Path -LiteralPath $semanticRegDir)) {
-        Write-Host "  (pytest: excluding tests/semantic_reel_regression — dedicated lane below)"
+        Write-Host "  (pytest: excluding tests/semantic_reel_regression - dedicated lane below)"
         Invoke-CheckedStep "poetry run pytest -q" { poetry run pytest -q --ignore=tests/semantic_reel_regression }
       }
       else {

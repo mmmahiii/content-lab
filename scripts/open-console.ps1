@@ -14,19 +14,6 @@ $BuildFingerprintPath = Join-Path $RepoRoot $(if ($DockerWeb) { ".console-docker
 $ConsoleStatePath = Join-Path $RepoRoot ".console-state.json"
 $ConsoleWebLogPath = Join-Path $RepoRoot ".console-web.log"
 
-function Write-DebugSessionLog {
-    param(
-        [hashtable]$Payload
-    )
-
-    # #region agent log
-    $path = Join-Path $RepoRoot "debug-bf703d.log"
-    $Payload['sessionId'] = 'bf703d'
-    $Payload['timestamp'] = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    Add-Content -LiteralPath $path -Value ($Payload | ConvertTo-Json -Compress -Depth 10)
-    # #endregion
-}
-
 function Invoke-Compose {
     param(
         [Parameter(Mandatory = $true)]
@@ -480,56 +467,6 @@ function Wait-ForHttpReady {
 
         Start-Sleep -Seconds 2
     }
-
-    # #region agent log
-    $uri = [Uri]$Url
-    $portNum = if ($uri.Port -gt 0) { $uri.Port } else { 80 }
-    $tcp127 = $null
-    $tcpLoc = $null
-    try {
-        $tcp127 = Test-NetTCPConnection -ComputerName 127.0.0.1 -Port $portNum -WarningAction SilentlyContinue
-    }
-    catch {
-        $tcp127 = $null
-    }
-    try {
-        $tcpLoc = Test-NetTCPConnection -ComputerName localhost -Port $portNum -WarningAction SilentlyContinue
-    }
-    catch {
-        $tcpLoc = $null
-    }
-    $altLocal = "http://localhost:$portNum/"
-    $hit127 = $false
-    $hitLoc = $false
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 3 -ErrorAction Stop | Out-Null
-        $hit127 = $true
-    }
-    catch {
-        $hit127 = $false
-    }
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri $altLocal -TimeoutSec 3 -ErrorAction Stop | Out-Null
-        $hitLoc = $true
-    }
-    catch {
-        $hitLoc = $false
-    }
-    Write-DebugSessionLog @{
-        hypothesisId = 'H1-H5'
-        location     = 'Wait-ForHttpReady:timeout'
-        message      = 'http_ready_timeout_probes'
-        runId        = 'pre-fix'
-        data         = @{
-            requestedUrl        = $Url
-            port                = $portNum
-            tcpOk127            = [bool]($tcp127 -and $tcp127.TcpTestSucceeded)
-            tcpOkLocalhost      = [bool]($tcpLoc -and $tcpLoc.TcpTestSucceeded)
-            webRequest127       = $hit127
-            webRequestLocalhost = $hitLoc
-        }
-    }
-    # #endregion
 
     throw "Timed out waiting for $Url"
 }
