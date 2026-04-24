@@ -55,7 +55,9 @@ def test_assets_asset_key_hash_unique_per_org(db_session: Session, org_id: uuid.
         )
 
 
-def test_assets_asset_key_unique_per_org(db_session: Session, org_id: uuid.UUID) -> None:
+def test_assets_asset_key_can_repeat_per_org_when_hashes_differ(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
     key = '{"asset_class":"clip","provider":"runway"}'
     db_session.execute(
         insert(Asset).values(
@@ -67,16 +69,33 @@ def test_assets_asset_key_unique_per_org(db_session: Session, org_id: uuid.UUID)
         ),
     )
     db_session.flush()
-    with pytest.raises(IntegrityError):
-        db_session.execute(
-            insert(Asset).values(
-                id=uuid.uuid4(),
-                org_id=org_id,
-                asset_class="clip",
-                storage_uri="s3://b/key-2",
-                asset_key=key,
-            ),
-        )
+    db_session.execute(
+        insert(Asset).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            asset_class="clip",
+            storage_uri="s3://b/key-2",
+            asset_key=key,
+            asset_key_hash="f" * 64,
+        ),
+    )
+    db_session.flush()
+
+
+def test_assets_asset_key_accepts_long_serialized_payload(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    long_key = '{"asset_class":"clip","prompt":"' + ("very-long-prompt-" * 64) + '"}'
+    db_session.execute(
+        insert(Asset).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            asset_class="clip",
+            storage_uri="s3://b/long-key",
+            asset_key=long_key,
+        ),
+    )
+    db_session.flush()
 
 
 def test_assets_multiple_null_asset_key_hash_allowed(

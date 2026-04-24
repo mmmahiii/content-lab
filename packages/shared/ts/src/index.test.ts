@@ -168,6 +168,7 @@ describe('shared-ts contracts', () => {
         has_backlog: false,
         summary: null,
       },
+      operator_debug: null,
     };
 
     const policy: PolicyStateOut = {
@@ -238,6 +239,9 @@ describe('shared-ts contracts', () => {
         url: 'http://localhost:9000/content-lab/reels/packages/reel-1/provenance.json',
         expires_at: '2026-04-09T10:15:00Z',
       },
+      creative_trace_uri: null,
+      creative_trace_download: null,
+      operator_debug: null,
       artifacts: [
         {
           name: 'final_video',
@@ -405,6 +409,7 @@ describe('shared-ts contracts', () => {
         has_backlog: false,
         summary: null,
       },
+      operator_debug: null,
     };
 
     const packageDetail: PackageDetailOut = {
@@ -432,6 +437,9 @@ describe('shared-ts contracts', () => {
         url: 'http://localhost:9000/content-lab/reels/packages/reel/provenance.json?sig=1',
         expires_at: '2026-04-09T13:00:00.000Z',
       },
+      creative_trace_uri: null,
+      creative_trace_download: null,
+      operator_debug: null,
       artifacts: [
         {
           name: 'final_video',

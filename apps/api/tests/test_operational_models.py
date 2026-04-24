@@ -17,12 +17,12 @@ from content_lab_api.models import Asset, OutboxEvent, Run
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_alembic_single_head_is_0008() -> None:
-    """Migration smoke: revision graph loads and head is 0008 (linear merged history)."""
+def test_alembic_single_head_is_0009() -> None:
+    """Migration smoke: revision graph loads and head is 0009."""
     cfg = Config(str(API_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["0008"]
+    assert heads == ["0009"]
 
 
 def test_alembic_down_revision_chain() -> None:
@@ -47,9 +47,10 @@ def _partial_unique_index_names(table: Table) -> set[str]:
     return names
 
 
-def test_asset_org_scoped_asset_key_uniqueness_index() -> None:
+def test_asset_org_scoped_asset_key_hash_uniqueness_index() -> None:
     partial = _partial_unique_index_names(cast(Table, Asset.__table__))
-    assert "uq_assets_org_asset_key" in partial
+    assert "uq_assets_org_asset_key_hash" in partial
+    assert "uq_assets_org_asset_key" not in partial
 
 
 def test_run_org_scoped_idempotency_uniqueness_index() -> None:
@@ -72,6 +73,11 @@ def test_asset_default_field_values() -> None:
     assert asset.asset_key is None
     assert asset.content_hash is None
     assert asset.phash is None
+
+
+def test_asset_key_column_uses_text_storage() -> None:
+    asset_key_column = cast(Table, Asset.__table__).c.asset_key
+    assert asset_key_column.type.__class__.__name__ == "Text"
 
 
 def test_run_default_field_values() -> None:

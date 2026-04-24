@@ -19,9 +19,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from content_lab_api.models import Org, ProviderJob, Task
 
 API_ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_FILE = (
+MIGRATION_FILE_0008 = (
     API_ROOT / "migrations" / "versions" / "0008_policy_tasks_provider_audit_integrity.py"
 )
+MIGRATION_FILE_0009 = API_ROOT / "migrations" / "versions" / "0009_widen_asset_key_storage.py"
 
 
 def _integration_database_url() -> str:
@@ -52,7 +53,7 @@ def _integration_engine_or_skip() -> Engine:
 
 
 def test_revision_0008_module_wires_alembic_chain() -> None:
-    spec = importlib.util.spec_from_file_location("content_lab_alembic_0008", MIGRATION_FILE)
+    spec = importlib.util.spec_from_file_location("content_lab_alembic_0008", MIGRATION_FILE_0008)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -60,11 +61,20 @@ def test_revision_0008_module_wires_alembic_chain() -> None:
     assert mod.down_revision == "0007"
 
 
-def test_alembic_script_head_is_0008() -> None:
+def test_revision_0009_module_wires_alembic_chain() -> None:
+    spec = importlib.util.spec_from_file_location("content_lab_alembic_0009", MIGRATION_FILE_0009)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.revision == "0009"
+    assert mod.down_revision == "0008"
+
+
+def test_alembic_script_head_is_0009() -> None:
     cfg = Config(str(API_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["0008"]
+    assert heads == ["0009"]
 
 
 def test_task_table_has_org_idempotency_unique_constraint() -> None:
