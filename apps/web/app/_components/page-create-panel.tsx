@@ -7,7 +7,6 @@ import { useState, useTransition, type FormEvent } from 'react';
 import type { PageCreate, PageOut } from '@shared/types';
 
 type PageCreatePanelProps = {
-  apiBaseUrl: string;
   orgId: string | null;
 };
 
@@ -30,7 +29,7 @@ function normalizeOptional(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function PageCreatePanel({ apiBaseUrl, orgId }: PageCreatePanelProps) {
+export function PageCreatePanel({ orgId }: PageCreatePanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -70,7 +69,7 @@ export function PageCreatePanel({ apiBaseUrl, orgId }: PageCreatePanelProps) {
     };
 
     try {
-      const response = await fetch(`${apiBaseUrl}/orgs/${orgId}/pages`, {
+      const response = await fetch(`/api/orgs/${orgId}/pages`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',

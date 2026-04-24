@@ -1,5 +1,12 @@
 param(
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
+    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$Refresh,
+    [string]$ConsoleUrl = "http://127.0.0.1:3000",
+    [int]$MaxWaitSeconds = 240,
+    [switch]$NoBrowser,
+    [switch]$SkipBuild,
+    [switch]$Rebuild,
+    [switch]$DockerWeb
 )
 
 Set-StrictMode -Version Latest
@@ -69,6 +76,33 @@ try {
     }
 
     Write-Host "Content Lab stack stopped." -ForegroundColor Green
+
+    if ($Refresh) {
+        Write-Host "Restarting Content Lab stack..." -ForegroundColor Cyan
+        $openArgs = @{
+            RepoRoot = $RepoRoot
+            ConsoleUrl = $ConsoleUrl
+            MaxWaitSeconds = $MaxWaitSeconds
+        }
+
+        if ($NoBrowser) {
+            $openArgs.NoBrowser = $true
+        }
+
+        if ($SkipBuild) {
+            $openArgs.SkipBuild = $true
+        }
+
+        if ($Rebuild) {
+            $openArgs.Rebuild = $true
+        }
+
+        if ($DockerWeb) {
+            $openArgs.DockerWeb = $true
+        }
+
+        & (Join-Path $PSScriptRoot "open-console.ps1") @openArgs
+    }
 }
 finally {
     Pop-Location
