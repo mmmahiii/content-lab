@@ -810,8 +810,6 @@ try {
         Write-Host "Applying database migrations..." -ForegroundColor Cyan
         $postgresVol = Get-PostgresDataVolumeName
 
-        # #region agent log
-        $debugLogPath = Join-Path $RepoRoot "debug-bf703d.log"
         $pf = Invoke-PreflightRevisionCheck -RepoRoot $RepoRoot
         $jsonLine = ($pf.Stdout -split "`r?`n") | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
         $parsed = $null
@@ -823,31 +821,6 @@ try {
                 $parsed = $null
             }
         }
-        $stderrTail = [string]$pf.Stderr
-        if ($stderrTail.Length -gt 2000) {
-            $stderrTail = $stderrTail.Substring($stderrTail.Length - 2000)
-        }
-        $logPayload = [ordered]@{
-            sessionId    = "bf703d"
-            runId        = "preflight"
-            hypothesisId = "H1-H5"
-            location     = "open-console.ps1:ApplyMigrations"
-            message      = "preflight_revision_check"
-            data         = @{
-                exitCode              = $pf.ExitCode
-                postgresVolume        = $postgresVol
-                stderrTail            = $stderrTail
-                parsed                = $parsed
-                H1_unknown_revision   = [bool]($parsed -and $parsed.stale -and $parsed.unknown_script_versions -and $parsed.unknown_script_versions.Count -gt 0)
-                H2_empty_db_mismatch  = [bool]($pf.ExitCode -ne 0 -and $parsed -and (-not $parsed.db_versions -or $parsed.db_versions.Count -eq 0))
-                H3_preflight_failed   = [bool]($pf.ExitCode -eq 1)
-                H4_multiple_unknown   = [bool]($parsed -and $parsed.unknown_script_versions -and $parsed.unknown_script_versions.Count -gt 1)
-                H5_no_postgres_volume = [bool](-not $postgresVol)
-            }
-            timestamp    = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        }
-        Add-Content -LiteralPath $debugLogPath -Value (($logPayload | ConvertTo-Json -Compress -Depth 10))
-        # #endregion
 
         if ($pf.ExitCode -eq 1) {
             throw "Migration preflight failed (exit $($pf.ExitCode)). Stdout: $($pf.Stdout) Stderr: $($pf.Stderr)"
@@ -872,32 +845,6 @@ try {
             Wait-ForComposeService -Service "postgres" -AcceptedStatus @("healthy", "running") -TimeoutSeconds $MaxWaitSeconds
 
             $pfAfter = Invoke-PreflightRevisionCheck -RepoRoot $RepoRoot
-            $jsonAfter = ($pfAfter.Stdout -split "`r?`n") | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
-            $parsedAfter = $null
-            if ($jsonAfter) {
-                try {
-                    $parsedAfter = $jsonAfter | ConvertFrom-Json
-                }
-                catch {
-                    $parsedAfter = $null
-                }
-            }
-            # #region agent log
-            $logAfter = [ordered]@{
-                sessionId    = "bf703d"
-                runId        = "post-reset"
-                hypothesisId = "H1-H5"
-                location     = "open-console.ps1:ApplyMigrations"
-                message      = "preflight_revision_check_after_volume_reset"
-                data         = @{
-                    exitCode       = $pfAfter.ExitCode
-                    parsed         = $parsedAfter
-                    stale_after    = if ($parsedAfter) { [bool]$parsedAfter.stale } else { $null }
-                }
-                timestamp    = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-            }
-            Add-Content -LiteralPath $debugLogPath -Value (($logAfter | ConvertTo-Json -Compress -Depth 10))
-            # #endregion
             if ($pfAfter.ExitCode -ne 0) {
                 throw "Migration preflight failed after Postgres reset (exit $($pfAfter.ExitCode)). Stdout: $($pfAfter.Stdout) Stderr: $($pfAfter.Stderr)"
             }
