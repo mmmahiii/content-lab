@@ -7,7 +7,6 @@ from pydantic import SecretStr
 
 from content_lab_shared.settings import Settings
 
-
 DEFAULT_TEST_ENV = {
     "DATABASE_URL": "postgresql+psycopg://contentlab:contentlab@localhost:5433/contentlab",
     "REDIS_URL": "redis://localhost:6379/0",
