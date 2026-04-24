@@ -180,7 +180,7 @@ describe('HomePage', () => {
   });
 
   it('serves the reels route as a dashboard view instead of redirecting', async () => {
-    const element = await ReelsPage({});
+    const element = await ReelsPage({ searchParams: Promise.resolve({}) });
     expect(element).not.toBeNull();
     const markup = renderToStaticMarkup(element);
     expect(markup).toContain('Reels');
