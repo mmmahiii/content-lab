@@ -135,9 +135,7 @@ def _qa_surface_from_mapping(qa_payload: Mapping[str, Any]) -> ProcessReelQASurf
         ),
         format=dict(details["format"]) if isinstance(details.get("format"), Mapping) else None,
         repetition=(
-            dict(details["repetition"])
-            if isinstance(details.get("repetition"), Mapping)
-            else None
+            dict(details["repetition"]) if isinstance(details.get("repetition"), Mapping) else None
         ),
         alignment=(
             dict(details["alignment"]) if isinstance(details.get("alignment"), Mapping) else None
@@ -168,9 +166,7 @@ def _creative_trace_surface(
     uri = package_payload.get("creative_trace_uri")
     storage_uri = str(uri).strip() if uri is not None and str(uri).strip() else None
     inline = package_payload.get("creative_trace")
-    trace_dict: dict[str, Any] = (
-        dict(inline) if isinstance(inline, Mapping) and inline else {}
-    )
+    trace_dict: dict[str, Any] = dict(inline) if isinstance(inline, Mapping) and inline else {}
     body: dict[str, Any] | None = dict(trace_dict) if expand_debug and trace_dict else None
     generator: dict[str, Any] = {}
     if isinstance(trace_dict.get("generator_selection"), Mapping):
@@ -241,7 +237,9 @@ def build_process_reel_operator_debug(
 
     scene_plan_summary = _scene_plan_summary(scene_plan) if scene_plan else None
 
-    creative_trace = _creative_trace_surface(package_payload=package_payload, expand_debug=expand_debug)
+    creative_trace = _creative_trace_surface(
+        package_payload=package_payload, expand_debug=expand_debug
+    )
 
     qa_surface = _qa_surface_from_mapping(qa_payload) if qa_payload else None
 

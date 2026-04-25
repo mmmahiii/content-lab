@@ -132,7 +132,9 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
     )
     operator_debug = payload.get("operator_debug")
     assert operator_debug is not None
-    assert operator_debug["qa"]["semantic_script"]["findings"][0]["code"] == "package_route_semantic"
+    assert (
+        operator_debug["qa"]["semantic_script"]["findings"][0]["code"] == "package_route_semantic"
+    )
     artifacts = {artifact["name"]: artifact for artifact in payload["artifacts"]}
     assert set(artifacts) == {"cover", "final_video"}
     assert artifacts["final_video"]["download"]["url"].startswith(
