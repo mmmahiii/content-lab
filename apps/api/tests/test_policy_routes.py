@@ -149,10 +149,8 @@ def test_policy_routes_get_and_patch_are_scoped_and_audited(
     assert created_page["scope_type"] == "page"
     assert created_page["scope_id"] == str(page_id)
     assert created_page["state"]["budget"]["daily_usd_limit"] == pytest.approx(20.0)
-    assert (
-        created_page["state"]["mode_ratios"]
-        == PolicyStateDocument().model_dump(mode="json")["mode_ratios"]
-    )
+    assert created_page["state"]["mode_ratios"] == updated_global["state"]["mode_ratios"]
+    assert created_page["state"]["thresholds"] == updated_global["state"]["thresholds"]
 
     get_page = policy_client.get(f"/orgs/{org_id}/policy/page/{page_id}")
     assert get_page.status_code == 200
