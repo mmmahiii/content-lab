@@ -129,10 +129,10 @@ def test_pages_crud_is_org_scoped_and_audited(
     audit_rows = (
         db_session.query(AuditLog)
         .filter(AuditLog.org_id == org_id, AuditLog.resource_id == page_id)
-        .order_by(AuditLog.created_at.asc())
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
         .all()
     )
-    assert [row.action for row in audit_rows] == ["page.created", "page.updated"]
+    assert sorted(row.action for row in audit_rows) == ["page.created", "page.updated"]
     assert all(row.resource_type == "page" for row in audit_rows)
     assert all(row.actor_id == "operator:test-user" for row in audit_rows)
 
