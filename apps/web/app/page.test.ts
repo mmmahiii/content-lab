@@ -445,6 +445,7 @@ describe('policy form helpers', () => {
     expect(result.value.actionPath).toBe(
       '/orgs/11111111-1111-4111-8111-111111111111/policy/page/22222222-2222-4222-8222-222222222222',
     );
+    expect(result.value.method).toBe('PATCH');
     expect(result.value.headers['X-Actor-Id']).toBe('operator:policy-manager');
     expect(result.value.body).toBe(
       JSON.stringify({

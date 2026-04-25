@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import insert, or_
+from sqlalchemy import func, insert, or_
 from sqlalchemy.orm import Session, selectinload
 
 from content_lab_api.deps import get_db
@@ -434,14 +434,19 @@ def list_page_runs(
     _get_page_or_404(db, org_id, page_id)
 
     page_id_value = str(page_id)
+    # Use jsonb_extract_path_text instead of chained -> operators: chained
+    # ``jsonb->'a'->'b'`` throws on scalar JSON (e.g. legacy or corrupted rows) and
+    # aborts the whole query with 500. jsonb_extract_path_text returns NULL instead.
+    page_match = or_(
+        func.jsonb_extract_path_text(Run.input_params, "page_id") == page_id_value,
+        func.jsonb_extract_path_text(Run.run_metadata, "target", "page_id")
+        == page_id_value,
+    )
     runs = (
         db.query(Run)
         .filter(
             Run.org_id == org_id,
-            or_(
-                Run.input_params["page_id"].astext == page_id_value,
-                Run.run_metadata["target"]["page_id"].astext == page_id_value,
-            ),
+            page_match,
         )
         .order_by(Run.updated_at.desc(), Run.id.desc())
         .all()

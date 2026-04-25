@@ -35,6 +35,8 @@ export type SubmissionDefinition = {
   successTitle: string;
   body?: string;
   headers: Record<string, string>;
+  /** HTTP verb; policy and similar routes use PATCH while operator triggers default to POST. */
+  method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 };
 
 export type SubmissionFeedback<TPayload> = {
@@ -452,7 +454,7 @@ export async function submitOperatorRequest<TPayload>(
 
   try {
     const response = await fetchImpl(url, {
-      method: 'POST',
+      method: submission.method ?? 'POST',
       headers: submission.headers,
       body: submission.body,
     });

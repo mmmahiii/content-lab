@@ -109,6 +109,7 @@ export function createPolicyUpdateSubmission({
       actionLabel: 'Save Policy',
       actionPath: `/orgs/${orgId}/policy/page/${pageId}`,
       successTitle: 'Page policy saved',
+      method: 'PATCH',
       body: JSON.stringify(form.state),
       headers: {
         'Content-Type': 'application/json',

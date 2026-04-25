@@ -5,7 +5,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import insert
+from sqlalchemy import insert, text
 from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
@@ -589,3 +589,36 @@ def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(
         "page-input-run",
         "page-target-run",
     }
+
+
+def test_list_page_runs_tolerates_scalar_input_params_jsonb(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+) -> None:
+    """A non-object input_params JSON value must not 500 the page runs query."""
+    org_id = seeded_run_scope["org_id"]
+    page_id = seeded_run_scope["page_id"]
+
+    poison = Run(
+        org_id=org_id,
+        workflow_key="daily_reel_factory",
+        flow_trigger="manual",
+        status="queued",
+        input_params={},
+        run_metadata={},
+        external_ref="scalar-json-poison",
+    )
+    db_session.add(poison)
+    db_session.flush()
+    db_session.execute(
+        text("UPDATE runs SET input_params = '42'::jsonb WHERE id = :rid"),
+        {"rid": str(poison.id)},
+    )
+    db_session.commit()
+    db_session.expire_all()
+
+    response = runs_client.get(f"/orgs/{org_id}/pages/{page_id}/runs")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "scalar-json-poison" not in {item.get("external_ref") for item in payload}
