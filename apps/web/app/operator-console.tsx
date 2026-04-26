@@ -99,7 +99,10 @@ export function OperatorConsole({
   defaultOrgId?: string | null;
 }) {
   const searchParams = useSearchParams();
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? defaultApiBaseUrl;
+  const apiBaseUrl =
+    process.env.NEXT_PUBLIC_CONTENT_LAB_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    defaultApiBaseUrl;
   const seedOrgId = searchParams.get('orgId') ?? defaultOrgId ?? '';
   const seedPageId = searchParams.get('pageId') ?? '';
   const seedReelId = searchParams.get('reelId') ?? '';
