@@ -48,6 +48,16 @@ def test_build_submit_body_clamps_duration_to_runway_api_max() -> None:
     assert body["duration"] == runway_provider.RUNWAY_GEN45_MAX_DURATION_SECONDS
 
 
+def test_build_submit_body_truncates_prompt_to_runway_max() -> None:
+    long_prompt = "x" * (runway_provider.RUNWAY_PROMPT_TEXT_MAX_CHARS + 50)
+    body = runway_provider._build_submit_body(
+        task_payload={"request": {}},
+        canonical_params={"model": "gen4.5", "prompt": long_prompt, "duration_seconds": 5},
+    )
+    assert len(body["promptText"]) == runway_provider.RUNWAY_PROMPT_TEXT_MAX_CHARS
+    assert body["promptText"] == "x" * runway_provider.RUNWAY_PROMPT_TEXT_MAX_CHARS
+
+
 def test_runway_provider_api_task_id_from_metadata_reads_submission_block() -> None:
     tid = "a00b1b44-3b3f-4831-a2ba-c4ca71e29999"
     assert runway_provider_api_task_id_from_metadata({"submission": {"task_id": tid}}) == tid

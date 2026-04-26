@@ -24,7 +24,8 @@ def _find_dotenv() -> str | None:
             candidate = ancestor / ".env"
             if candidate.is_file():
                 return str(candidate)
-            return None
+            # Nested package has a marker (e.g. pyproject) but no .env — keep walking to monorepo root.
+            continue
     return None
 
 

@@ -31,6 +31,8 @@ RUNWAY_API_BASE_URL = "https://api.dev.runwayml.com"
 RUNWAY_API_VERSION = "2024-11-06"
 # Runway Gen-4.x text/image-to-video API rejects duration above this (see API validation errors).
 RUNWAY_GEN45_MAX_DURATION_SECONDS = 10
+# Dev/prod text_to_video returns HTTP 400 if promptText exceeds this length.
+RUNWAY_PROMPT_TEXT_MAX_CHARS = 1000
 _RETRYABLE_TASK_STATUSES = frozenset({"PENDING", "RUNNING", "THROTTLED"})
 _SUCCESS_TASK_STATUS = "SUCCEEDED"
 _FAILED_TASK_STATUSES = frozenset({"FAILED", "CANCELLED"})
@@ -351,6 +353,15 @@ def classify_failure(failure_code: str | None) -> RunwayFailureDisposition:
     return RunwayFailureDisposition.TERMINAL
 
 
+def limit_runway_prompt_text(value: str | None) -> str:
+    """Trim to Runway's `promptText` max length (API returns 400 if exceeded)."""
+
+    text = str(value or "").strip()
+    if len(text) <= RUNWAY_PROMPT_TEXT_MAX_CHARS:
+        return text
+    return text[:RUNWAY_PROMPT_TEXT_MAX_CHARS]
+
+
 def _build_submit_body(
     *,
     task_payload: Mapping[str, Any],
@@ -359,7 +370,9 @@ def _build_submit_body(
     request_payload = _mapping(task_payload.get("request"))
     body: dict[str, Any] = {
         "model": str(canonical_params.get("model", request_payload.get("model", "gen4.5"))),
-        "promptText": str(canonical_params.get("prompt", request_payload.get("prompt", ""))),
+        "promptText": limit_runway_prompt_text(
+            str(canonical_params.get("prompt", request_payload.get("prompt", "")))
+        ),
         "ratio": _runway_ratio(canonical_params.get("ratio") or request_payload.get("ratio")),
         "duration": _clamp_runway_duration_seconds(
             _int_or_default(

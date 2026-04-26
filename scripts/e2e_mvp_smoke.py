@@ -563,6 +563,11 @@ class SmokeRunner:
             "RUNWAY_API_KEY must be configured for live-provider smoke runs.",
             context={"env_file": str(self.env_file)},
         )
+        self._assert_true(
+            str(runway_key).startswith("key_"),
+            "RUNWAY_API_KEY must start with 'key_' for Runway live API calls.",
+            context={"env_file": str(self.env_file), "configured_prefix": str(runway_key)[:4]},
+        )
 
     def _env_setting(self, name: str) -> str | None:
         value = os.environ.get(name)
