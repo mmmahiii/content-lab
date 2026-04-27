@@ -1649,6 +1649,39 @@ def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> N
     assert production_plan["script"].keys() == stub_plan["script"].keys()
 
 
+def test_phase_one_process_reel_caps_scene_plan_to_primary_asset_duration() -> None:
+    class LongDurationPlanningContextLoader(FakePlanningContextLoader):
+        def load(self, execution: ProcessReelExecution) -> PhaseOnePlanningContext:
+            return replace(super().load(execution), duration_seconds=12)
+
+    execution = ProcessReelExecution(
+        reel_id="reel-42",
+        org_id="org-1",
+        page_id="page-7",
+        reel_family_id="family-9",
+        run_id="run-1",
+        dry_run=False,
+    )
+    plan = PhaseOneProcessReelExecutor(
+        planning_context_loader=LongDurationPlanningContextLoader(),
+        asset_resolver=cast(Any, FailingProcessReelAssetResolver()),
+        storage_client=FakeStorageClient(),
+        package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="content-lab"),
+    ).create_creative_plan(execution)
+
+    capped_duration = process_reel_flow_module.RUNWAY_GEN45_MAX_DURATION_SECONDS
+    scene_plan = cast(dict[str, Any], plan["scene_plan"])
+    asset_request = cast(dict[str, Any], plan["primary_asset_request"])
+    prompt = cast(str, asset_request["prompt"])
+
+    assert plan["brief"]["duration_seconds"] == capped_duration
+    assert plan["script"]["duration_seconds"] == capped_duration
+    assert scene_plan["duration_seconds"] == capped_duration
+    assert asset_request["duration_seconds"] == capped_duration
+    assert cast(list[dict[str, Any]], scene_plan["scenes"])[-1]["end_seconds"] == capped_duration
+    assert "10-12s" not in prompt
+
+
 def test_process_reel_flow_hard_fails_lint_before_asset_spend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

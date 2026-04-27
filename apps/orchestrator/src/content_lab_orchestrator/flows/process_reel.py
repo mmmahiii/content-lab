@@ -96,6 +96,13 @@ _RUNWAY_SYNC_MAX_POLLS = 120
 _RUNWAY_SYNC_POLL_INTERVAL_SECONDS = 5.0
 
 
+def _primary_asset_duration_seconds(requested_duration_seconds: int) -> int:
+    return min(
+        max(requested_duration_seconds, 5),
+        RUNWAY_GEN45_MAX_DURATION_SECONDS,
+    )
+
+
 class ProcessReelExecutionLike(Protocol):
     """Minimal execution payload contract used inside the orchestrator app."""
 
@@ -494,6 +501,7 @@ class PhaseOneProcessReelExecutor:
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
         context = self._planning_context_loader.load(execution)
+        duration_seconds = _primary_asset_duration_seconds(context.duration_seconds)
         brief = plan_creative_brief(
             DirectorPlanInput(
                 page_name=context.page_name,
@@ -501,7 +509,7 @@ class PhaseOneProcessReelExecutor:
                 global_policy=context.policy,
                 brief_index=context.brief_index,
                 target_platforms=list(context.target_platforms),
-                duration_seconds=context.duration_seconds,
+                duration_seconds=duration_seconds,
             )
         )
         script = generate_script_output(
@@ -553,10 +561,7 @@ class PhaseOneProcessReelExecutor:
             scene_plan=scene_plan,
         )
         compiled_prompt_payload = compiled_prompt.model_dump(mode="json")
-        duration_seconds = min(
-            max(brief.duration_seconds, 5),
-            RUNWAY_GEN45_MAX_DURATION_SECONDS,
-        )
+        duration_seconds = _primary_asset_duration_seconds(brief.duration_seconds)
         return {
             "brief": brief.model_dump(mode="json"),
             "script": script_payload,
