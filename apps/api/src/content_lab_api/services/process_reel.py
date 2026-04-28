@@ -297,6 +297,7 @@ class StubProcessReelExecutor:
                         "verdict": verdict,
                     }
                 ],
+                "structured_findings": [],
             },
         )
 

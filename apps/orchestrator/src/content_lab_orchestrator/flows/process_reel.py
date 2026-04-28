@@ -50,7 +50,12 @@ from content_lab_outbox import (
     build_process_reel_event_payload,
     process_reel_event_type,
 )
-from content_lab_storage import CanonicalStorageLayout, S3StorageClient, S3StorageConfig
+from content_lab_storage import (
+    CanonicalStorageLayout,
+    OVERLAY_RENDER_TRACE_FILENAME,
+    S3StorageClient,
+    S3StorageConfig,
+)
 from prefect.flows import flow
 from prefect.tasks import task
 from sqlalchemy.orm import Session, sessionmaker
@@ -74,10 +79,12 @@ from content_lab_qa import (
     RepetitionHistoryStore,
     RepetitionPolicy,
     SemanticScriptQARequest,
+    collect_structured_qa_findings,
     evaluate_alignment_qa,
     evaluate_format_qa,
     evaluate_repetition,
     evaluate_semantic_script,
+    structured_findings_as_jsonable,
 )
 from content_lab_runs import TaskRowSpec, TaskStatus
 from content_lab_shared.settings import Settings
@@ -642,6 +649,13 @@ class PhaseOneProcessReelExecutor:
             "cover_uri": artifact.cover_image_path.as_uri(),
             "cover_frame_timestamp_seconds": artifact.cover_frame_timestamp_seconds,
             "timeline_uri": timeline_path.as_uri(),
+            "overlay_render_trace": artifact.overlay_render_trace,
+            "overlay_render_trace_path": str(artifact.overlay_render_trace_path)
+            if artifact.overlay_render_trace_path is not None
+            else None,
+            "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri()
+            if artifact.overlay_render_trace_path is not None
+            else None,
             "duration_seconds": artifact.duration_seconds,
             "width": artifact.width,
             "height": artifact.height,
@@ -708,42 +722,53 @@ class PhaseOneProcessReelExecutor:
         ):
             verdict = "warn"
 
+        structured_rows = collect_structured_qa_findings(
+            format_report=format_report,
+            repetition_result=repetition_result,
+            semantic_report=semantic_report,
+            alignment_report=alignment_report,
+            editing_output=editing_output,
+            creative_script=_mapping(creative_output.get("script")),
+        )
+        details: dict[str, Any] = {
+            "verdict": verdict,
+            "checks": [
+                *[check.as_payload() for check in format_report.checks],
+                repetition_result.as_payload(),
+                semantic_report.as_qa_result().as_payload(),
+                alignment_gate.as_payload(),
+            ],
+            "format": {
+                "verdict": format_report.verdict.value,
+                "message": format_report.message,
+                "failure_reasons": list(format_report.failure_reasons),
+            },
+            "repetition": repetition_result.as_payload(),
+            "semantic_script": {
+                "verdict": semantic_report.verdict.value,
+                "message": semantic_report.message,
+                "failure_reasons": list(semantic_report.failure_reasons),
+                "findings": [
+                    finding.model_dump(mode="json") for finding in semantic_report.findings
+                ],
+            },
+            "alignment": {
+                "verdict": alignment_report.verdict.value,
+                "message": alignment_report.message,
+                "findings": [
+                    finding.model_dump(mode="json") for finding in alignment_report.findings
+                ],
+                "metrics": dict(alignment_report.metrics),
+                "skipped": alignment_report.skipped,
+                "skip_reason": alignment_report.skip_reason,
+                "lead_text": alignment_report.lead_text,
+            },
+            "structured_findings": structured_findings_as_jsonable(structured_rows),
+        }
+
         return ProcessReelQAResult(
             passed=passed,
-            details={
-                "verdict": verdict,
-                "checks": [
-                    *[check.as_payload() for check in format_report.checks],
-                    repetition_result.as_payload(),
-                    semantic_report.as_qa_result().as_payload(),
-                    alignment_gate.as_payload(),
-                ],
-                "format": {
-                    "verdict": format_report.verdict.value,
-                    "message": format_report.message,
-                    "failure_reasons": list(format_report.failure_reasons),
-                },
-                "repetition": repetition_result.as_payload(),
-                "semantic_script": {
-                    "verdict": semantic_report.verdict.value,
-                    "message": semantic_report.message,
-                    "failure_reasons": list(semantic_report.failure_reasons),
-                    "findings": [
-                        finding.model_dump(mode="json") for finding in semantic_report.findings
-                    ],
-                },
-                "alignment": {
-                    "verdict": alignment_report.verdict.value,
-                    "message": alignment_report.message,
-                    "findings": [
-                        finding.model_dump(mode="json") for finding in alignment_report.findings
-                    ],
-                    "metrics": dict(alignment_report.metrics),
-                    "skipped": alignment_report.skipped,
-                    "skip_reason": alignment_report.skip_reason,
-                    "lead_text": alignment_report.lead_text,
-                },
-            },
+            details=details,
         )
 
     def package_reel(self, execution: ProcessReelExecution) -> dict[str, Any]:
@@ -752,12 +777,23 @@ class PhaseOneProcessReelExecutor:
         editing_output = _step_output(execution, "editing")
         workdir = self._run_workdir(execution, "package")
         workdir.mkdir(parents=True, exist_ok=True)
+        render_diagnostics: dict[str, Any] = {}
+        overlay_trace = editing_output.get("overlay_render_trace")
+        if not isinstance(overlay_trace, Mapping):
+            overlay_trace = None
+        editing_uri = _optional_text(editing_output.get("overlay_render_trace_uri"))
+        if editing_uri is not None:
+            render_diagnostics["overlay_render_trace"] = {
+                "editing_workdir_uri": editing_uri,
+                "package_artifact_filename": OVERLAY_RENDER_TRACE_FILENAME,
+            }
         creative_trace = None
         if self._emit_creative_trace:
             creative_trace = build_creative_trace(
                 reel_id=execution.reel_id,
                 run_id=execution.run_id,
                 creative_output=creative_output,
+                render_diagnostics=render_diagnostics or None,
             ).model_dump(mode="json")
         built = build_ready_to_post_package(
             client=cast(Any, self._storage_client),
@@ -780,6 +816,7 @@ class PhaseOneProcessReelExecutor:
                 editing_output=editing_output,
             ),
             creative_trace=creative_trace,
+            overlay_render_trace=overlay_trace,
             temp_root=workdir,
             upload_metadata={
                 "reel-id": execution.reel_id,
@@ -1140,6 +1177,12 @@ def _build_package_provenance(
                 editing_output.get("timeline_uri"),
                 field_name="editing.timeline_uri",
             ),
+            "overlay_render_trace": {
+                "package_artifact_filename": OVERLAY_RENDER_TRACE_FILENAME,
+                "editing_workdir_uri": _optional_text(
+                    editing_output.get("overlay_render_trace_uri")
+                ),
+            },
         },
     }
 

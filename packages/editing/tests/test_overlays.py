@@ -4,6 +4,7 @@ from content_lab_editing.instructions import EditInstruction, EditOperation, Edi
 from content_lab_editing.overlays import (
     TextOverlay,
     build_drawtext_filters,
+    build_overlay_render_trace,
     build_overlay_video_filter,
     normalize_overlay_timeline,
 )
@@ -51,3 +52,25 @@ def test_build_overlay_video_filter_leaves_base_filter_untouched_without_overlay
         build_overlay_video_filter(base_filter="scale=1080:1920", timeline=None)
         == "scale=1080:1920"
     )
+
+
+def test_build_overlay_render_trace_matches_concatenated_video_filter() -> None:
+    base = "scale=1080:1920"
+    timeline = [
+        TextOverlay(text="Hi", start_seconds=0.0, end_seconds=0.5),
+    ]
+    trace = build_overlay_render_trace(
+        base_filter=base,
+        timeline=timeline,
+        clip_duration_seconds=2.0,
+        phase1_template_version="test",
+    )
+    assert trace["artifact_type"] == "overlay_render_trace"
+    assert trace["overlay_count"] == 1
+    assert trace["combined_video_filter"] == build_overlay_video_filter(
+        base_filter=base,
+        timeline=timeline,
+        clip_duration_seconds=2.0,
+    )
+    assert len(trace["drawtext_filters"]) == 1
+    assert trace["normalized_overlays"][0]["text"] == "Hi"

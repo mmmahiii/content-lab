@@ -277,6 +277,23 @@ export interface PromptTraceSummaryOut {
   excerpt: string | null;
 }
 
+export interface StructuredQAFindingOut {
+  finding_type: string;
+  gate_name: string;
+  severity: string;
+  passed: boolean;
+  field_path: string;
+  message: string;
+  details: JsonObject;
+}
+
+export interface RunQaSummaryOut {
+  passed: boolean | null;
+  verdict: string | null;
+  failure_messages: string[];
+  structured_findings: StructuredQAFindingOut[];
+}
+
 export interface ProcessReelQASurfaceOut {
   passed: boolean | null;
   verdict: string | null;
@@ -285,6 +302,7 @@ export interface ProcessReelQASurfaceOut {
   repetition: JsonObject | null;
   alignment: JsonObject | null;
   checks: JsonObject[];
+  structured_findings: StructuredQAFindingOut[];
 }
 
 export interface ProcessReelOperatorDebugOut {
@@ -393,6 +411,7 @@ export interface RunDetailOut extends RunOut {
   task_status_counts: Partial<Record<TaskStatus, number>>;
   outbox: RunOutboxOut;
   operator_debug: ProcessReelOperatorDebugOut | null;
+  qa_summary?: RunQaSummaryOut | null;
 }
 
 export interface SignedDownloadOut {

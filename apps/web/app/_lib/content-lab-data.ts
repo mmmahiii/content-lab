@@ -276,6 +276,7 @@ const demoOperatorDebug: ProcessReelOperatorDebugOut = {
     repetition: { gate_name: 'repetition', verdict: 'pass', passed: true, message: 'No block' },
     alignment: { verdict: 'pass', message: 'Script aligns with brief.', findings: [] },
     checks: [],
+    structured_findings: [],
   },
   package_qa: { passed: true, message: 'Package complete', checks: [] },
 };
@@ -493,6 +494,12 @@ const packagedRun: RunDetailOut = {
     failed_count: 0,
     has_backlog: false,
     summary: 'All recorded outbox events for this run have been dispatched.',
+  },
+  qa_summary: {
+    passed: true,
+    verdict: 'pass',
+    failure_messages: [],
+    structured_findings: [],
   },
   operator_debug: demoOperatorDebug,
 };

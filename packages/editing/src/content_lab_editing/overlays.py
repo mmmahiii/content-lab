@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
-from typing import Literal, TypeAlias, cast
+from dataclasses import asdict, dataclass, replace
+from typing import Any, Literal, TypeAlias, cast
 
 from content_lab_editing.instructions import EditInstruction, EditOperation, EditPlan
 
@@ -266,6 +266,38 @@ def build_overlay_video_filter(
     return ",".join((base_filter, *filters))
 
 
+def build_overlay_render_trace(
+    *,
+    base_filter: str,
+    timeline: OverlayTimeline | None,
+    clip_duration_seconds: float | None = None,
+    phase1_template_version: str | None = None,
+) -> dict[str, Any]:
+    """Structured overlay + FFmpeg filter manifest for post-run diagnosis."""
+
+    overlays = normalize_overlay_timeline(
+        timeline,
+        clip_duration_seconds=clip_duration_seconds,
+    )
+    drawtext_filters = tuple(overlay.drawtext_filter() for overlay in overlays)
+    combined = build_overlay_video_filter(
+        base_filter=base_filter,
+        timeline=timeline,
+        clip_duration_seconds=clip_duration_seconds,
+    )
+    return {
+        "artifact_type": "overlay_render_trace",
+        "schema_version": 1,
+        "phase1_template_version": phase1_template_version,
+        "clip_duration_seconds": clip_duration_seconds,
+        "base_video_filter": base_filter,
+        "normalized_overlays": [asdict(overlay) for overlay in overlays],
+        "drawtext_filters": list(drawtext_filters),
+        "combined_video_filter": combined,
+        "overlay_count": len(overlays),
+    }
+
+
 def _require_text(payload: Mapping[str, object]) -> str:
     text = _read_optional_str(payload, "text", default=None)
     if text is None or not text.strip():
@@ -434,6 +466,7 @@ __all__ = [
     "OverlayTimeline",
     "TextOverlay",
     "build_drawtext_filters",
+    "build_overlay_render_trace",
     "build_overlay_video_filter",
     "normalize_overlay_timeline",
 ]

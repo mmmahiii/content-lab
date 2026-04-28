@@ -23,6 +23,7 @@ const debug = (label: string): ProcessReelOperatorDebugOut => ({
     repetition: null,
     alignment: null,
     checks: [],
+    structured_findings: [],
   },
   package_qa: null,
 });

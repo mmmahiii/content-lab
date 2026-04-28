@@ -34,6 +34,7 @@ const baseDebug: ProcessReelOperatorDebugOut = {
     repetition: { verdict: 'pass' },
     alignment: { verdict: 'pass' },
     checks: [],
+    structured_findings: [],
   },
   package_qa: { passed: true },
 };

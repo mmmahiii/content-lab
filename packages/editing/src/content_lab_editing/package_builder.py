@@ -16,6 +16,7 @@ from content_lab_storage import (
     COVER_IMAGE_FILENAME,
     CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
+    OVERLAY_RENDER_TRACE_FILENAME,
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
     PROVENANCE_FILENAME,
@@ -64,6 +65,7 @@ def build_package_directory(
     posting_plan: Mapping[str, Any],
     provenance: Mapping[str, Any],
     creative_trace: Mapping[str, Any] | None = None,
+    overlay_render_trace: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
 ) -> LocalReelPackage:
@@ -87,6 +89,11 @@ def build_package_directory(
     _write_json(package_directory / PROVENANCE_FILENAME, provenance)
     if creative_trace is not None:
         _write_json(package_directory / CREATIVE_TRACE_FILENAME, creative_trace)
+    if overlay_render_trace is not None:
+        _write_json(
+            package_directory / OVERLAY_RENDER_TRACE_FILENAME,
+            overlay_render_trace,
+        )
 
     manifest_payload: dict[str, Any] | None = None
     if include_manifest:
@@ -114,6 +121,7 @@ def build_ready_to_post_package(
     posting_plan: Mapping[str, Any],
     provenance: Mapping[str, Any],
     creative_trace: Mapping[str, Any] | None = None,
+    overlay_render_trace: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
     upload_metadata: Mapping[str, str] | None = None,
@@ -128,6 +136,7 @@ def build_ready_to_post_package(
         posting_plan=posting_plan,
         provenance=provenance,
         creative_trace=creative_trace,
+        overlay_render_trace=overlay_render_trace,
         temp_root=temp_root,
         include_manifest=include_manifest,
     )
@@ -148,6 +157,7 @@ def build_ready_to_post_package(
             manifest=local_package.manifest,
             provenance=provenance,
             creative_trace=creative_trace,
+            overlay_render_trace=overlay_render_trace,
         ),
     )
 
@@ -201,6 +211,17 @@ def _build_manifest(*, reel_id: str, package_directory: Path) -> dict[str, Any]:
                 kind="json",
             )
         )
+    overlay_render_trace_path = package_directory / OVERLAY_RENDER_TRACE_FILENAME
+    if overlay_render_trace_path.exists() and overlay_render_trace_path.is_file():
+        artifacts.append(
+            _manifest_artifact(
+                name="overlay_render_trace",
+                filename=OVERLAY_RENDER_TRACE_FILENAME,
+                package_directory=package_directory,
+                content_type="application/json",
+                kind="json",
+            )
+        )
     assert_reel_package_complete(artifacts)
     return {
         "version": _MANIFEST_VERSION,
@@ -243,10 +264,12 @@ def _package_payload(
     manifest: Mapping[str, Any] | None,
     provenance: Mapping[str, Any],
     creative_trace: Mapping[str, Any] | None,
+    overlay_render_trace: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     artifacts = [artifact.as_payload() for artifact in stored_package.artifacts]
     provenance_artifact = stored_package.artifact_by_name("provenance")
     creative_trace_artifact = stored_package.artifact_by_name("creative_trace")
+    overlay_render_trace_artifact = stored_package.artifact_by_name("overlay_render_trace")
     manifest_artifact = stored_package.artifact_by_name("package_manifest")
     return {
         "reel_id": reel_id,
@@ -259,6 +282,14 @@ def _package_payload(
             None if creative_trace_artifact is None else creative_trace_artifact.storage_uri
         ),
         "creative_trace": {} if creative_trace is None else dict(creative_trace),
+        "overlay_render_trace_uri": (
+            None
+            if overlay_render_trace_artifact is None
+            else overlay_render_trace_artifact.storage_uri
+        ),
+        "overlay_render_trace": (
+            {} if overlay_render_trace is None else dict(overlay_render_trace)
+        ),
         "artifacts": artifacts,
     }
 

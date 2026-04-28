@@ -48,6 +48,7 @@ class CreativeTraceArtifact(BaseModel):
     compiled_prompt: dict[str, Any] = Field(default_factory=dict)
     prompt_trace: dict[str, Any] = Field(default_factory=dict)
     posting_plan: dict[str, Any] = Field(default_factory=dict)
+    render_diagnostics: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator(
         "brief",
@@ -57,6 +58,7 @@ class CreativeTraceArtifact(BaseModel):
         "compiled_prompt",
         "prompt_trace",
         "posting_plan",
+        "render_diagnostics",
         mode="before",
     )
     @classmethod
@@ -100,6 +102,7 @@ def build_creative_trace(
     reel_id: str,
     run_id: str,
     creative_output: Mapping[str, Any],
+    render_diagnostics: Mapping[str, Any] | None = None,
 ) -> CreativeTraceArtifact:
     """Build the package-adjacent creative trace from orchestration output."""
 
@@ -110,6 +113,12 @@ def build_creative_trace(
         prompt_trace = _mapping(
             _mapping(creative_output.get("primary_asset_request")).get("prompt_trace")
         )
+
+    diagnostics: dict[str, Any] = {}
+    if render_diagnostics:
+        sanitized = sanitize_trace_payload(dict(render_diagnostics))
+        if isinstance(sanitized, dict):
+            diagnostics = sanitized
 
     return CreativeTraceArtifact(
         reel_id=str(reel_id),
@@ -144,6 +153,7 @@ def build_creative_trace(
         compiled_prompt=compiled_prompt,
         prompt_trace=prompt_trace,
         posting_plan=_mapping(creative_output.get("posting_plan")),
+        render_diagnostics=diagnostics,
     )
 
 

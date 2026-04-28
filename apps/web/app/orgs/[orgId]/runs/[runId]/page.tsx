@@ -125,6 +125,44 @@ export default async function RunDetailPage({
         />
       </SectionCard>
 
+      {run.qa_summary ? (
+        <SectionCard
+          title="QA summary"
+          description="Structured QA rollup for this run. Use failure lines below when investigating a reject or warn outcome."
+        >
+          <MetaGrid
+            items={[
+              {
+                label: 'Verdict',
+                value: run.qa_summary.verdict ?? '—',
+              },
+              {
+                label: 'Passed',
+                value:
+                  run.qa_summary.passed === null
+                    ? '—'
+                    : run.qa_summary.passed
+                      ? 'Yes'
+                      : 'No',
+              },
+            ]}
+          />
+          {run.qa_summary.failure_messages.length > 0 ? (
+            <ul className="cl-stack-sm" style={{ marginTop: '0.75rem', paddingLeft: '1.25rem' }}>
+              {run.qa_summary.failure_messages.map((line, index) => (
+                <li key={`${index}:${line}`} className="cl-panel-description">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="cl-panel-description" style={{ marginTop: '0.75rem' }}>
+              No recorded QA failure messages for this run.
+            </p>
+          )}
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         title="Outbox delivery"
         description="Transactional notifications tied to this run (orchestration requests, package-ready signals, and similar events) and whether they have been dispatched."

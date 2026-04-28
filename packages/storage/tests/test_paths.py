@@ -42,5 +42,13 @@ def test_reel_package_paths_cover_all_phase1_outputs() -> None:
     )
     assert package.provenance.uri == f"s3://content-lab/reels/packages/{reel_id}/provenance.json"
     assert (
+        package.creative_trace.uri
+        == f"s3://content-lab/reels/packages/{reel_id}/creative_trace.json"
+    )
+    assert (
+        package.overlay_render_trace.uri
+        == f"s3://content-lab/reels/packages/{reel_id}/overlay_render_trace.json"
+    )
+    assert (
         package.manifest.uri == f"s3://content-lab/reels/packages/{reel_id}/package_manifest.json"
     )
