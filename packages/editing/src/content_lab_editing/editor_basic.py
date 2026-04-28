@@ -12,7 +12,11 @@ from urllib.parse import urlparse
 
 from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_frame
 from content_lab_editing.edit_plan import SceneAwareEditPlan
-from content_lab_editing.overlays import OverlayTimeline, build_overlay_video_filter
+from content_lab_editing.overlays import (
+    OverlayTimeline,
+    build_overlay_safe_area_report,
+    build_overlay_video_filter,
+)
 from content_lab_editing.templates import (
     EditorialTemplate,
     apply_editorial_template,
@@ -79,6 +83,7 @@ class BasicEditorArtifact:
     editorial_template_id: str | None = None
     editorial_template_version: str | None = None
     applied_edit_plan: SceneAwareEditPlan | None = None
+    overlay_safe_area: dict[str, object] | None = None
 
 
 def render_basic_vertical_edit(
@@ -130,6 +135,14 @@ def render_basic_vertical_edit(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
         clip_duration_seconds=source_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
+    )
+    overlay_safe_area = build_overlay_safe_area_report(
+        overlay_timeline,
+        clip_duration_seconds=source_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
     )
 
     final_video_path = output_dir / FINAL_VIDEO_FILENAME
@@ -174,6 +187,7 @@ def render_basic_vertical_edit(
         editorial_template_id=None,
         editorial_template_version=None,
         applied_edit_plan=None,
+        overlay_safe_area=overlay_safe_area,
     )
 
 
@@ -223,6 +237,14 @@ def _render_scene_aware_edit(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
         clip_duration_seconds=combined_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
+    )
+    overlay_safe_area = build_overlay_safe_area_report(
+        overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
     )
 
     final_video_path = output_dir / FINAL_VIDEO_FILENAME
@@ -271,6 +293,7 @@ def _render_scene_aware_edit(
             editorial_template.template_version if editorial_template is not None else None
         ),
         applied_edit_plan=edit_plan,
+        overlay_safe_area=overlay_safe_area,
     )
 
 
