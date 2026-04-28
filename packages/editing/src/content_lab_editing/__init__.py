@@ -31,6 +31,7 @@ from content_lab_editing.templates import (
     select_and_apply_editorial_template,
     select_editorial_template,
 )
+from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayManifestEntry
 
 __all__ = [
     "BasicEditorArtifact",
@@ -46,6 +47,8 @@ __all__ = [
     "HOOK_FIRST_V1",
     "HOOK_PLUS_PAYOFF_V1",
     "LocalReelPackage",
+    "RenderedOverlayManifest",
+    "RenderedOverlayManifestEntry",
     "SceneAwareEditPlan",
     "SceneEditPlanSegment",
     "apply_editorial_template",

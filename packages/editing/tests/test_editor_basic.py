@@ -9,6 +9,7 @@ from content_lab_editing.edit_plan import SceneAwareEditPlan, SceneEditPlanSegme
 from content_lab_editing.editor_basic import (
     FINAL_COVER_FILENAME,
     FINAL_VIDEO_FILENAME,
+    OVERLAY_RENDER_TRACE_FILENAME,
     PHASE1_TEMPLATE_VERSION,
     RetrievedStorageObject,
     render_basic_vertical_edit,
@@ -61,6 +62,9 @@ def test_render_basic_vertical_edit_adds_silence_for_local_clip_without_audio(
     assert artifact.cover_frame_timestamp_seconds == 0.5
     assert artifact.source_had_audio_track is False
     assert artifact.has_audio_track is True
+    assert artifact.rendered_overlay_manifest.overlays == ()
+    assert artifact.overlay_render_trace_path.name == OVERLAY_RENDER_TRACE_FILENAME
+    assert artifact.overlay_render_trace_path.exists()
     assert artifact.staged_segment_paths == (artifact.staged_source_path,)
     assert output_probe["width"] == 1080
     assert output_probe["height"] == 1920
@@ -95,7 +99,11 @@ def test_render_basic_vertical_edit_stages_s3_source_and_preserves_audio(tmp_pat
     assert artifact.cover_image_path.exists()
     assert artifact.source_had_audio_track is True
     assert artifact.has_audio_track is True
-    assert output_probe["width"] == 1080
+    assert artifact.rendered_overlay_manifest.overlays == ()
+    assert artifact.overlay_render_trace_path.name == OVERLAY_RENDER_TRACE_FILENAME
+    assert artifact.overlay_render_trace_path.exists()
+
+    output_probe = probe_media(artifact.final_video_path)
     assert output_probe["height"] == 1920
     assert output_probe["has_audio_track"] is True
 
@@ -133,6 +141,20 @@ def test_render_basic_vertical_edit_applies_overlay_timeline(tmp_path: Path) -> 
             )
         ],
     )
+
+    report = artifact.overlay_render_report
+    assert report is not None
+    assert report["render_authority"] == "overlay_timeline_argument_only"
+    assert len(report["overlays"]) == 1
+    overlay_row = report["overlays"][0]
+    assert overlay_row["source_path"] == "script.overlay_timeline[0]"
+    assert overlay_row["final_render_text"] == "Overlay active"
+
+    assert artifact.rendered_overlay_manifest.schema_version == "rendered_overlay_manifest_v1"
+    assert len(artifact.rendered_overlay_manifest.overlays) == 1
+    assert artifact.rendered_overlay_manifest.overlays[0].final_render_text == "Overlay active"
+    assert artifact.overlay_render_trace_path.name == OVERLAY_RENDER_TRACE_FILENAME
+    assert artifact.overlay_render_trace_path.exists()
 
     before_overlay = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.2)
     during_overlay = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.6)
