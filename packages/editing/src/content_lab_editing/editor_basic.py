@@ -23,6 +23,8 @@ TARGET_HEIGHT = 1920
 FINAL_VIDEO_FILENAME = "final_video.mp4"
 FINAL_COVER_FILENAME = DEFAULT_COVER_FILENAME
 PHASE1_TEMPLATE_VERSION = "basic_vertical_v1"
+# Keep aligned with content_lab_creative.duration_alignment.PHASE1_RENDERED_DURATION_TOLERANCE_SECONDS.
+_PHASE1_TIMELINE_PROBE_TOLERANCE_SECONDS = 0.25
 _AUDIO_CHANNEL_LAYOUT = "stereo"
 _AUDIO_SAMPLE_RATE = 48_000
 _VIDEO_FILTER = (
@@ -89,6 +91,7 @@ def render_basic_vertical_edit(
     overlay_timeline: OverlayTimeline | None = None,
     edit_plan: SceneAwareEditPlan | None = None,
     editorial_template: EditorialTemplate | None = None,
+    expected_timeline_duration_seconds: int | None = None,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> BasicEditorArtifact:
@@ -116,6 +119,7 @@ def render_basic_vertical_edit(
             storage_client=storage_client,
             overlay_timeline=overlay_timeline,
             editorial_template=editorial_template,
+            expected_timeline_duration_seconds=expected_timeline_duration_seconds,
             ffmpeg_bin=ffmpeg_bin,
             ffprobe_bin=ffprobe_bin,
         )
@@ -126,6 +130,10 @@ def render_basic_vertical_edit(
         storage_client=storage_client,
     )
     source_probe = probe_media_file(staged_source_path, ffprobe_bin=ffprobe_bin)
+    _assert_source_matches_timeline_duration(
+        expected_seconds=expected_timeline_duration_seconds,
+        probed_duration_seconds=source_probe.duration_seconds,
+    )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
@@ -186,6 +194,7 @@ def _render_scene_aware_edit(
     storage_client: ObjectStorageClient | None,
     overlay_timeline: OverlayTimeline | None,
     editorial_template: EditorialTemplate | None,
+    expected_timeline_duration_seconds: int | None = None,
     ffmpeg_bin: str,
     ffprobe_bin: str,
 ) -> BasicEditorArtifact:
@@ -219,6 +228,10 @@ def _render_scene_aware_edit(
         ffmpeg_bin=ffmpeg_bin,
     )
     combined_probe = probe_media_file(combined_source_path, ffprobe_bin=ffprobe_bin)
+    _assert_source_matches_timeline_duration(
+        expected_seconds=expected_timeline_duration_seconds,
+        probed_duration_seconds=combined_probe.duration_seconds,
+    )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
@@ -577,6 +590,24 @@ def _storage_object_suffix(*, storage_uri: str, content_type: str | None) -> str
 
 def _ffmpeg_concat_path(path: Path) -> str:
     return path.resolve().as_posix().replace("'", "'\\''")
+
+
+def _assert_source_matches_timeline_duration(
+    *,
+    expected_seconds: int | None,
+    probed_duration_seconds: float,
+) -> None:
+    if expected_seconds is None:
+        return
+    if probed_duration_seconds < 0:
+        raise ValueError("probed_duration_seconds must not be negative")
+    delta = abs(float(probed_duration_seconds) - float(expected_seconds))
+    if delta > _PHASE1_TIMELINE_PROBE_TOLERANCE_SECONDS:
+        raise ValueError(
+            "Source media duration does not match planned timeline duration_seconds "
+            f"(probed={probed_duration_seconds:.3f}, expected={expected_seconds}, "
+            f"tolerance={_PHASE1_TIMELINE_PROBE_TOLERANCE_SECONDS})"
+        )
 
 
 def _run_command(command: list[str], *, failure_prefix: str) -> subprocess.CompletedProcess[str]:

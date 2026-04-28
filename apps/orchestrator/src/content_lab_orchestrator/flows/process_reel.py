@@ -25,9 +25,9 @@ from typing import Any, Protocol, cast
 
 from content_lab_assets import GenerateDecision, ReuseExactDecision, resolve_phase1_asset
 from content_lab_assets.providers.runway import (
-    RUNWAY_GEN45_MAX_DURATION_SECONDS,
     HTTPRunwayClient,
     RunwayClient,
+    clamp_runway_gen45_clip_duration_seconds,
 )
 from content_lab_creative import (
     DirectorPlanInput,
@@ -43,6 +43,7 @@ from content_lab_creative import (
     compile_scene_plan,
     generate_script_output,
     plan_creative_brief,
+    validate_phase1_creative_duration_alignment,
 )
 from content_lab_creative.script_generator import ScriptGenerator, ScriptGeneratorPathLike
 from content_lab_editing import build_ready_to_post_package, render_basic_vertical_edit
@@ -78,6 +79,7 @@ from content_lab_qa import (
     evaluate_format_qa,
     evaluate_repetition,
     evaluate_semantic_script,
+    evaluate_timeline_timing_qa,
 )
 from content_lab_runs import TaskRowSpec, TaskStatus
 from content_lab_shared.settings import Settings
@@ -94,13 +96,6 @@ _PRIMARY_ASSET_RATIO = "9:16"
 # Orchestrator calls Runway in-process; allow long-running Gen4 jobs (~10 min at 5s cadence).
 _RUNWAY_SYNC_MAX_POLLS = 120
 _RUNWAY_SYNC_POLL_INTERVAL_SECONDS = 5.0
-
-
-def _primary_asset_duration_seconds(requested_duration_seconds: int) -> int:
-    return min(
-        max(requested_duration_seconds, 5),
-        RUNWAY_GEN45_MAX_DURATION_SECONDS,
-    )
 
 
 class ProcessReelExecutionLike(Protocol):
@@ -501,7 +496,7 @@ class PhaseOneProcessReelExecutor:
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
         context = self._planning_context_loader.load(execution)
-        duration_seconds = _primary_asset_duration_seconds(context.duration_seconds)
+        effective_timeline_seconds = clamp_runway_gen45_clip_duration_seconds(context.duration_seconds)
         brief = plan_creative_brief(
             DirectorPlanInput(
                 page_name=context.page_name,
@@ -509,7 +504,7 @@ class PhaseOneProcessReelExecutor:
                 global_policy=context.policy,
                 brief_index=context.brief_index,
                 target_platforms=list(context.target_platforms),
-                duration_seconds=duration_seconds,
+                duration_seconds=effective_timeline_seconds,
             )
         )
         script = generate_script_output(
@@ -547,7 +542,7 @@ class PhaseOneProcessReelExecutor:
             ),
         )
         if _script_lint_failed(script_lint):
-            return {
+            blocked_payload: dict[str, Any] = {
                 "brief": brief.model_dump(mode="json"),
                 "script": script_payload,
                 "script_generation": script_generation,
@@ -556,13 +551,18 @@ class PhaseOneProcessReelExecutor:
                 "posting_plan": posting_plan.model_dump(mode="json"),
                 "creative_blocked": True,
             }
+            validate_phase1_creative_duration_alignment(
+                blocked_payload,
+                require_primary_asset_request=False,
+            )
+            return blocked_payload
         compiled_prompt = _build_primary_asset_prompt(
             brief_payload=brief.model_dump(mode="json"),
             scene_plan=scene_plan,
         )
         compiled_prompt_payload = compiled_prompt.model_dump(mode="json")
-        duration_seconds = _primary_asset_duration_seconds(brief.duration_seconds)
-        return {
+        asset_request_duration = clamp_runway_gen45_clip_duration_seconds(brief.duration_seconds)
+        creative_payload: dict[str, Any] = {
             "brief": brief.model_dump(mode="json"),
             "script": script_payload,
             "script_generation": script_generation,
@@ -580,7 +580,7 @@ class PhaseOneProcessReelExecutor:
                 "prompt_trace": compiled_prompt_payload["trace"],
                 "negative_prompt": compiled_prompt.negative_prompt,
                 "seed": context.brief_index + 1,
-                "duration_seconds": duration_seconds,
+                "duration_seconds": asset_request_duration,
                 "fps": 24,
                 "ratio": _PRIMARY_ASSET_RATIO,
                 "motion": {"camera": "dynamic", "pace": "medium"},
@@ -592,6 +592,11 @@ class PhaseOneProcessReelExecutor:
                 },
             },
         }
+        validate_phase1_creative_duration_alignment(
+            creative_payload,
+            require_primary_asset_request=True,
+        )
+        return creative_payload
 
     def resolve_assets(self, execution: ProcessReelExecution) -> dict[str, Any]:
         creative_output = _step_output(execution, "creative_planning")
@@ -605,6 +610,11 @@ class PhaseOneProcessReelExecutor:
         asset_output = _step_output(execution, "asset_resolution")
         source_uri = _required_text(asset_output.get("storage_uri"), field_name="asset_resolution")
         overlay_timeline = _mapping(creative_output.get("script")).get("overlay_timeline")
+        expected_duration = _optional_int(
+            _mapping(creative_output.get("script")).get("duration_seconds")
+        )
+        if expected_duration is None:
+            raise ValueError("creative_planning.script.duration_seconds must be set before editing")
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
         artifact = render_basic_vertical_edit(
@@ -612,6 +622,7 @@ class PhaseOneProcessReelExecutor:
             workdir=workdir,
             storage_client=self._storage_client,
             overlay_timeline=cast(Any, overlay_timeline),
+            expected_timeline_duration_seconds=expected_duration,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
         )
@@ -689,14 +700,21 @@ class PhaseOneProcessReelExecutor:
             editing=editing_output,
         )
         alignment_gate = alignment_report.as_qa_result()
+        timing_result = evaluate_timeline_timing_qa(
+            script=_mapping(creative_output.get("script")),
+            scene_plan=_mapping(creative_output.get("scene_plan")) or None,
+            editing=editing_output,
+        )
         repetition_failed = repetition_result.verdict.value == "fail"
         semantic_failed = not semantic_report.passed and semantic_report.verdict.value == "fail"
         alignment_failed = alignment_report.blocks_readiness
+        timing_failed = timing_result.verdict == QAVerdict.FAIL
         passed = (
             format_report.passed
             and not repetition_failed
             and not semantic_failed
             and not alignment_failed
+            and not timing_failed
         )
         verdict = "pass"
         if not passed:
@@ -705,6 +723,7 @@ class PhaseOneProcessReelExecutor:
             repetition_result.verdict.value == "warn"
             or semantic_report.verdict.value == "warn"
             or alignment_report.verdict == QAVerdict.WARN
+            or timing_result.verdict == QAVerdict.WARN
         ):
             verdict = "warn"
 
@@ -717,6 +736,7 @@ class PhaseOneProcessReelExecutor:
                     repetition_result.as_payload(),
                     semantic_report.as_qa_result().as_payload(),
                     alignment_gate.as_payload(),
+                    timing_result.as_payload(),
                 ],
                 "format": {
                     "verdict": format_report.verdict.value,
@@ -742,6 +762,11 @@ class PhaseOneProcessReelExecutor:
                     "skipped": alignment_report.skipped,
                     "skip_reason": alignment_report.skip_reason,
                     "lead_text": alignment_report.lead_text,
+                },
+                "timeline_timing": {
+                    "verdict": timing_result.verdict.value,
+                    "message": timing_result.message,
+                    "details": dict(timing_result.details),
                 },
             },
         )

@@ -2,6 +2,11 @@
 
 from content_lab_creative.brief import CreativeBrief
 from content_lab_creative.director import PhaseOneDirector, plan_creative_brief
+from content_lab_creative.duration_alignment import (
+    PHASE1_RENDERED_DURATION_TOLERANCE_SECONDS,
+    assert_rendered_media_matches_plan_duration,
+    validate_phase1_creative_duration_alignment,
+)
 from content_lab_creative.persona import (
     PageConstraints,
     PageMetadata,
@@ -60,6 +65,7 @@ __all__ = [
     "PageMetadata",
     "PhaseOneDirector",
     "PersonaProfile",
+    "PHASE1_RENDERED_DURATION_TOLERANCE_SECONDS",
     "PlannedCreativeBrief",
     "PolicyStateDocument",
     "PostingPlanArtifact",
@@ -73,6 +79,7 @@ __all__ = [
     "ScenePlanScene",
     "ScenePurpose",
     "ScriptGeneratorPath",
+    "assert_rendered_media_matches_plan_duration",
     "build_script_generator",
     "build_alignment_context",
     "build_creative_trace",
@@ -86,4 +93,5 @@ __all__ = [
     "sanitize_trace_payload",
     "validate_page_metadata",
     "validate_persona_profile",
+    "validate_phase1_creative_duration_alignment",
 ]

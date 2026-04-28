@@ -17,6 +17,11 @@ from content_lab_editing.package_builder import (
     build_package_directory,
     build_ready_to_post_package,
 )
+from content_lab_editing.timeline_validation import (
+    TimelineValidationFinding,
+    TimelineValidationReport,
+    validate_timeline_against_final_duration,
+)
 from content_lab_editing.templates import (
     CALM_EXPLAINER_V1,
     DEFAULT_EDITORIAL_TEMPLATE,
@@ -48,6 +53,8 @@ __all__ = [
     "LocalReelPackage",
     "SceneAwareEditPlan",
     "SceneEditPlanSegment",
+    "TimelineValidationFinding",
+    "TimelineValidationReport",
     "apply_editorial_template",
     "apply_overlay_density_cap",
     "build_package_directory",
@@ -58,4 +65,5 @@ __all__ = [
     "render_basic_vertical_edit",
     "select_and_apply_editorial_template",
     "select_editorial_template",
+    "validate_timeline_against_final_duration",
 ]

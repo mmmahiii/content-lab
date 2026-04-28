@@ -668,6 +668,7 @@ develop = true
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
+sqlalchemy = "^2.0.30"
 
 [package.source]
 type = "directory"
@@ -685,6 +686,7 @@ develop = true
 
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
+content-lab-editing = {path = "../editing", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
 
 [package.source]
@@ -762,6 +764,7 @@ content-lab-assets = {path = "../../packages/assets", develop = true}
 content-lab-core = {path = "../../packages/core", develop = true}
 content-lab-creative = {path = "../../packages/creative", develop = true}
 content-lab-editing = {path = "../../packages/editing", develop = true}
+content-lab-outbox = {path = "../../packages/outbox", develop = true}
 content-lab-runs = {path = "../../packages/runs", develop = true}
 content-lab-shared = {path = "../../packages/shared/py", develop = true}
 content-lab-storage = {path = "../../packages/storage", develop = true}

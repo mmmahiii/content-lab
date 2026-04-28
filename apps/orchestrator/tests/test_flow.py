@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 import pytest
 from botocore.exceptions import ClientError
 from content_lab_assets.providers.runway import (
+    RUNWAY_GEN45_MAX_DURATION_SECONDS,
     RunwayDownloadedAsset,
     RunwaySubmittedTask,
     RunwayTaskSnapshot,
@@ -1669,7 +1670,7 @@ def test_phase_one_process_reel_caps_scene_plan_to_primary_asset_duration() -> N
         package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="content-lab"),
     ).create_creative_plan(execution)
 
-    capped_duration = process_reel_flow_module.RUNWAY_GEN45_MAX_DURATION_SECONDS
+    capped_duration = RUNWAY_GEN45_MAX_DURATION_SECONDS
     scene_plan = cast(dict[str, Any], plan["scene_plan"])
     asset_request = cast(dict[str, Any], plan["primary_asset_request"])
     prompt = cast(str, asset_request["prompt"])
@@ -1724,6 +1725,7 @@ def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExe
     execution.outputs["editing"] = {
         "final_video_path": "/tmp/final_video.mp4",
         "cover_path": "/tmp/cover.png",
+        "duration_seconds": 12.0,
     }
     execution.outputs["asset_resolution"] = {
         "asset_key_hash": "asset-key-hash",

@@ -219,6 +219,25 @@ type = "directory"
 url = "../../packages/creative"
 
 [[package]]
+name = "content-lab-editing"
+version = "0.1.0"
+description = "Video/image editing pipeline and Runway adapter integration"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+content-lab-storage = {path = "../storage", develop = true}
+
+[package.source]
+type = "directory"
+url = "../../packages/editing"
+
+[[package]]
 name = "content-lab-outbox"
 version = "0.1.0"
 description = "Transactional outbox for reliable event publishing"
@@ -231,6 +250,7 @@ develop = true
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
+sqlalchemy = "^2.0.30"
 
 [package.source]
 type = "directory"
@@ -248,6 +268,7 @@ develop = true
 
 [package.dependencies]
 content-lab-core = {path = "../core", develop = true}
+content-lab-editing = {path = "../editing", develop = true}
 content-lab-shared = {path = "../shared/py", develop = true}
 
 [package.source]

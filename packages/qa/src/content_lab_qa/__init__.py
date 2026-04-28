@@ -31,6 +31,11 @@ from content_lab_qa.semantic_script import (
     SemanticScriptQARequest,
     evaluate_semantic_script,
 )
+from content_lab_qa.timing import (
+    TIMELINE_TIMING_GATE_NAME,
+    TimelineTimingConstraints,
+    evaluate_timeline_timing_qa,
+)
 
 __all__ = [
     "AlignmentFinding",
@@ -51,12 +56,15 @@ __all__ = [
     "SemanticScriptFinding",
     "SemanticScriptQARequest",
     "SemanticScriptQAReport",
+    "TIMELINE_TIMING_GATE_NAME",
+    "TimelineTimingConstraints",
     "evaluate_alignment_qa",
     "evaluate_format_qa",
     "evaluate_package",
     "evaluate_repetition",
     "evaluate_reel_package_format",
     "evaluate_semantic_script",
+    "evaluate_timeline_timing_qa",
     "validate_package_completeness",
     "validate_package_provenance",
 ]
