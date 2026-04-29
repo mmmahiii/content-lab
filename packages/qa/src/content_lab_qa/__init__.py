@@ -36,6 +36,13 @@ from content_lab_qa.semantic_script import (
     SemanticScriptQARequest,
     evaluate_semantic_script,
 )
+from content_lab_qa.text import (
+    USER_FACING_COPY_RULE_DEFS,
+    CopyLintCategory,
+    CopyLintMatch,
+    CopyRuleDef,
+    evaluate_user_facing_text,
+)
 
 __all__ = [
     "AlignmentFinding",
@@ -53,6 +60,10 @@ __all__ = [
     "RepetitionPolicy",
     "RepetitionSignal",
     "SEMANTIC_SCRIPT_GATE_NAME",
+    "USER_FACING_COPY_RULE_DEFS",
+    "CopyLintCategory",
+    "CopyLintMatch",
+    "CopyRuleDef",
     "SemanticScriptFinding",
     "SemanticScriptQARequest",
     "SemanticScriptQAReport",
@@ -62,6 +73,7 @@ __all__ = [
     "evaluate_repetition",
     "evaluate_reel_package_format",
     "evaluate_semantic_script",
+    "evaluate_user_facing_text",
     "validate_package_completeness",
     "validate_package_script_semantics",
     "validate_package_provenance",

@@ -44,6 +44,24 @@ type = "directory"
 url = "../core"
 
 [[package]]
+name = "content-lab-creative"
+version = "0.1.0"
+description = "Creative brief generation and template management"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+content-lab-core = {path = "../core", develop = true}
+content-lab-shared = {path = "../shared/py", develop = true}
+
+[package.source]
+type = "directory"
+url = "../creative"
+
+[[package]]
 name = "content-lab-shared"
 version = "0.1.0"
 description = "Shared models, settings, and utilities for Content Lab"
@@ -601,4 +619,4 @@ typing-extensions = ">=4.12.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "df9fccb215c1d78bbde867588b146d4807fee210084f3344baca3ea0720fae83"
+content-hash = "7f0cf2e3e84a8fb2e3bb6bad9a0922aaeca34799104ab8f7961368977c8ab72d"

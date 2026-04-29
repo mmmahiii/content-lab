@@ -439,8 +439,7 @@ def list_page_runs(
     # aborts the whole query with 500. jsonb_extract_path_text returns NULL instead.
     page_match = or_(
         func.jsonb_extract_path_text(Run.input_params, "page_id") == page_id_value,
-        func.jsonb_extract_path_text(Run.run_metadata, "target", "page_id")
-        == page_id_value,
+        func.jsonb_extract_path_text(Run.run_metadata, "target", "page_id") == page_id_value,
     )
     runs = (
         db.query(Run)
