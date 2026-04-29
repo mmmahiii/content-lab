@@ -66,6 +66,7 @@ def build_package_directory(
     creative_trace: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
+    editing_metadata: Mapping[str, Any] | None = None,
 ) -> LocalReelPackage:
     """Create the canonical ready-to-post package on local temp storage."""
 
@@ -93,6 +94,7 @@ def build_package_directory(
         manifest_payload = _build_manifest(
             reel_id=normalized_reel_id,
             package_directory=package_directory,
+            editing_metadata=editing_metadata,
         )
         _write_json(package_directory / PACKAGE_MANIFEST_FILENAME, manifest_payload)
 
@@ -117,6 +119,7 @@ def build_ready_to_post_package(
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
     upload_metadata: Mapping[str, str] | None = None,
+    editing_metadata: Mapping[str, Any] | None = None,
 ) -> BuiltReelPackage:
     """Build the canonical package locally and upload it to object storage."""
 
@@ -130,6 +133,7 @@ def build_ready_to_post_package(
         creative_trace=creative_trace,
         temp_root=temp_root,
         include_manifest=include_manifest,
+        editing_metadata=editing_metadata,
     )
     stored_package = persist_reel_package_directory(
         client=client,
@@ -152,7 +156,12 @@ def build_ready_to_post_package(
     )
 
 
-def _build_manifest(*, reel_id: str, package_directory: Path) -> dict[str, Any]:
+def _build_manifest(
+    *,
+    reel_id: str,
+    package_directory: Path,
+    editing_metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     artifacts = [
         _manifest_artifact(
             name="final_video",
@@ -202,7 +211,7 @@ def _build_manifest(*, reel_id: str, package_directory: Path) -> dict[str, Any]:
             )
         )
     assert_reel_package_complete(artifacts)
-    return {
+    payload: dict[str, Any] = {
         "version": _MANIFEST_VERSION,
         "reel_id": reel_id,
         "artifact_count": len(artifacts),
@@ -214,6 +223,9 @@ def _build_manifest(*, reel_id: str, package_directory: Path) -> dict[str, Any]:
         "complete": True,
         "artifacts": artifacts,
     }
+    if editing_metadata:
+        payload["editing"] = dict(editing_metadata)
+    return payload
 
 
 def _manifest_artifact(

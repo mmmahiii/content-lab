@@ -16,6 +16,7 @@ from content_lab_editing.edit_plan import SceneAwareEditPlan
 from content_lab_editing.overlays import (
     OverlayTimeline,
     build_overlay_render_report,
+    build_overlay_safe_area_report,
     build_overlay_video_filter,
     build_rendered_overlay_manifest,
 )
@@ -90,6 +91,7 @@ class BasicEditorArtifact:
     editorial_template_version: str | None = None
     applied_edit_plan: SceneAwareEditPlan | None = None
     overlay_render_report: dict[str, Any] | None = None
+    overlay_safe_area: dict[str, object] | None = None
 
 
 def render_basic_vertical_edit(
@@ -143,6 +145,14 @@ def render_basic_vertical_edit(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
         clip_duration_seconds=source_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
+    )
+    overlay_safe_area = build_overlay_safe_area_report(
+        overlay_timeline,
+        clip_duration_seconds=source_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
     )
 
     overlay_render_report = build_overlay_render_report(
@@ -210,6 +220,7 @@ def render_basic_vertical_edit(
         editorial_template_version=None,
         applied_edit_plan=None,
         overlay_render_report=overlay_render_report,
+        overlay_safe_area=overlay_safe_area,
     )
 
 
@@ -260,6 +271,14 @@ def _render_scene_aware_edit(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
         clip_duration_seconds=combined_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
+    )
+    overlay_safe_area = build_overlay_safe_area_report(
+        overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
     )
 
     overlay_render_report = build_overlay_render_report(
@@ -331,6 +350,7 @@ def _render_scene_aware_edit(
         ),
         applied_edit_plan=edit_plan,
         overlay_render_report=overlay_render_report,
+        overlay_safe_area=overlay_safe_area,
     )
 
 

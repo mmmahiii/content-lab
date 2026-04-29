@@ -66,7 +66,35 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
     }
 
 
-def test_build_ready_to_post_package_attaches_creative_trace(tmp_path: Path) -> None:
+def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path: Path) -> None:
+    final_video = tmp_path / "input-video.mp4"
+    cover = tmp_path / "input-cover.png"
+    final_video.write_bytes(b"video-bytes")
+    cover.write_bytes(_ONE_BY_ONE_PNG)
+
+    safe_report = {
+        "schema_version": 1,
+        "status": "pass",
+        "frame": {"width": 1080, "height": 1920},
+        "safe_insets_px": {"left": 64, "right": 64, "top": 100, "bottom": 100},
+        "overlays": [],
+    }
+    local_pkg = build_package_directory(
+        reel_id="reel-local-456",
+        final_video_path=final_video,
+        cover_path=cover,
+        caption_variants="Caption",
+        posting_plan={},
+        provenance={},
+        temp_root=tmp_path / "scratch-ed",
+        editing_metadata={"safe_area_9_16": safe_report},
+    )
+
+    manifest = json.loads(
+        (local_pkg.directory / "package_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["editing"]["safe_area_9_16"]["status"] == "pass"
+    assert manifest["editing"]["safe_area_9_16"]["frame"]["width"] == 1080
     client = Mock()
     layout = CanonicalStorageLayout(bucket="content-lab")
     final_video = tmp_path / "input-video.mp4"

@@ -335,18 +335,18 @@ def _build_overlay_timeline(
         OverlayCue(
             start_seconds=spoken_script[1].start_seconds,
             end_seconds=spoken_script[1].end_seconds,
-            text=_short_overlay_text(context.content_pillar or context.title),
+            text=_normalize_overlay_phrase(context.content_pillar or context.title),
             emphasis=ScriptOverlayEmphasis.VALUE,
         ),
         OverlayCue(
             start_seconds=spoken_script[2].start_seconds,
             end_seconds=spoken_script[2].end_seconds,
-            text=_short_overlay_text(_safe_narrative_goal(context) or "One repeatable move"),
+            text=_normalize_overlay_phrase(_safe_narrative_goal(context) or "One repeatable move"),
             emphasis=ScriptOverlayEmphasis.VALUE,
         ),
     ]
     final_emphasis = ScriptOverlayEmphasis.CTA
-    final_text = _short_overlay_text(_close_overlay_text(context))
+    final_text = _normalize_overlay_phrase(_close_overlay_text(context))
     if context.constraints.required_disclosures:
         final_emphasis = ScriptOverlayEmphasis.DISCLOSURE
         final_text = context.constraints.required_disclosures[0]
@@ -557,8 +557,10 @@ def _segment_boundaries(duration_seconds: int, segment_count: int) -> list[int]:
     return boundaries
 
 
-def _short_overlay_text(value: str) -> str:
-    return _trim_phrase(value, max_words=6)
+def _normalize_overlay_phrase(value: str) -> str:
+    """Trim outer whitespace only; never drop or mutate words."""
+
+    return value.strip()
 
 
 def _trim_phrase(value: str, *, max_words: int) -> str:
