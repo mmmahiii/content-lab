@@ -156,6 +156,13 @@ def _title(page_name: str, *, content_pillar: str, selected_mode: CreativeMode) 
     return f"{page_name}: {normalized_pillar} ({selected_mode.value})"
 
 
+def _indefinite_article(word: str) -> str:
+    stripped = word.strip().lower()
+    if not stripped:
+        return "a"
+    return "an" if stripped[0] in "aeiou" else "a"
+
+
 def _description(
     *,
     page_name: str,
@@ -164,8 +171,10 @@ def _description(
     persona: PersonaProfile | None,
 ) -> str:
     audience = "the target audience" if persona is None else persona.audience
+    mode_word = selected_mode.value
+    article = _indefinite_article(mode_word)
     return (
-        f"Create a {selected_mode.value} reel for {page_name} focused on {content_pillar} "
+        f"Create {article} {mode_word} reel for {page_name} focused on {content_pillar} "
         f"for {audience}."
     )
 

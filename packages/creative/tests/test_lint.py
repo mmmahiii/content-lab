@@ -126,3 +126,79 @@ def test_lint_passes_specific_viewer_facing_script() -> None:
     assert result.outcome == "pass"
     assert result.passed is True
     assert result.findings == []
+
+
+BAD_CAPTION_G004 = (
+    "Create a explore reel for Smoke Test Page focused on operations for Busy founders."
+)
+GOOD_CAPTION_STANDARD_G004 = (
+    "Founders batch vendor comms into one weekly block so approvals stay in one thread."
+)
+
+
+def test_g004_lint_fails_exact_bad_internal_standard_caption() -> None:
+    output = GeneratedScriptOutput(
+        provider_name="fixture",
+        generator_path="fixture",
+        brief_title="Operations",
+        duration_seconds=12,
+        hook_text="Founders can tighten weekly operations without hiring another ops lead.",
+        spoken_script=[
+            ScriptBeat(start_seconds=0, end_seconds=6, narration="Block two hours on Monday."),
+            ScriptBeat(
+                start_seconds=6,
+                end_seconds=12,
+                narration="Reuse the checklist so approvals stop bouncing between Slack threads.",
+            ),
+        ],
+        overlay_timeline=[
+            OverlayCue(
+                start_seconds=0,
+                end_seconds=3,
+                text="Batch vendor mail",
+                emphasis=ScriptOverlayEmphasis.HOOK,
+            ),
+        ],
+        caption_variants=[
+            CaptionVariant(variant=CaptionVariantName.SHORT, text="One ops habit."),
+            CaptionVariant(variant=CaptionVariantName.STANDARD, text=BAD_CAPTION_G004),
+        ],
+        hashtags=["#operations"],
+    )
+    result = lint_script_output(output)
+    assert result.outcome == "fail"
+    assert any(f.code == "internal_qa_copy" for f in result.findings)
+
+
+def test_g004_lint_passes_viewer_ready_standard_caption_positive() -> None:
+    output = GeneratedScriptOutput(
+        provider_name="fixture",
+        generator_path="fixture",
+        brief_title="Operations",
+        duration_seconds=12,
+        hook_text="Founders can tighten weekly operations without hiring another ops lead.",
+        spoken_script=[
+            ScriptBeat(start_seconds=0, end_seconds=6, narration="Block two hours on Monday."),
+            ScriptBeat(
+                start_seconds=6,
+                end_seconds=12,
+                narration="Reuse the checklist so approvals stop bouncing between Slack threads.",
+            ),
+        ],
+        overlay_timeline=[
+            OverlayCue(
+                start_seconds=0,
+                end_seconds=3,
+                text="Batch vendor mail",
+                emphasis=ScriptOverlayEmphasis.HOOK,
+            ),
+        ],
+        caption_variants=[
+            CaptionVariant(variant=CaptionVariantName.SHORT, text="One ops habit."),
+            CaptionVariant(variant=CaptionVariantName.STANDARD, text=GOOD_CAPTION_STANDARD_G004),
+        ],
+        hashtags=["#operations"],
+    )
+    result = lint_script_output(output)
+    assert result.outcome == "pass"
+    assert result.findings == []

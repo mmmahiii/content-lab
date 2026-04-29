@@ -35,6 +35,14 @@ _FAIL_META_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
         "Text refers to generation artifacts rather than the reel subject.",
     ),
     (
+        "internal_qa_copy",
+        re.compile(
+            r"\b(smoke test page|create a explore)\b",
+            re.IGNORECASE,
+        ),
+        "Caption or script line reads like internal QA scaffolding or broken template grammar.",
+    ),
+    (
         "placeholder_hook",
         re.compile(
             r"\b(fast hook|write (the )?hook|insert hook|todo|placeholder)\b", re.IGNORECASE

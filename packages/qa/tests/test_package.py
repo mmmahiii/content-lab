@@ -149,3 +149,5 @@ def test_evaluate_package_aggregates_package_and_provenance_checks() -> None:
     assert result.errors == ["Package provenance must include at least one provider lineage entry."]
     assert payload["checks"][0]["gate_name"] == "package_completeness"
     assert payload["checks"][1]["gate_name"] == "package_provenance"
+    assert payload["checks"][2]["gate_name"] == "package_script_semantics"
+    assert payload["checks"][2]["verdict"] == "skip"

@@ -13,7 +13,12 @@ from content_lab_qa.format import (
     evaluate_reel_package_format,
 )
 from content_lab_qa.gate import QAGate, QAResult
-from content_lab_qa.package import PackageQAResult, evaluate_package, validate_package_completeness
+from content_lab_qa.package import (
+    PackageQAResult,
+    evaluate_package,
+    validate_package_completeness,
+    validate_package_script_semantics,
+)
 from content_lab_qa.provenance import validate_package_provenance
 from content_lab_qa.repetition import (
     RepetitionGate,
@@ -58,5 +63,6 @@ __all__ = [
     "evaluate_reel_package_format",
     "evaluate_semantic_script",
     "validate_package_completeness",
+    "validate_package_script_semantics",
     "validate_package_provenance",
 ]

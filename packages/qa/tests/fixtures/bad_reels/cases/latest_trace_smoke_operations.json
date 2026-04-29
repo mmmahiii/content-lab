@@ -1,0 +1,216 @@
+{
+  "case_id": "latest_trace_smoke_operations",
+  "schema_version": "bad_reel_fixture_v1",
+  "brief": {
+    "title": "Smoke Test Page: operations (explore)",
+    "narrative_goal": "Test a fresh angle that still fits the page persona.",
+    "content_pillar": "operations",
+    "description": "Create a explore reel for Smoke Test Page focused on operations for Busy founders.",
+    "tags": ["explore", "operations"]
+  },
+  "script": {
+    "schema_version": "phase_1",
+    "provider_name": "rules_provider",
+    "generator_path": "rules_plus_provider",
+    "brief_title": "Smoke Test Page: operations (explore)",
+    "duration_seconds": 12,
+    "hook_text": "The operations reset busy founders can do today",
+    "spoken_script": [
+      {
+        "end_seconds": 3,
+        "narration": "The operations reset busy founders can do today",
+        "shot_direction": "Open on the clearest visual proof, with motion already in frame.",
+        "start_seconds": 0
+      },
+      {
+        "end_seconds": 6,
+        "narration": "Busy founders can make operations feel harder than it needs to.",
+        "shot_direction": "Show the before-state or common mistake without adding extra exposition.",
+        "start_seconds": 3
+      },
+      {
+        "end_seconds": 9,
+        "narration": "Try one slow operations reset, breathe through the tight point, then repeat.",
+        "shot_direction": "Demonstrate the useful step with a tight cutaway and readable hands.",
+        "start_seconds": 6
+      },
+      {
+        "end_seconds": 12,
+        "narration": "Use the takeaway the next time this problem shows up.",
+        "shot_direction": "Hold the final frame long enough for the CTA or disclosure to land.",
+        "start_seconds": 9
+      }
+    ],
+    "overlay_timeline": [
+      {
+        "emphasis": "hook",
+        "end_seconds": 3,
+        "start_seconds": 0,
+        "text": "The operations reset busy founders can do today"
+      },
+      {
+        "emphasis": "value",
+        "end_seconds": 6,
+        "start_seconds": 3,
+        "text": "operations"
+      },
+      {
+        "emphasis": "value",
+        "end_seconds": 9,
+        "start_seconds": 6,
+        "text": "One repeatable move"
+      },
+      {
+        "emphasis": "cta",
+        "end_seconds": 12,
+        "start_seconds": 9,
+        "text": "Save this reset"
+      }
+    ],
+    "caption_variants": [
+      {
+        "text": "The operations reset busy founders can do today. Save it for your next operations reset.",
+        "variant": "short"
+      },
+      {
+        "text": "Create a explore reel for Smoke Test Page focused on operations for Busy founders. Use the first move today, then keep the final takeaway close for next time. Save the step you can use today. #operations #smoketestpage #explore #neutral",
+        "variant": "standard"
+      },
+      {
+        "text": "The operations reset busy founders can do today. Where do you feel this most right now?",
+        "variant": "engagement"
+      }
+    ],
+    "hashtags": ["#operations", "#smoketestpage", "#explore", "#neutral"]
+  },
+  "scene_plan": {
+    "brief_title": "Smoke Test Page: operations (explore)",
+    "compiler_name": "deterministic_scene_plan_v1",
+    "duration_seconds": 12,
+    "metadata": {
+      "scene_count": 5,
+      "script_generator_path": "rules_plus_provider",
+      "script_provider_name": "rules_provider",
+      "source": "script_and_brief"
+    },
+    "scenes": [
+      {
+        "end_seconds": 3,
+        "narration_refs": [0],
+        "overlay_role": "hook",
+        "overlay_text": "The operations reset busy founders can do today",
+        "purpose": "hook",
+        "scene_id": "scene_1_hook",
+        "shot_guidance": "Open on the clearest visual proof, with motion already in frame.",
+        "start_seconds": 0,
+        "visual_intent": "Create immediate visual proof for operations so Busy founders understands the payoff."
+      },
+      {
+        "end_seconds": 6,
+        "narration_refs": [1],
+        "overlay_role": "emphasis",
+        "overlay_text": "operations",
+        "purpose": "setup",
+        "scene_id": "scene_2_setup",
+        "shot_guidance": "Show the before-state or common mistake without adding extra exposition.",
+        "start_seconds": 3,
+        "visual_intent": "Show the everyday context or friction behind Smoke Test Page: operations (explore)."
+      },
+      {
+        "end_seconds": 8,
+        "narration_refs": [2],
+        "overlay_role": "emphasis",
+        "overlay_text": "One repeatable move",
+        "purpose": "value",
+        "scene_id": "scene_3_value",
+        "shot_guidance": "Demonstrate the useful step with a tight cutaway and readable hands.",
+        "start_seconds": 6,
+        "visual_intent": "Demonstrate the useful operations action clearly enough to copy."
+      },
+      {
+        "end_seconds": 10,
+        "narration_refs": [2, 3],
+        "overlay_role": "emphasis",
+        "overlay_text": "One repeatable move",
+        "purpose": "payoff",
+        "scene_id": "scene_4_payoff",
+        "shot_guidance": "Demonstrate the useful step with a tight cutaway and readable hands.",
+        "start_seconds": 8,
+        "visual_intent": "Reveal the concrete improvement or result from the operations action."
+      },
+      {
+        "end_seconds": 12,
+        "narration_refs": [3],
+        "overlay_role": "cta",
+        "overlay_text": "Save this reset",
+        "purpose": "close",
+        "scene_id": "scene_5_close",
+        "shot_guidance": "Hold the final frame long enough for the CTA or disclosure to land.",
+        "start_seconds": 10,
+        "visual_intent": "Resolve the reel with one memorable final takeaway."
+      }
+    ],
+    "schema_version": "phase_1"
+  },
+  "compiled_prompt": {
+    "model": "fixture-1",
+    "negative_prompt": "text overlays, captions, watermarks",
+    "prompt": "Vertical phase-1 fixture video for Smoke Test Page: operations (explore), focused on operations.. hook scene 0-3s Create immediate visual proof for operations so Busy founders understands the payoff. Open on the clearest visual proof, with motion already in frame. visual focus operations.. setup scene 3-6s Show the everyday context or friction behind Smoke Test Page: operations (explore). Show the before-state or common mistake without adding extra exposition. visual focus operations.. value scene 6-8s Demonstrate the useful operations action clearly enough to copy. Demonstrate the useful step with a tight cutaway and readable hands. visual focus operations.. payoff scene 8-10s Reveal the concrete improvement or result from the operations action. Demonstrate the useful step with a tight cutaway and readable hands. visual focus operations.. close scene 10-12s Resolve the reel with one memorable final takeaway. Hold the final frame long enough for the CTA or disclosure to land. visual focus operations.",
+    "prompt_kind": "scene_plan_visual_prompt",
+    "provider": "fixture",
+    "trace": {
+      "compiler_name": "scene_prompt_compiler_v1",
+      "final_prompt_chars": 1006,
+      "fragments": [],
+      "prompt_hash": "d31027037f93cf93c58882beb6823d9fda355ec311670e90c7fa5b5bc1a6e3a9",
+      "safety": {
+        "max_prompt_chars": 1800,
+        "max_scene_fragment_chars": 280,
+        "negative_prompt": "text overlays, captions, watermarks",
+        "removed_meta_language": false
+      },
+      "source": {
+        "brief_title": "Smoke Test Page: operations (explore)",
+        "scene_ids": [
+          "scene_1_hook",
+          "scene_2_setup",
+          "scene_3_value",
+          "scene_4_payoff",
+          "scene_5_close"
+        ],
+        "scene_plan_compiler_name": "deterministic_scene_plan_v1",
+        "scene_plan_schema_version": "phase_1",
+        "source_hash": "0da73cffdca912b28d568728d2473dd7f6deaad28c464f3598355f38531e9aaf"
+      }
+    }
+  },
+  "script_lint": {
+    "checked_fields": [
+      "hook_text",
+      "spoken_script[0].narration",
+      "spoken_script[1].narration",
+      "spoken_script[2].narration",
+      "spoken_script[3].narration",
+      "overlay_timeline[0].text",
+      "overlay_timeline[1].text",
+      "overlay_timeline[2].text",
+      "overlay_timeline[3].text",
+      "caption_variants[0].text",
+      "caption_variants[1].text",
+      "caption_variants[2].text"
+    ],
+    "findings": [],
+    "outcome": "pass",
+    "passed": true
+  },
+  "editing": {
+    "final_video_path": "C:/fixtures/dummy/final_video.mp4",
+    "cover_path": "C:/fixtures/dummy/cover.png",
+    "cover_frame_timestamp_seconds": 0.4,
+    "duration_seconds": 12.0
+  },
+  "asset_resolution": {
+    "asset_key_hash": "fixture-asset-key-hash-latest-trace-smoke-ops",
+    "policy": {}
+  }
+}

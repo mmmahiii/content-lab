@@ -199,6 +199,8 @@ class TextOverlay:
     text: str
     start_seconds: float = 0.0
     end_seconds: float | None = None
+    fade_in_seconds: float = 0.0
+    fade_out_seconds: float = 0.0
     font_size: int = DEFAULT_OVERLAY_FONT_SIZE
     font_color: str = DEFAULT_OVERLAY_FONT_COLOR
     border_color: str = DEFAULT_OVERLAY_BORDER_COLOR
@@ -291,6 +293,14 @@ class TextOverlay:
             overlay_id=_read_overlay_id(payload),
         )
 
+        fade_in_raw = _read_optional_float(payload, "fade_in_seconds", "fade_in")
+        fade_out_raw = _read_optional_float(payload, "fade_out_seconds", "fade_out")
+        overlay = replace(
+            overlay,
+            fade_in_seconds=0.0 if fade_in_raw is None else max(0.0, float(fade_in_raw)),
+            fade_out_seconds=0.0 if fade_out_raw is None else max(0.0, float(fade_out_raw)),
+        )
+
         duration_seconds = _read_optional_float(payload, "duration_seconds", "duration")
         if overlay.end_seconds is None and duration_seconds is not None:
             overlay = replace(overlay, end_seconds=overlay.start_seconds + duration_seconds)
@@ -356,6 +366,10 @@ class TextOverlay:
                 ]
             )
 
+        alpha_expr = self._alpha_linear_product_expression()
+        if alpha_expr is not None:
+            options.append(f"alpha='{_escape_filter_value(alpha_expr)}'")
+
         if self.font_file is not None:
             options.append(f"fontfile='{_escape_filter_value(self.font_file)}'")
 
@@ -382,12 +396,94 @@ class TextOverlay:
     def _enable_expression(self) -> str:
         """Half-open [start, end) window so adjacent cues never share an instant."""
 
+        start = _format_seconds(self.start_seconds)
         if self.end_seconds is None:
-            return f"gte(t,{_format_seconds(self.start_seconds)})"
-        return (
-            f"gte(t,{_format_seconds(self.start_seconds)})"
-            f"*lt(t,{_format_seconds(self.end_seconds)})"
-        )
+            return f"gte(t,{start})"
+        end = _format_seconds(self.end_seconds)
+        return f"gte(t,{start})*lt(t,{end})"
+
+    def _alpha_linear_product_expression(self) -> str | None:
+        """FFmpeg expr for piecewise-linear fades while the overlay is enabled."""
+
+        fade_in = max(0.0, float(self.fade_in_seconds))
+        fade_out = max(0.0, float(self.fade_out_seconds))
+        if fade_in < 1e-12 and fade_out < 1e-12:
+            return None
+        if self.end_seconds is None:
+            return None
+        start = _format_seconds(self.start_seconds)
+        end = _format_seconds(self.end_seconds)
+        fin = "1" if fade_in < 1e-12 else f"min(1,max(0,(t-{start})/{fade_in}))"
+        fout = "1" if fade_out < 1e-12 else f"min(1,max(0,({end}-t)/{fade_out}))"
+        if fin == "1" and fout == "1":
+            return None
+        if fin == "1":
+            return fout
+        if fout == "1":
+            return fin
+        return f"{fin}*{fout}"
+
+
+_PLATEAU_EPS = 1e-9
+
+
+def overlay_opaque_plateau_interval(overlay: TextOverlay) -> tuple[float, float] | None:
+    """Return the window where linear fades should be fully opaque (alpha≈1)."""
+
+    if overlay.end_seconds is None:
+        return None
+    start = overlay.start_seconds
+    end = overlay.end_seconds
+    fade_in = max(0.0, overlay.fade_in_seconds)
+    fade_out = max(0.0, overlay.fade_out_seconds)
+    plateau_start = start + fade_in
+    plateau_end = end - fade_out
+    if plateau_end <= plateau_start + _PLATEAU_EPS:
+        return None
+    return (plateau_start, plateau_end)
+
+
+def require_adjacent_overlay_intervals_non_overlapping(
+    overlays: Sequence[TextOverlay],
+    *,
+    nominal_slop_seconds: float = 1e-4,
+    plateau_slop_seconds: float = 1e-4,
+) -> None:
+    """Raise ``ValueError`` when cues leak past the next boundary (nominal or opaque plateau).
+
+    ``nominal_slop_seconds`` catches split-second timeline mistakes (e.g. ending at 3.02 while
+    the next cue starts at 3.0). ``plateau_slop_seconds`` catches fade math that would keep two
+    fully-opaque stacks competing on screen.
+    """
+
+    ordered = tuple(sorted(overlays, key=lambda o: (o.start_seconds, o.end_seconds or 0.0)))
+    if len(ordered) < 2:
+        return
+    for idx in range(len(ordered) - 1):
+        previous, current = ordered[idx], ordered[idx + 1]
+        prev_end = previous.end_seconds
+        curr_start = current.start_seconds
+        if prev_end is None or current.end_seconds is None:
+            msg = "overlap checks require bounded overlay end times"
+            raise ValueError(msg)
+        if prev_end > curr_start + nominal_slop_seconds:
+            msg = (
+                "nominal overlay timeline overlap: previous ends at "
+                f"{prev_end:.6f}s but next starts at {curr_start:.6f}s"
+            )
+            raise ValueError(msg)
+        prev_plateau = overlay_opaque_plateau_interval(previous)
+        curr_plateau = overlay_opaque_plateau_interval(current)
+        if (
+            prev_plateau is not None
+            and curr_plateau is not None
+            and prev_plateau[1] > curr_plateau[0] + plateau_slop_seconds
+        ):
+            msg = (
+                "opaque plateau overlap after fades: "
+                f"{prev_plateau} intersects {curr_plateau}"
+            )
+            raise ValueError(msg)
 
 
 def _read_optional_float_ms(
@@ -1675,6 +1771,102 @@ def _manifest_safe_area(
     }
 
 
+_DRAWTEXT_LITERAL_UNESCAPES: dict[str, str] = {
+    "\\": "\\",
+    "'": "'",
+    ":": ":",
+    ",": ",",
+    "[": "[",
+    "]": "]",
+    "%": "%",
+    "n": "\n",
+}
+
+
+def parse_drawtext_filter_text(clause: str) -> str:
+    """Recover the original overlay string embedded in a ``drawtext=…`` filter clause.
+
+    Intended for regression tests and tooling that need to verify FFmpeg text payloads
+    round-trip without executing ffmpeg.
+    """
+
+    marker = "text='"
+    start = clause.find(marker)
+    if start == -1:
+        raise ValueError("drawtext clause missing text='…' payload")
+    index = start + len(marker)
+    parts: list[str] = []
+    while index < len(clause):
+        ch = clause[index]
+        if ch == "'":
+            break
+        if ch == "\\" and index + 1 < len(clause):
+            decoded = _DRAWTEXT_LITERAL_UNESCAPES.get(clause[index + 1])
+            if decoded is None:
+                msg = f"unsupported drawtext literal escape: {clause[index : index + 2]!r}"
+                raise ValueError(msg)
+            parts.append(decoded)
+            index += 2
+            continue
+        parts.append(ch)
+        index += 1
+    else:
+        raise ValueError("unterminated text='…' segment in drawtext clause")
+    return "".join(parts)
+
+
+def estimate_wrapped_line_count(
+    text: str,
+    *,
+    font_size_px: int,
+    usable_width_px: float,
+    avg_char_width_factor: float = 0.52,
+) -> int:
+    """Rough Latin word-wrap line count for bottom overlay regression checks."""
+
+    words = [word for word in text.replace("\n", " ").split() if word]
+    if not words:
+        return 0
+    char_width = max(4.0, float(font_size_px) * avg_char_width_factor)
+    space_width = char_width * 0.35
+    budget = max(char_width, usable_width_px)
+    lines = 1
+    used = 0.0
+    for word in words:
+        chunk_width = len(word) * char_width
+        extra = space_width if used > 0 else 0.0
+        if used + extra + chunk_width > budget + 1e-6:
+            lines += 1
+            used = chunk_width
+        else:
+            used += extra + chunk_width
+    return lines
+
+
+def estimate_drawtext_block_height_px(line_count: int, overlay: TextOverlay) -> int:
+    """Approximate rendered block height (text + borders) for clearance heuristics."""
+
+    if line_count <= 0:
+        return 0
+    body = line_count * overlay.font_size
+    if line_count > 1:
+        body += (line_count - 1) * overlay.line_spacing
+    return int(body + 2 * overlay.border_width + 2 * overlay.box_border_width)
+
+
+def bottom_overlay_has_vertical_safe_area(
+    overlay: TextOverlay,
+    *,
+    frame_height_px: int,
+    line_count: int,
+    top_safe_px: int = 120,
+) -> bool:
+    """Return True when a bottom-aligned overlay should fit under a top inset (notch/title safe)."""
+
+    block = estimate_drawtext_block_height_px(line_count, overlay)
+    return overlay.margin_y + block <= frame_height_px - top_safe_px
+
+
 __all__ = [
     "DEFAULT_SAFE_AREA_9_16",
     "DEFAULT_OVERLAY_BORDER_COLOR",
@@ -1698,15 +1890,22 @@ __all__ = [
     "OverlayTransitionSettings",
     "SafeAreaInsets9_16",
     "TextOverlay",
+    "bottom_overlay_has_vertical_safe_area",
     "build_drawtext_filters",
     "build_overlay_safe_area_report",
     "build_overlay_render_diagnostics",
     "build_overlay_render_report",
     "build_rendered_overlay_manifest",
     "build_overlay_video_filter",
+    "bottom_overlay_has_vertical_safe_area",
+    "estimate_drawtext_block_height_px",
+    "estimate_wrapped_line_count",
     "list_pre_handoff_overlay_slots",
     "normalize_overlay_source_text",
     "normalize_overlay_timeline",
+    "overlay_opaque_plateau_interval",
+    "parse_drawtext_filter_text",
+    "require_adjacent_overlay_intervals_non_overlapping",
     "scene_plan_overlay_text_references",
     "validate_overlay_fits_frame",
 ]
