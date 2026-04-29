@@ -605,6 +605,7 @@ class PhaseOneProcessReelExecutor:
         asset_output = _step_output(execution, "asset_resolution")
         source_uri = _required_text(asset_output.get("storage_uri"), field_name="asset_resolution")
         overlay_timeline = _mapping(creative_output.get("script")).get("overlay_timeline")
+        scene_plan_payload = _mapping(creative_output.get("scene_plan"))
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
         artifact = render_basic_vertical_edit(
@@ -612,6 +613,7 @@ class PhaseOneProcessReelExecutor:
             workdir=workdir,
             storage_client=self._storage_client,
             overlay_timeline=cast(Any, overlay_timeline),
+            scene_plan_for_overlay_diagnostics=scene_plan_payload,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
         )
@@ -620,10 +622,13 @@ class PhaseOneProcessReelExecutor:
             json.dumps(
                 {
                     "overlay_timeline": overlay_timeline,
-                    "scene_plan": _mapping(creative_output.get("scene_plan")),
+                    "scene_plan": scene_plan_payload,
                     "spoken_script": _mapping(creative_output.get("script")).get(
                         "spoken_script", []
                     ),
+                    "overlay_render_report": artifact.overlay_render_report,
+                    "rendered_overlay_manifest": artifact.rendered_overlay_manifest.as_json_dict(),
+                    "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
                 },
                 indent=2,
                 sort_keys=True,
@@ -646,6 +651,10 @@ class PhaseOneProcessReelExecutor:
             "width": artifact.width,
             "height": artifact.height,
             "has_audio_track": artifact.has_audio_track,
+            "overlay_render_report": artifact.overlay_render_report,
+            "rendered_overlay_manifest": artifact.rendered_overlay_manifest.as_json_dict(),
+            "overlay_render_trace_path": str(artifact.overlay_render_trace_path),
+            "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
         }
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:

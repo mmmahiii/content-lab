@@ -4,6 +4,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local worktree label (optional; do not commit)
+.cursor/worktree-name
+
 # Node
 node_modules/
 .pnpm-store/

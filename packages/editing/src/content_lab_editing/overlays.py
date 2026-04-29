@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
-from typing import Literal, TypeAlias, cast
+from dataclasses import asdict, dataclass, replace
+from typing import Any, Literal, TypeAlias, cast
 
 from content_lab_editing.instructions import EditInstruction, EditOperation, EditPlan
+from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayManifestEntry
 
 DEFAULT_OVERLAY_MARGIN_X = 80
 DEFAULT_OVERLAY_MARGIN_Y = 160
@@ -23,6 +24,33 @@ VerticalAlign: TypeAlias = Literal["top", "center", "bottom"]
 OverlayPosition: TypeAlias = str | int | float
 OverlayInput: TypeAlias = "TextOverlay | EditInstruction | Mapping[str, object]"
 OverlayTimeline: TypeAlias = Sequence[OverlayInput] | EditPlan
+
+TimelineContainer: TypeAlias = Literal["sequence", "edit_plan"]
+OverlaySourceKind: TypeAlias = Literal["mapping", "text_overlay", "edit_instruction_params"]
+
+
+@dataclass(frozen=True, slots=True)
+class OverlayRenderDiagnostic:
+    """One overlay row: what was interpreted for FFmpeg drawtext and where it came from."""
+
+    index: int
+    source_path: str
+    timeline_container: TimelineContainer
+    source_kind: OverlaySourceKind
+    render_authority: Literal["overlay_timeline_argument"]
+    role: str | None
+    style: dict[str, Any]
+    font_size: int
+    max_width_px: float | None
+    x_expression: str
+    y_expression: str
+    start_seconds: float
+    end_seconds: float | None
+    payload_text_raw: str | None
+    final_render_text: str
+    truncation_before_render: Literal["none", "whitespace_strip", "overlay_parser_changed_text"]
+    truncation_during_ffmpeg: Literal["none"]
+    drawtext_filter: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +263,226 @@ def normalize_overlay_timeline(
     return tuple(normalized)
 
 
+def build_overlay_render_diagnostics(
+    timeline: OverlayTimeline | None,
+    *,
+    clip_duration_seconds: float | None = None,
+    sequence_source_prefix: str = "script.overlay_timeline",
+) -> tuple[OverlayRenderDiagnostic, ...]:
+    """Describe each overlay FFmpeg will render: provenance, timing, and final drawtext text."""
+
+    if timeline is None:
+        return ()
+
+    items: Sequence[OverlayInput] = (
+        timeline.instructions if isinstance(timeline, EditPlan) else timeline
+    )
+
+    work: list[
+        tuple[
+            str,
+            TimelineContainer,
+            OverlaySourceKind,
+            str | None,
+            TextOverlay,
+            Mapping[str, object] | None,
+        ]
+    ] = []
+
+    if isinstance(timeline, EditPlan):
+        for idx, instruction in enumerate(timeline.instructions):
+            if instruction.operation != EditOperation.OVERLAY_TEXT:
+                continue
+            payload = instruction.params
+            raw_text = _peek_raw_text_field(payload)
+            overlay = TextOverlay.from_mapping(
+                payload,
+                clip_duration_seconds=clip_duration_seconds,
+            )
+            source_path = f"edit_plan.instructions[{idx}]"
+            work.append(
+                (
+                    source_path,
+                    "edit_plan",
+                    "edit_instruction_params",
+                    raw_text,
+                    overlay,
+                    payload,
+                )
+            )
+    else:
+        for idx, item in enumerate(items):
+            if isinstance(item, TextOverlay):
+                normalized_overlay = item.normalize(clip_duration_seconds=clip_duration_seconds)
+                source_path = f"{sequence_source_prefix}[{idx}]"
+                work.append(
+                    (
+                        source_path,
+                        "sequence",
+                        "text_overlay",
+                        item.text,
+                        normalized_overlay,
+                        None,
+                    )
+                )
+                continue
+            if isinstance(item, EditInstruction):
+                if item.operation != EditOperation.OVERLAY_TEXT:
+                    continue
+                payload = item.params
+                raw_text = _peek_raw_text_field(payload)
+                overlay = TextOverlay.from_mapping(
+                    payload,
+                    clip_duration_seconds=clip_duration_seconds,
+                )
+                source_path = f"{sequence_source_prefix}[{idx}]"
+                work.append(
+                    (
+                        source_path,
+                        "sequence",
+                        "edit_instruction_params",
+                        raw_text,
+                        overlay,
+                        payload,
+                    )
+                )
+                continue
+            if isinstance(item, Mapping):
+                raw_text = _peek_raw_text_field(item)
+                overlay = TextOverlay.from_mapping(
+                    item,
+                    clip_duration_seconds=clip_duration_seconds,
+                )
+                source_path = f"{sequence_source_prefix}[{idx}]"
+                work.append(
+                    (source_path, "sequence", "mapping", raw_text, overlay, item)
+                )
+                continue
+            raise TypeError(f"Unsupported overlay timeline entry type: {type(item)!r}")
+
+    work.sort(
+        key=lambda row: (row[4].start_seconds, row[4].end_seconds or float("inf")),
+    )
+
+    diagnostics: list[OverlayRenderDiagnostic] = []
+    for idx, (source_path, container, source_kind, payload_raw, overlay, payload_mapping) in enumerate(
+        work
+    ):
+        truncation_before, truncation_ffmpeg = _overlay_truncation_stages(payload_raw, overlay.text)
+        diagnostics.append(
+            OverlayRenderDiagnostic(
+                index=idx,
+                source_path=source_path,
+                timeline_container=container,
+                source_kind=source_kind,
+                render_authority="overlay_timeline_argument",
+                role=_role_from_payload(payload_mapping),
+                style=_overlay_style_snapshot(overlay),
+                font_size=overlay.font_size,
+                max_width_px=None,
+                x_expression=overlay._x_expression(),
+                y_expression=overlay._y_expression(),
+                start_seconds=overlay.start_seconds,
+                end_seconds=overlay.end_seconds,
+                payload_text_raw=payload_raw,
+                final_render_text=overlay.text,
+                truncation_before_render=truncation_before,
+                truncation_during_ffmpeg=truncation_ffmpeg,
+                drawtext_filter=overlay.drawtext_filter(),
+            )
+        )
+
+    return tuple(diagnostics)
+
+
+def scene_plan_overlay_text_references(
+    scene_plan: Mapping[str, object] | None,
+) -> tuple[dict[str, Any], ...]:
+    """Surface scene_plan overlay_text fields for QA; they do not drive FFmpeg in this package."""
+
+    if scene_plan is None:
+        return ()
+
+    scenes = scene_plan.get("scenes")
+    if not isinstance(scenes, list):
+        return ()
+
+    references: list[dict[str, Any]] = []
+    for idx, scene in enumerate(scenes):
+        if not isinstance(scene, Mapping):
+            continue
+        raw_text = scene.get("overlay_text")
+        if raw_text is None:
+            continue
+        text = str(raw_text).strip()
+        if not text:
+            continue
+        references.append(
+            {
+                "scene_index": idx,
+                "scene_id": scene.get("scene_id"),
+                "purpose": scene.get("purpose"),
+                "overlay_role": scene.get("overlay_role"),
+                "overlay_text": text,
+                "used_for_video_render": False,
+                "note": (
+                    "scene_plan overlay_text is informational unless mirrored into "
+                    "script.overlay_timeline; FFmpeg uses overlay_timeline_argument only."
+                ),
+            }
+        )
+
+    return tuple(references)
+
+
+def _peek_raw_text_field(payload: Mapping[str, object]) -> str | None:
+    value = payload.get("text")
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _role_from_payload(payload: Mapping[str, object] | None) -> str | None:
+    if payload is None:
+        return None
+    for key in ("emphasis", "role", "overlay_role"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        label = str(value).strip()
+        if label:
+            return label
+    return None
+
+
+def _overlay_style_snapshot(overlay: TextOverlay) -> dict[str, Any]:
+    return {
+        "box": overlay.box,
+        "box_color": overlay.box_color,
+        "font_color": overlay.font_color,
+        "horizontal_align": overlay.horizontal_align,
+        "vertical_align": overlay.vertical_align,
+        "border_width": overlay.border_width,
+        "line_spacing": overlay.line_spacing,
+    }
+
+
+def _overlay_truncation_stages(
+    payload_raw: str | None,
+    final_text: str,
+) -> tuple[
+    Literal["none", "whitespace_strip", "overlay_parser_changed_text"],
+    Literal["none"],
+]:
+    if payload_raw is None:
+        return ("none", "none")
+    if payload_raw == final_text:
+        return ("none", "none")
+    if payload_raw.strip() == final_text:
+        return ("whitespace_strip", "none")
+    return ("overlay_parser_changed_text", "none")
+
+
 def build_drawtext_filters(
     timeline: OverlayTimeline | None,
     *,
@@ -420,6 +668,200 @@ def _escape_drawtext_text(value: str) -> str:
     return escaped.replace("\n", r"\n")
 
 
+def build_overlay_render_report(
+    *,
+    timeline: OverlayTimeline | None,
+    clip_duration_seconds: float | None = None,
+    sequence_source_prefix: str = "script.overlay_timeline",
+    scene_plan: Mapping[str, object] | None = None,
+) -> dict[str, Any]:
+    """Aggregate FFmpeg-bound overlays plus scene_plan overlay_text references for QA traces."""
+
+    diagnostics = build_overlay_render_diagnostics(
+        timeline,
+        clip_duration_seconds=clip_duration_seconds,
+        sequence_source_prefix=sequence_source_prefix,
+    )
+    references = scene_plan_overlay_text_references(scene_plan)
+    return {
+        "render_authority": "overlay_timeline_argument_only",
+        "scene_plan_overlay_text_drives_render": False,
+        "ffmpeg_drawtext_truncation": "none_pipeline_has_no_text_max_width",
+        "overlays": [asdict(entry) for entry in diagnostics],
+        "scene_plan_overlay_text_references": list(references),
+    }
+
+
+def build_rendered_overlay_manifest(
+    *,
+    timeline: OverlayTimeline | None,
+    clip_duration_seconds: float,
+    frame_width_px: int,
+    frame_height_px: int,
+    sequence_source_prefix: str = "script.overlay_timeline",
+) -> RenderedOverlayManifest:
+    """Structured manifest of drawtext overlays for QA without inspecting decoded frames."""
+
+    overlays_norm = normalize_overlay_timeline(
+        timeline,
+        clip_duration_seconds=clip_duration_seconds,
+    )
+    diagnostics = build_overlay_render_diagnostics(
+        timeline,
+        clip_duration_seconds=clip_duration_seconds,
+        sequence_source_prefix=sequence_source_prefix,
+    )
+
+    if len(overlays_norm) != len(diagnostics):
+        raise RuntimeError("overlay diagnostics drifted from normalized overlays")
+
+    effective_windows = [
+        _effective_visible_window(
+            overlay.start_seconds,
+            overlay.end_seconds,
+            clip_duration_seconds,
+        )
+        for overlay in overlays_norm
+    ]
+    collision_labels = _collision_group_ids(effective_windows)
+
+    entries: list[RenderedOverlayManifestEntry] = []
+    for idx, (diag, overlay, effective, collision_group) in enumerate(
+        zip(diagnostics, overlays_norm, effective_windows, collision_labels, strict=True)
+    ):
+        wrap_lines = _manifest_wrap_lines(diag.final_render_text)
+        style = _manifest_style_snapshot(overlay)
+        safe_area = _manifest_safe_area(
+            overlay=overlay,
+            diagnostic=diag,
+            frame_width_px=frame_width_px,
+            frame_height_px=frame_height_px,
+        )
+        entries.append(
+            RenderedOverlayManifestEntry(
+                overlay_id=f"overlay-{idx:03d}",
+                timeline_source_path=diag.source_path,
+                source_text=diag.payload_text_raw,
+                final_render_text=diag.final_render_text,
+                start_seconds=diag.start_seconds,
+                end_seconds=diag.end_seconds,
+                effective_visible_start_seconds=effective[0],
+                effective_visible_end_seconds=effective[1],
+                role=diag.role,
+                style=style,
+                wrap_lines=wrap_lines,
+                safe_area=safe_area,
+                collision_group=collision_group,
+            )
+        )
+
+    return RenderedOverlayManifest(
+        schema_version="rendered_overlay_manifest_v1",
+        frame_width_px=frame_width_px,
+        frame_height_px=frame_height_px,
+        clip_duration_seconds=float(clip_duration_seconds),
+        overlays=tuple(entries),
+    )
+
+
+def _effective_visible_window(
+    start_seconds: float,
+    end_seconds: float | None,
+    clip_duration_seconds: float,
+) -> tuple[float, float]:
+    clip_duration_seconds = max(float(clip_duration_seconds), 0.0)
+    span_end = end_seconds if end_seconds is not None else clip_duration_seconds
+    lo = max(float(start_seconds), 0.0)
+    hi = min(float(span_end), clip_duration_seconds)
+    if hi < lo:
+        pivot = min(max(float(start_seconds), 0.0), clip_duration_seconds)
+        return (pivot, pivot)
+    return (lo, hi)
+
+
+def _collision_group_ids(intervals: list[tuple[float, float]]) -> list[int]:
+    """Assign overlapping effective-visible intervals to shared collision groups."""
+
+    count = len(intervals)
+    if count == 0:
+        return []
+
+    parent = list(range(count))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        root_left = find(left)
+        root_right = find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    for i in range(count):
+        for j in range(i + 1, count):
+            a_lo, a_hi = intervals[i]
+            b_lo, b_hi = intervals[j]
+            if a_lo < b_hi and b_lo < a_hi:
+                union(i, j)
+
+    root_labels: dict[int, int] = {}
+    labels: list[int] = []
+    next_label = 0
+    for index in range(count):
+        root = find(index)
+        if root not in root_labels:
+            root_labels[root] = next_label
+            next_label += 1
+        labels.append(root_labels[root])
+
+    return labels
+
+
+def _manifest_wrap_lines(text: str) -> tuple[str, ...]:
+    lines = tuple(line for line in text.splitlines())
+    return lines if lines else ("",)
+
+
+def _manifest_style_snapshot(overlay: TextOverlay) -> dict[str, Any]:
+    base = _overlay_style_snapshot(overlay)
+    merged = dict(base)
+    merged.update(
+        {
+            "font_size": overlay.font_size,
+            "margin_x_px": overlay.margin_x,
+            "margin_y_px": overlay.margin_y,
+        }
+    )
+    return merged
+
+
+def _manifest_safe_area(
+    *,
+    overlay: TextOverlay,
+    diagnostic: OverlayRenderDiagnostic,
+    frame_width_px: int,
+    frame_height_px: int,
+) -> dict[str, Any]:
+    return {
+        "frame_width_px": frame_width_px,
+        "frame_height_px": frame_height_px,
+        "margin_x_px": overlay.margin_x,
+        "margin_y_px": overlay.margin_y,
+        "horizontal_align": overlay.horizontal_align,
+        "vertical_align": overlay.vertical_align,
+        "x_expression": diagnostic.x_expression,
+        "y_expression": diagnostic.y_expression,
+        "placement_model": "ffmpeg_drawtext",
+        "note": (
+            "Bounding box is not rasterized; FFmpeg positions glyphs using expressions "
+            "that reference w, h, text_w, and text_h after scaling/padding to the frame."
+        ),
+    }
+
+
 __all__ = [
     "DEFAULT_OVERLAY_BORDER_COLOR",
     "DEFAULT_OVERLAY_BORDER_WIDTH",
@@ -431,9 +873,14 @@ __all__ = [
     "DEFAULT_OVERLAY_MARGIN_X",
     "DEFAULT_OVERLAY_MARGIN_Y",
     "OverlayInput",
+    "OverlayRenderDiagnostic",
     "OverlayTimeline",
     "TextOverlay",
     "build_drawtext_filters",
+    "build_overlay_render_diagnostics",
+    "build_overlay_render_report",
+    "build_rendered_overlay_manifest",
     "build_overlay_video_filter",
     "normalize_overlay_timeline",
+    "scene_plan_overlay_text_references",
 ]

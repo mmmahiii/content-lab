@@ -5,23 +5,31 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_frame
 from content_lab_editing.edit_plan import SceneAwareEditPlan
-from content_lab_editing.overlays import OverlayTimeline, build_overlay_video_filter
+from content_lab_editing.overlays import (
+    OverlayTimeline,
+    build_overlay_render_report,
+    build_overlay_video_filter,
+    build_rendered_overlay_manifest,
+)
 from content_lab_editing.templates import (
     EditorialTemplate,
     apply_editorial_template,
 )
+from content_lab_editing.types import RenderedOverlayManifest
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
 FINAL_VIDEO_FILENAME = "final_video.mp4"
 FINAL_COVER_FILENAME = DEFAULT_COVER_FILENAME
+OVERLAY_RENDER_TRACE_FILENAME = "overlay_render_trace.json"
 PHASE1_TEMPLATE_VERSION = "basic_vertical_v1"
 _AUDIO_CHANNEL_LAYOUT = "stereo"
 _AUDIO_SAMPLE_RATE = 48_000
@@ -76,9 +84,12 @@ class BasicEditorArtifact:
     cover_frame_timestamp_seconds: float
     source_had_audio_track: bool
     has_audio_track: bool
+    rendered_overlay_manifest: RenderedOverlayManifest
+    overlay_render_trace_path: Path
     editorial_template_id: str | None = None
     editorial_template_version: str | None = None
     applied_edit_plan: SceneAwareEditPlan | None = None
+    overlay_render_report: dict[str, Any] | None = None
 
 
 def render_basic_vertical_edit(
@@ -87,6 +98,7 @@ def render_basic_vertical_edit(
     workdir: str | Path,
     storage_client: ObjectStorageClient | None = None,
     overlay_timeline: OverlayTimeline | None = None,
+    scene_plan_for_overlay_diagnostics: Mapping[str, Any] | None = None,
     edit_plan: SceneAwareEditPlan | None = None,
     editorial_template: EditorialTemplate | None = None,
     ffmpeg_bin: str = "ffmpeg",
@@ -115,6 +127,7 @@ def render_basic_vertical_edit(
             output_dir=output_dir,
             storage_client=storage_client,
             overlay_timeline=overlay_timeline,
+            scene_plan_for_overlay_diagnostics=scene_plan_for_overlay_diagnostics,
             editorial_template=editorial_template,
             ffmpeg_bin=ffmpeg_bin,
             ffprobe_bin=ffprobe_bin,
@@ -131,6 +144,21 @@ def render_basic_vertical_edit(
         timeline=overlay_timeline,
         clip_duration_seconds=source_probe.duration_seconds,
     )
+
+    overlay_render_report = build_overlay_render_report(
+        timeline=overlay_timeline,
+        clip_duration_seconds=source_probe.duration_seconds,
+        scene_plan=scene_plan_for_overlay_diagnostics,
+    )
+
+    rendered_manifest = build_rendered_overlay_manifest(
+        timeline=overlay_timeline,
+        clip_duration_seconds=float(source_probe.duration_seconds),
+        frame_width_px=TARGET_WIDTH,
+        frame_height_px=TARGET_HEIGHT,
+    )
+
+    overlay_render_trace_path = output_dir / OVERLAY_RENDER_TRACE_FILENAME
 
     final_video_path = output_dir / FINAL_VIDEO_FILENAME
     _render_final_video(
@@ -149,6 +177,11 @@ def render_basic_vertical_edit(
         )
     if not output_probe.has_audio_track:
         raise RuntimeError("Basic editor output is missing the required audio track")
+
+    overlay_render_trace_path.write_text(
+        json.dumps(rendered_manifest.as_json_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     cover_artifact = extract_cover_frame(
         video_path=final_video_path,
@@ -171,9 +204,12 @@ def render_basic_vertical_edit(
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=source_probe.has_audio_track,
         has_audio_track=output_probe.has_audio_track,
+        rendered_overlay_manifest=rendered_manifest,
+        overlay_render_trace_path=overlay_render_trace_path,
         editorial_template_id=None,
         editorial_template_version=None,
         applied_edit_plan=None,
+        overlay_render_report=overlay_render_report,
     )
 
 
@@ -185,6 +221,7 @@ def _render_scene_aware_edit(
     output_dir: Path,
     storage_client: ObjectStorageClient | None,
     overlay_timeline: OverlayTimeline | None,
+    scene_plan_for_overlay_diagnostics: Mapping[str, Any] | None,
     editorial_template: EditorialTemplate | None,
     ffmpeg_bin: str,
     ffprobe_bin: str,
@@ -225,6 +262,21 @@ def _render_scene_aware_edit(
         clip_duration_seconds=combined_probe.duration_seconds,
     )
 
+    overlay_render_report = build_overlay_render_report(
+        timeline=overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+        scene_plan=scene_plan_for_overlay_diagnostics,
+    )
+
+    rendered_manifest = build_rendered_overlay_manifest(
+        timeline=overlay_timeline,
+        clip_duration_seconds=float(combined_probe.duration_seconds),
+        frame_width_px=TARGET_WIDTH,
+        frame_height_px=TARGET_HEIGHT,
+    )
+
+    overlay_render_trace_path = output_dir / OVERLAY_RENDER_TRACE_FILENAME
+
     final_video_path = output_dir / FINAL_VIDEO_FILENAME
     _render_final_video(
         input_path=combined_source_path,
@@ -242,6 +294,11 @@ def _render_scene_aware_edit(
         )
     if not output_probe.has_audio_track:
         raise RuntimeError("Scene-aware editor output is missing the required audio track")
+
+    overlay_render_trace_path.write_text(
+        json.dumps(rendered_manifest.as_json_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     cover_artifact = extract_cover_frame(
         video_path=final_video_path,
@@ -264,6 +321,8 @@ def _render_scene_aware_edit(
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=combined_probe.has_audio_track,
         has_audio_track=output_probe.has_audio_track,
+        rendered_overlay_manifest=rendered_manifest,
+        overlay_render_trace_path=overlay_render_trace_path,
         editorial_template_id=(
             editorial_template.template_id if editorial_template is not None else None
         ),
@@ -271,6 +330,7 @@ def _render_scene_aware_edit(
             editorial_template.template_version if editorial_template is not None else None
         ),
         applied_edit_plan=edit_plan,
+        overlay_render_report=overlay_render_report,
     )
 
 
@@ -602,4 +662,5 @@ __all__ = [
     "probe_media_file",
     "render_basic_vertical_edit",
     "stage_source_asset",
+    "OVERLAY_RENDER_TRACE_FILENAME",
 ]
