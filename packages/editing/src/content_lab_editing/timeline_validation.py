@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any, Literal
 
 from content_lab_editing.overlays import (
     OverlayTimeline,
     OverlayTransitionSettings,
     list_pre_handoff_overlay_slots,
 )
+
+DEFAULT_FRAME_TOLERANCE_SECONDS = 1 / 24
+DEFAULT_MIN_FINAL_CTA_DURATION_SECONDS = 0.75
+TimelineFindingSeverity = Literal["warn", "fail"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +36,39 @@ class OverlayTimelineCollisionError(RuntimeError):
     def __init__(self, collisions: tuple[OverlayCollision, ...]) -> None:
         self.collisions = collisions
         super().__init__(_format_collision_message(collisions))
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineValidationFinding:
+    code: str
+    severity: TimelineFindingSeverity
+    message: str
+    details: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "severity": self.severity,
+            "message": self.message,
+            "details": dict(self.details),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineValidationReport:
+    final_duration_seconds: float
+    findings: tuple[TimelineValidationFinding, ...]
+
+    @property
+    def has_failures(self) -> bool:
+        return any(f.severity == "fail" for f in self.findings)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "final_duration_seconds": self.final_duration_seconds,
+            "failed": self.has_failures,
+            "findings": [f.as_dict() for f in self.findings],
+        }
 
 
 def _format_collision_message(collisions: tuple[OverlayCollision, ...]) -> str:
@@ -171,9 +210,93 @@ def validate_overlay_timeline_before_render(
         raise OverlayTimelineCollisionError(hits)
 
 
+def validate_timeline_against_final_duration(
+    *,
+    overlay_timeline: Sequence[Mapping[str, Any]] | None,
+    scene_plan: Mapping[str, Any] | None,
+    final_duration_seconds: float,
+    min_final_cta_duration_seconds: float = DEFAULT_MIN_FINAL_CTA_DURATION_SECONDS,
+    frame_tolerance_seconds: float = DEFAULT_FRAME_TOLERANCE_SECONDS,
+) -> TimelineValidationReport:
+    findings: list[TimelineValidationFinding] = []
+    final_duration = float(final_duration_seconds)
+    tolerance = max(float(frame_tolerance_seconds), 0.0)
+
+    for index, raw in enumerate(overlay_timeline or ()):
+        start = _read_timing_float(raw, "start_seconds", "start") or 0.0
+        end = _read_timing_float(raw, "end_seconds", "end")
+        duration = _read_timing_float(raw, "duration_seconds", "duration")
+        if end is None and duration is not None:
+            end = start + duration
+        if end is None:
+            end = final_duration
+        if end > final_duration + tolerance:
+            findings.append(
+                TimelineValidationFinding(
+                    code="overlay_exceeds_final_duration",
+                    severity="fail",
+                    message="Overlay cue extends beyond final edit duration.",
+                    details={"index": index, "end_seconds": end},
+                )
+            )
+        role = str(raw.get("emphasis") or raw.get("overlay_role") or "").strip().lower()
+        if role in {"cta", "disclosure"} and end - start < min_final_cta_duration_seconds:
+            findings.append(
+                TimelineValidationFinding(
+                    code="final_cta_too_short",
+                    severity="fail",
+                    message="Final CTA overlay is shorter than the configured minimum.",
+                    details={
+                        "index": index,
+                        "duration_seconds": end - start,
+                        "minimum_seconds": min_final_cta_duration_seconds,
+                    },
+                )
+            )
+
+    scenes = scene_plan.get("scenes") if isinstance(scene_plan, Mapping) else None
+    if isinstance(scenes, list):
+        for index, scene in enumerate(scenes):
+            if not isinstance(scene, Mapping):
+                continue
+            end = _read_timing_float(scene, "end_seconds", "end")
+            if end is not None and end > final_duration + tolerance:
+                findings.append(
+                    TimelineValidationFinding(
+                        code="scene_exceeds_final_duration",
+                        severity="fail",
+                        message="Scene timing extends beyond final edit duration.",
+                        details={"index": index, "end_seconds": end},
+                    )
+                )
+
+    return TimelineValidationReport(
+        final_duration_seconds=final_duration,
+        findings=tuple(findings),
+    )
+
+
+def _read_timing_float(payload: Mapping[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value: object = payload.get(key)
+        if value in (None, "") or isinstance(value, bool):
+            continue
+        if isinstance(value, int | float | str):
+            try:
+                return float(value)
+            except ValueError:
+                continue
+    return None
+
+
 __all__ = [
     "OverlayCollision",
     "OverlayTimelineCollisionError",
+    "TimelineValidationFinding",
+    "TimelineValidationReport",
+    "DEFAULT_FRAME_TOLERANCE_SECONDS",
+    "DEFAULT_MIN_FINAL_CTA_DURATION_SECONDS",
     "detect_overlay_collisions",
+    "validate_timeline_against_final_duration",
     "validate_overlay_timeline_before_render",
 ]

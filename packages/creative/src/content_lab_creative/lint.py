@@ -210,6 +210,20 @@ def _lint_text_field(
                 snippet=_snippet(text),
             )
         )
+    for code, pattern, message in _FAIL_META_PATTERNS:
+        match = pattern.search(text)
+        if match is not None:
+            findings.append(
+                CreativeLintFinding(
+                    outcome="fail",
+                    code=code,
+                    field_path=field_path,
+                    message=message,
+                    category="meta_generation_language",
+                    matched_phrase=match.group(0),
+                    snippet=_snippet(text),
+                )
+            )
     return findings
 
 

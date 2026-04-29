@@ -138,7 +138,10 @@ def evaluate_overlay_text_fidelity_qa(
                 OverlayTextFidelityFinding(
                     code="overlay_manifest_missing",
                     message="Rendered overlay manifest is absent or malformed.",
-                    details={"planned_overlay_count": len(planned), "raw_type": type(manifest_raw).__name__},
+                    details={
+                        "planned_overlay_count": len(planned),
+                        "raw_type": type(manifest_raw).__name__,
+                    },
                 ),
             ),
         )
@@ -177,7 +180,10 @@ def evaluate_overlay_text_fidelity_qa(
                     details={
                         "planned_overlay_count": len(planned),
                         "rendered_overlay_count": len(rendered),
-                        "planned_preview": [_planned_row_payload(i, row, role) for i, (row, role) in enumerate(planned)],
+                        "planned_preview": [
+                            _planned_row_payload(i, row, role)
+                            for i, (row, role) in enumerate(planned)
+                        ],
                         "rendered_preview": [_render_row_payload(r) for r in rendered],
                     },
                 ),
@@ -185,7 +191,9 @@ def evaluate_overlay_text_fidelity_qa(
         )
 
     findings: list[OverlayTextFidelityFinding] = []
-    for index, ((planned_overlay, role), rendered_row) in enumerate(zip(planned, rendered, strict=True)):
+    for index, ((planned_overlay, role), rendered_row) in enumerate(
+        zip(planned, rendered, strict=True)
+    ):
         if planned_overlay.text != rendered_row.text:
             findings.append(
                 OverlayTextFidelityFinding(
@@ -277,6 +285,7 @@ def _overlay_layout_findings(
         )
         return findings
 
+    assert isinstance(raw_safe, Mapping)
     safe_payload = {k: _as_int_for_json(raw_safe[k]) for k in sorted(_REQUIRED_SAFE_AREA_KEYS)}
 
     for index, ((_planned_overlay, role), row) in enumerate(zip(planned, rendered, strict=True)):
@@ -607,10 +616,14 @@ def _planned_overlay_rows(
         if not isinstance(raw, Mapping):
             continue
         role = str(raw.get("emphasis") or raw.get("overlay_role") or "").strip()
-        start = _optional_float(raw.get("start_seconds")) or _optional_float(raw.get("start")) or 0.0
+        start = (
+            _optional_float(raw.get("start_seconds")) or _optional_float(raw.get("start")) or 0.0
+        )
         end = _optional_float(raw.get("end_seconds")) or _optional_float(raw.get("end"))
         if end is None:
-            duration = _optional_float(raw.get("duration_seconds")) or _optional_float(raw.get("duration"))
+            duration = _optional_float(raw.get("duration_seconds")) or _optional_float(
+                raw.get("duration")
+            )
             if duration is not None:
                 end = start + duration
         role_rows.append((start, end or float("inf"), role))
@@ -684,4 +697,4 @@ def _timing_match(planned: TextOverlay, rendered: _RenderRow) -> bool:
         return True
     if pe is None or re is None:
         return False
-    return abs(pe - re) <= _TIMING_EPS
+    return bool(abs(float(pe) - float(re)) <= _TIMING_EPS)

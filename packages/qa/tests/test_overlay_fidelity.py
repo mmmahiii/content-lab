@@ -6,8 +6,10 @@ import pytest
 
 from content_lab_core.types import QAVerdict
 from content_lab_editing.overlays import OverlayLayoutError
-
-from content_lab_qa.overlay import default_overlay_stack_policy_for_template, evaluate_overlay_text_fidelity_qa
+from content_lab_qa.overlay import (
+    default_overlay_stack_policy_for_template,
+    evaluate_overlay_text_fidelity_qa,
+)
 
 
 def _script_with_overlays() -> dict[str, Any]:
@@ -118,7 +120,9 @@ def test_overlay_fidelity_fails_when_manifest_emitted_but_none_planned() -> None
         script=script,
         editing={
             "duration_seconds": 12.0,
-            "overlay_render_manifest": [{"text": "orphan", "start_seconds": 0.0, "end_seconds": 2.0}],
+            "overlay_render_manifest": [
+                {"text": "orphan", "start_seconds": 0.0, "end_seconds": 2.0}
+            ],
         },
     )
     assert report.verdict == QAVerdict.FAIL

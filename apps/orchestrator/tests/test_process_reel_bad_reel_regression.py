@@ -14,12 +14,15 @@ from content_lab_qa.format import FormatQAReport, ProbedMedia
 from content_lab_qa.overlay import OverlayTextFidelityReport
 
 
-def _dummy_passing_overlay(*, script: object, editing: object | None = None) -> OverlayTextFidelityReport:
+def _dummy_passing_overlay(
+    *, script: object, editing: object | None = None
+) -> OverlayTextFidelityReport:
     return OverlayTextFidelityReport(
         verdict=QAVerdict.PASS,
         message="overlay QA patched in bad-reel regression tests",
         findings=(),
     )
+
 
 # apps/orchestrator/tests/ -> worktree root -> packages/
 _PACKAGES_ROOT = Path(__file__).resolve().parents[3] / "packages"

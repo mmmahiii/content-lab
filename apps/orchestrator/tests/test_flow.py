@@ -1671,7 +1671,7 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert f"s3://content-lab/reels/packages/{result['reel_id']}/final_video.mp4" in stored_uris
 
 
-def test_process_reel_flow_blocks_ready_when_overlay_text_does_not_fit_layout(
+def test_process_reel_flow_allows_autofit_overlay_layout(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1683,13 +1683,15 @@ def test_process_reel_flow_blocks_ready_when_overlay_text_does_not_fit_layout(
 
     result = process_reel(reel_id="reel-42", dry_run=False)
 
-    assert result["reel_status"] == "qa_failed"
-    assert result["run_status"] == "failed"
+    assert result["reel_status"] == "ready"
+    assert result["run_status"] == "succeeded"
     qa = cast(dict[str, Any], result["step_outputs"]["qa"])
     checks = cast(list[dict[str, Any]], qa["checks"])
-    overlay_checks = [check for check in checks if check.get("gate_name") == "overlay_text_fidelity"]
+    overlay_checks = [
+        check for check in checks if check.get("gate_name") == "overlay_text_fidelity"
+    ]
     assert overlay_checks
-    assert overlay_checks[0].get("verdict") == "fail"
+    assert overlay_checks[0].get("verdict") == "pass"
 
 
 def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> None:
@@ -2073,7 +2075,9 @@ def test_process_reel_qa_fails_on_overlay_text_mismatch_in_manifest(
     )
     execution = _build_qa_execution(creative_output=_strong_creative_output())
     manifest = cast(list[dict[str, Any]], execution.outputs["editing"]["overlay_render_manifest"])
-    value_entry = next(i for i, row in enumerate(manifest) if row["text"] == "Three controlled rotations")
+    value_entry = next(
+        i for i, row in enumerate(manifest) if row["text"] == "Three controlled rotations"
+    )
     manifest[value_entry] = {**manifest[value_entry], "text": "Three controlled meetings"}
 
     result = executor.run_qa(execution)

@@ -152,7 +152,9 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         "s3://content-lab/reels/packages/reel-local-123/creative_trace.json"
     )
     assert built.package_payload["creative_trace"]["brief"]["title"] == "Desk reset"
-    assert built.package_payload["caption_variants"] == [{"variant": "short", "text": "Short caption"}]
+    assert built.package_payload["caption_variants"] == [
+        {"variant": "short", "text": "Short caption"}
+    ]
     assert built.stored_package.artifact_by_name("creative_trace") is not None
     assert client.put_object.call_count == 7
 

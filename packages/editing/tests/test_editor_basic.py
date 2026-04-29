@@ -20,7 +20,6 @@ from content_lab_editing.templates import (
     EDITORIAL_TEMPLATE_VERSION_METADATA_KEY,
     HOOK_FIRST_V1,
 )
-from content_lab_storage.paths import OVERLAY_RENDER_TRACE_FILENAME
 
 from ._media_helpers import build_fixture_clip, extract_png_bytes, probe_media
 

@@ -9,8 +9,8 @@ from content_lab_qa.format import FormatQAReport, ProbedMedia
 from content_lab_qa.gate import QAResult
 from content_lab_qa.repetition import RepetitionGateRequest, evaluate_repetition
 from content_lab_qa.semantic_script import (
-    SemanticScriptQARequest,
     SemanticScriptQAReport,
+    SemanticScriptQARequest,
     evaluate_semantic_script,
 )
 
@@ -59,7 +59,9 @@ def test_collect_structured_findings_maps_caption_meta_language() -> None:
         verdict=QAVerdict.PASS,
         message="ok",
         checks=(
-            QAResult(gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}),
+            QAResult(
+                gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}
+            ),
         ),
         final_video=ProbedMedia(path="/v.mp4", exists=True),
         cover=ProbedMedia(path="/c.png", exists=True),
@@ -92,7 +94,9 @@ def test_collect_structured_findings_detects_overlay_text_mismatch() -> None:
         verdict=QAVerdict.PASS,
         message="ok",
         checks=(
-            QAResult(gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}),
+            QAResult(
+                gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}
+            ),
         ),
         final_video=ProbedMedia(path="/v.mp4", exists=True),
         cover=ProbedMedia(path="/c.png", exists=True),
@@ -110,7 +114,9 @@ def test_collect_structured_findings_detects_overlay_text_mismatch() -> None:
         alignment_report=alignment,
         editing_output={
             "overlay_render_trace": {
-                "normalized_overlays": [{"text": "Rendered copy", "start_seconds": 0.0, "end_seconds": 1.0}],
+                "normalized_overlays": [
+                    {"text": "Rendered copy", "start_seconds": 0.0, "end_seconds": 1.0}
+                ],
             }
         },
         creative_script={"overlay_timeline": [{"text": "Planned copy"}]},
@@ -126,7 +132,9 @@ def test_collect_structured_findings_warns_on_long_overlay_text() -> None:
         verdict=QAVerdict.PASS,
         message="ok",
         checks=(
-            QAResult(gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}),
+            QAResult(
+                gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}
+            ),
         ),
         final_video=ProbedMedia(path="/v.mp4", exists=True),
         cover=ProbedMedia(path="/c.png", exists=True),
@@ -160,7 +168,9 @@ def test_collect_structured_findings_detects_temporal_overlay_overlap() -> None:
         verdict=QAVerdict.PASS,
         message="ok",
         checks=(
-            QAResult(gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}),
+            QAResult(
+                gate_name="final_video_dimensions", verdict=QAVerdict.PASS, message="", details={}
+            ),
         ),
         final_video=ProbedMedia(path="/v.mp4", exists=True),
         cover=ProbedMedia(path="/c.png", exists=True),

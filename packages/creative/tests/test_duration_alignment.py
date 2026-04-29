@@ -74,10 +74,13 @@ def test_validate_phase1_creative_duration_alignment_rejects_bad_final_scene() -
 
 def test_validate_phase1_without_primary_asset_request() -> None:
     payload = _minimal_aligned_creative(include_primary=False)
-    assert validate_phase1_creative_duration_alignment(
-        payload,
-        require_primary_asset_request=False,
-    ) == 10
+    assert (
+        validate_phase1_creative_duration_alignment(
+            payload,
+            require_primary_asset_request=False,
+        )
+        == 10
+    )
 
 
 def test_assert_rendered_media_matches_plan_duration() -> None:

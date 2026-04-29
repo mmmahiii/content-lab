@@ -300,7 +300,7 @@ def _normalized_overlay_intervals_overlap(raw: Sequence[Any]) -> bool:
             continue
         intervals.append((start, end))
     intervals.sort(key=lambda pair: pair[0])
-    for previous, current in zip(intervals, intervals[1:]):
+    for previous, current in zip(intervals, intervals[1:], strict=False):
         if current[0] < previous[1] - 1e-3:
             return True
     return False
@@ -337,7 +337,9 @@ def _severity_from_verdict(verdict: QAVerdict) -> StructuredSeverity:
     return "skip"
 
 
-def structured_findings_as_jsonable(findings: Sequence[StructuredQAFinding]) -> list[dict[str, Any]]:
+def structured_findings_as_jsonable(
+    findings: Sequence[StructuredQAFinding],
+) -> list[dict[str, Any]]:
     return [row.model_dump(mode="json") for row in findings]
 
 

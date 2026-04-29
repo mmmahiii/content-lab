@@ -6,9 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from content_lab_editing.overlays import (
-    DEFAULT_OVERLAY_BOX_BORDER_WIDTH,
     DEFAULT_OVERLAY_MARGIN_X,
-    DEFAULT_OVERLAY_MARGIN_Y,
     TextOverlay,
 )
 
@@ -150,8 +148,10 @@ def build_overlay_render_manifest_for_qa(
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Build manifest rows + safe-area block for overlay QA."""
 
-    area = dict(safe_area) if safe_area is not None else default_overlay_safe_area(
-        frame_width=frame_width, frame_height=frame_height
+    area = (
+        dict(safe_area)
+        if safe_area is not None
+        else default_overlay_safe_area(frame_width=frame_width, frame_height=frame_height)
     )
     # Ensure frame dimensions are present for consumers.
     area.setdefault("frame_width", frame_width)

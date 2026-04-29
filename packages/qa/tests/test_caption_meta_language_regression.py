@@ -51,7 +51,9 @@ def _phase1_script(standard_caption: str) -> dict[str, Any]:
 
 
 def test_g004_semantic_script_fails_on_exact_bad_standard_caption() -> None:
-    report = evaluate_semantic_script(SemanticScriptQARequest(script=_phase1_script(BAD_CAPTION_G004)))
+    report = evaluate_semantic_script(
+        SemanticScriptQARequest(script=_phase1_script(BAD_CAPTION_G004))
+    )
     assert report.verdict == QAVerdict.FAIL
     assert any(f.code == "internal_qa_copy" for f in report.findings)
 

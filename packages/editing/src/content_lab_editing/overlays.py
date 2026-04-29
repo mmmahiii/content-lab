@@ -366,9 +366,9 @@ class TextOverlay:
                 ]
             )
 
-        alpha_expr = self._alpha_linear_product_expression()
-        if alpha_expr is not None:
-            options.append(f"alpha='{_escape_filter_value(alpha_expr)}'")
+        linear_alpha_expr = self._alpha_linear_product_expression()
+        if linear_alpha_expr is not None:
+            options.append(f"alpha='{_escape_filter_value(linear_alpha_expr)}'")
 
         if self.font_file is not None:
             options.append(f"fontfile='{_escape_filter_value(self.font_file)}'")
@@ -479,10 +479,7 @@ def require_adjacent_overlay_intervals_non_overlapping(
             and curr_plateau is not None
             and prev_plateau[1] > curr_plateau[0] + plateau_slop_seconds
         ):
-            msg = (
-                "opaque plateau overlap after fades: "
-                f"{prev_plateau} intersects {curr_plateau}"
-            )
+            msg = "opaque plateau overlap after fades: " f"{prev_plateau} intersects {curr_plateau}"
             raise ValueError(msg)
 
 
@@ -866,9 +863,7 @@ def build_overlay_render_diagnostics(
                     clip_duration_seconds=clip_duration_seconds,
                 )
                 source_path = f"{sequence_source_prefix}[{idx}]"
-                work.append(
-                    (source_path, "sequence", "mapping", raw_text, overlay, item)
-                )
+                work.append((source_path, "sequence", "mapping", raw_text, overlay, item))
                 continue
             raise TypeError(f"Unsupported overlay timeline entry type: {type(item)!r}")
 
@@ -877,9 +872,14 @@ def build_overlay_render_diagnostics(
     )
 
     diagnostics: list[OverlayRenderDiagnostic] = []
-    for idx, (source_path, container, source_kind, payload_raw, overlay, payload_mapping) in enumerate(
-        work
-    ):
+    for idx, (
+        source_path,
+        container,
+        source_kind,
+        payload_raw,
+        overlay,
+        payload_mapping,
+    ) in enumerate(work):
         truncation_before, truncation_ffmpeg = _overlay_truncation_stages(payload_raw, overlay.text)
         diagnostics.append(
             OverlayRenderDiagnostic(

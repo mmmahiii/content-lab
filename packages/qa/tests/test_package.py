@@ -161,7 +161,10 @@ def test_evaluate_package_aggregates_package_and_provenance_checks() -> None:
 def test_validate_caption_meta_language_fails_for_clear_caption_bug() -> None:
     payload = _valid_package_payload()
     payload["caption_variants"] = [
-        {"variant": "broken", "text": "We saved the clear caption for editors to replace before publish."},
+        {
+            "variant": "broken",
+            "text": "We saved the clear caption for editors to replace before publish.",
+        },
     ]
     result = validate_caption_meta_language(payload)
 

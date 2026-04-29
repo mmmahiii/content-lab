@@ -91,6 +91,7 @@ class BasicEditorArtifact:
     has_audio_track: bool
     rendered_overlay_manifest: RenderedOverlayManifest
     overlay_render_trace_path: Path
+    overlay_render_trace: dict[str, Any] | None = None
     editorial_template_id: str | None = None
     editorial_template_version: str | None = None
     applied_edit_plan: SceneAwareEditPlan | None = None
@@ -108,6 +109,7 @@ def render_basic_vertical_edit(
     scene_plan_for_overlay_diagnostics: Mapping[str, Any] | None = None,
     edit_plan: SceneAwareEditPlan | None = None,
     editorial_template: EditorialTemplate | None = None,
+    expected_timeline_duration_seconds: float | None = None,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> BasicEditorArtifact:
@@ -146,6 +148,10 @@ def render_basic_vertical_edit(
         storage_client=storage_client,
     )
     source_probe = probe_media_file(staged_source_path, ffprobe_bin=ffprobe_bin)
+    _validate_expected_timeline_duration(
+        actual_seconds=source_probe.duration_seconds,
+        expected_seconds=expected_timeline_duration_seconds,
+    )
     overlay_transition = (
         overlay_transition_settings(editorial_template) if editorial_template is not None else None
     )
@@ -208,8 +214,9 @@ def render_basic_vertical_edit(
     if not output_probe.has_audio_track:
         raise RuntimeError("Basic editor output is missing the required audio track")
 
+    overlay_render_trace = _overlay_trace_payload(rendered_manifest)
     overlay_render_trace_path.write_text(
-        json.dumps(rendered_manifest.as_json_dict(), indent=2, sort_keys=True) + "\n",
+        json.dumps(overlay_render_trace, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
@@ -236,6 +243,7 @@ def render_basic_vertical_edit(
         has_audio_track=output_probe.has_audio_track,
         rendered_overlay_manifest=rendered_manifest,
         overlay_render_trace_path=overlay_render_trace_path,
+        overlay_render_trace=overlay_render_trace,
         editorial_template_id=None,
         editorial_template_version=None,
         applied_edit_plan=None,
@@ -350,8 +358,9 @@ def _render_scene_aware_edit(
     if not output_probe.has_audio_track:
         raise RuntimeError("Scene-aware editor output is missing the required audio track")
 
+    overlay_render_trace = _overlay_trace_payload(rendered_manifest)
     overlay_render_trace_path.write_text(
-        json.dumps(rendered_manifest.as_json_dict(), indent=2, sort_keys=True) + "\n",
+        json.dumps(overlay_render_trace, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
@@ -378,6 +387,7 @@ def _render_scene_aware_edit(
         has_audio_track=output_probe.has_audio_track,
         rendered_overlay_manifest=rendered_manifest,
         overlay_render_trace_path=overlay_render_trace_path,
+        overlay_render_trace=overlay_render_trace,
         editorial_template_id=(
             editorial_template.template_id if editorial_template is not None else None
         ),
@@ -389,6 +399,27 @@ def _render_scene_aware_edit(
         overlay_safe_area=overlay_safe_area,
         overlay_manifest=normalized_overlays,
     )
+
+
+def _overlay_trace_payload(manifest: RenderedOverlayManifest) -> dict[str, Any]:
+    payload = manifest.as_json_dict()
+    payload["artifact_type"] = "overlay_render_trace"
+    payload["overlay_count"] = len(manifest.overlays)
+    return payload
+
+
+def _validate_expected_timeline_duration(
+    *,
+    actual_seconds: float,
+    expected_seconds: float | None,
+) -> None:
+    if expected_seconds is None:
+        return
+    if abs(float(actual_seconds) - float(expected_seconds)) > 0.25:
+        raise ValueError(
+            "Source media duration does not match expected timeline duration: "
+            f"{actual_seconds:.3f}s vs {float(expected_seconds):.3f}s"
+        )
 
 
 def stage_source_asset(

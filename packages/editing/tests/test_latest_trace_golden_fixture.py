@@ -28,7 +28,7 @@ def test_latest_trace_overlays_round_trip_through_normalize() -> None:
     overlays = bundle["script"]["overlay_timeline"]
     normalized = normalize_overlay_timeline(overlays, clip_duration_seconds=12.0)
     assert [o.text for o in normalized] == [
-        "The operations reset busy founders can do today",
+        "The operations reset busy\nfounders can do today",
         "operations",
         "One repeatable move",
         "Save this reset",

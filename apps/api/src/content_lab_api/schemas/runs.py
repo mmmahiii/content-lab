@@ -213,7 +213,9 @@ def _run_qa_summary_from_surface(qa: ProcessReelQASurfaceOut | None) -> RunQaSum
             continue
         messages.append(f"[{row.severity}] {row.finding_type}: {normalized}")
     if not messages and qa.passed is False:
-        messages.append("QA did not pass; see task results or expand operator debug for gate output.")
+        messages.append(
+            "QA did not pass; see task results or expand operator debug for gate output."
+        )
     return RunQaSummaryOut(
         passed=qa.passed,
         verdict=qa.verdict,
