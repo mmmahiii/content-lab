@@ -75,7 +75,7 @@ class SmokeRunner:
 
         self._step("Loading final API state")
         run_detail = self._api_json("GET", f"/orgs/{org_id}/runs/{run_id}")
-        package_detail = self._api_json("GET", f"/orgs/{org_id}/packages/{run_id}")
+        package_detail = self._wait_for_package_detail(org_id=org_id, run_id=run_id)
         reel_detail = self._api_json("GET", f"/orgs/{org_id}/pages/{page_id}/reels/{reel_id}")
 
         self._step("Verifying API-level success criteria")
@@ -412,6 +412,28 @@ class SmokeRunner:
                 f"API request for {method} {path} returned a non-object JSON payload: {payload!r}"
             )
         return payload
+
+    def _wait_for_package_detail(self, *, org_id: str, run_id: str) -> dict[str, Any]:
+        path = f"/orgs/{org_id}/packages/{run_id}"
+        self._step(f"Waiting for package metadata at {path}")
+        deadline = time.time() + self.args.health_timeout_seconds
+        last_error: str | None = None
+        while time.time() < deadline:
+            try:
+                return self._api_json("GET", path)
+            except SmokeFailure as exc:
+                message = str(exc)
+                # Packaging metadata can lag briefly behind run completion in some environments.
+                if "HTTP 404" in message and "Package not found" in message:
+                    last_error = message
+                    time.sleep(2)
+                    continue
+                raise
+        raise SmokeFailure(
+            "Package metadata did not become available before timeout. "
+            f"Checked {path} for {self.args.health_timeout_seconds} seconds. "
+            f"Last error: {last_error or 'unknown'}"
+        )
 
     def _wait_for_compose_service_ready(self, service_name: str) -> None:
         self._step(f"Waiting for Docker Compose service {service_name} to be ready")
