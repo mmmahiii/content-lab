@@ -75,6 +75,7 @@ class SmokeRunner:
 
         self._step("Loading final API state")
         run_detail = self._api_json("GET", f"/orgs/{org_id}/runs/{run_id}")
+        self._assert_run_terminal_success(run_detail=run_detail, run_id=run_id)
         package_detail = self._wait_for_package_detail(org_id=org_id, run_id=run_id)
         reel_detail = self._api_json("GET", f"/orgs/{org_id}/pages/{page_id}/reels/{reel_id}")
 
@@ -433,6 +434,21 @@ class SmokeRunner:
             "Package metadata did not become available before timeout. "
             f"Checked {path} for {self.args.health_timeout_seconds} seconds. "
             f"Last error: {last_error or 'unknown'}"
+        )
+
+    def _assert_run_terminal_success(self, *, run_detail: dict[str, Any], run_id: str) -> None:
+        run_status = str(run_detail.get("status", "")).strip().lower()
+        if run_status == "succeeded":
+            return
+        task_summaries = [
+            f"{task.get('task_type')}={task.get('status')}"
+            for task in run_detail.get("tasks", [])
+            if isinstance(task, dict)
+        ]
+        raise SmokeFailure(
+            "process_reel did not succeed, so package metadata will not exist. "
+            f"run_id={run_id}, status={run_status or '<unknown>'}, "
+            f"task_statuses={task_summaries or ['<none>']}"
         )
 
     def _wait_for_compose_service_ready(self, service_name: str) -> None:
