@@ -66,6 +66,14 @@ _META_FAIL_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
         ),
         "Copy references script-generation artifacts rather than the reel subject.",
     ),
+    (
+        "internal_qa_copy",
+        re.compile(
+            r"\b(smoke test page|create a explore)\b",
+            re.IGNORECASE,
+        ),
+        "Copy reads like internal QA scaffolding or broken template grammar rather than viewer-ready packaging.",
+    ),
 )
 _META_WARN_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     (

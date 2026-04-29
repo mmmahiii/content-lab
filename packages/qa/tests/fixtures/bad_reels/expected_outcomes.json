@@ -1,4 +1,19 @@
 {
+  "latest_trace_smoke_operations": {
+    "failure_domain": "none",
+    "quality_axis": "golden_trace",
+    "description": "Golden snapshot from creative_trace.json (operations explore smoke run): hook + pillar + repeatable-move + save-this-reset overlays; duplicate move on scenes; standard caption leaks internal brief template.",
+    "alignment": {
+      "verdicts_allowed": ["pass", "warn"],
+      "blocks_readiness": false,
+      "must_not_include_severities": ["fail"]
+    },
+    "semantic_script": {
+      "verdicts_allowed": ["fail"],
+      "must_include_finding_codes": ["internal_qa_copy"],
+      "rationale": "Standard caption leaks internal Smoke Test scaffolding; semantic_script must hard-fail (TEST-G004) so it cannot ship as viewer-ready."
+    }
+  },
   "intent_drift_solar_mismatch": {
     "failure_domain": "semantic",
     "quality_axis": "alignment",

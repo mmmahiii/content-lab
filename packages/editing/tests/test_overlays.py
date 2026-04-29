@@ -33,7 +33,7 @@ def test_build_drawtext_filters_uses_safe_defaults_for_edit_plan() -> None:
     assert "x=(w-text_w)/2" in filters[0]
     assert "y=h-text_h-160" in filters[0]
     assert "box=1" in filters[0]
-    assert "enable='between(t,0.250,0.750)'" in filters[0]
+    assert "enable='gte(t,0.250)*lt(t,0.750)'" in filters[0]
 
 
 def test_normalize_overlay_timeline_clamps_open_ended_overlay_to_clip_duration() -> None:

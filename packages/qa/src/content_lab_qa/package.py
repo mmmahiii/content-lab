@@ -12,6 +12,7 @@ from content_lab_core.models import DomainModel
 from content_lab_core.types import QAVerdict
 from content_lab_qa.gate import QAResult
 from content_lab_qa.provenance import validate_package_provenance
+from content_lab_qa.semantic_script import SemanticScriptQARequest, evaluate_semantic_script
 
 _REQUIRED_PACKAGE_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("final_video", "final_video.mp4"),
@@ -51,11 +52,41 @@ def evaluate_package(package_payload: Mapping[str, Any] | object) -> PackageQARe
     checks: list[QAResult] = [
         validate_package_completeness(package_payload),
         validate_package_provenance(_provenance_payload(package_payload)),
+        validate_package_script_semantics(package_payload),
     ]
     errors = [check.message for check in checks if not check.passed and check.message]
     verdict = QAVerdict.PASS if not errors else QAVerdict.FAIL
     message = "Package QA passed." if not errors else errors[0]
     return PackageQAResult(verdict=verdict, message=message, errors=errors, checks=checks)
+
+
+def validate_package_script_semantics(package_payload: Mapping[str, Any] | object) -> QAResult:
+    """Evaluate caption/script semantics when a package payload carries inline phase-1 script JSON."""
+
+    if not isinstance(package_payload, Mapping):
+        return QAResult(
+            gate_name="package_script_semantics",
+            verdict=QAVerdict.SKIP,
+            message="Package payload is not a mapping; semantic caption QA skipped.",
+            details={"skipped": True},
+        )
+    script = package_payload.get("script")
+    if not isinstance(script, Mapping):
+        return QAResult(
+            gate_name="package_script_semantics",
+            verdict=QAVerdict.SKIP,
+            message="Package payload has no inline script; semantic caption QA skipped.",
+            details={"skipped": True},
+        )
+
+    report = evaluate_semantic_script(SemanticScriptQARequest(script=script))
+    base = report.as_qa_result()
+    return QAResult(
+        gate_name="package_script_semantics",
+        verdict=base.verdict,
+        message=base.message,
+        details=dict(base.details),
+    )
 
 
 def validate_package_completeness(package_payload: Mapping[str, Any] | object) -> QAResult:
@@ -286,4 +317,9 @@ def _provenance_payload(package_payload: Mapping[str, Any] | object) -> Mapping[
     return raw_provenance
 
 
-__all__ = ["PackageQAResult", "evaluate_package", "validate_package_completeness"]
+__all__ = [
+    "PackageQAResult",
+    "evaluate_package",
+    "validate_package_completeness",
+    "validate_package_script_semantics",
+]

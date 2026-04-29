@@ -34,3 +34,10 @@ def test_bad_reel_fixture_respects_semantic_script_contract(case_id: str) -> Non
         allowed: object = exp["verdicts_allowed"]
         assert isinstance(allowed, list)
         assert report.verdict.value in (str(x) for x in allowed)
+
+    required_codes = exp.get("must_include_finding_codes")
+    if required_codes is not None:
+        assert isinstance(required_codes, list)
+        codes = {f.code for f in report.findings}
+        for code in required_codes:
+            assert str(code) in codes
