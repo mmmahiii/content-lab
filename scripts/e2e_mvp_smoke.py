@@ -760,12 +760,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--page-display-name",
-        default="MVP Smoke Test Page",
+        default="Operations Reset",
         help="Display name used when creating a smoke owned page.",
     )
     parser.add_argument(
         "--page-handle",
-        default="@mvp-smoke",
+        default="@operationsreset",
         help="Handle used when creating a smoke owned page.",
     )
     parser.add_argument(
