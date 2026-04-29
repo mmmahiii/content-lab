@@ -23,7 +23,9 @@ from content_lab_editing.overlays import (
 from content_lab_editing.templates import (
     EditorialTemplate,
     apply_editorial_template,
+    overlay_transition_settings,
 )
+from content_lab_editing.timeline_validation import validate_overlay_timeline_before_render
 from content_lab_editing.types import RenderedOverlayManifest
 
 TARGET_WIDTH = 1080
@@ -141,12 +143,21 @@ def render_basic_vertical_edit(
         storage_client=storage_client,
     )
     source_probe = probe_media_file(staged_source_path, ffprobe_bin=ffprobe_bin)
+    overlay_transition = (
+        overlay_transition_settings(editorial_template) if editorial_template is not None else None
+    )
+    validate_overlay_timeline_before_render(
+        overlay_timeline,
+        clip_duration_seconds=source_probe.duration_seconds,
+        transition=overlay_transition,
+    )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
         clip_duration_seconds=source_probe.duration_seconds,
         frame_width=TARGET_WIDTH,
         frame_height=TARGET_HEIGHT,
+        transition=overlay_transition,
     )
     overlay_safe_area = build_overlay_safe_area_report(
         overlay_timeline,
@@ -267,12 +278,21 @@ def _render_scene_aware_edit(
         ffmpeg_bin=ffmpeg_bin,
     )
     combined_probe = probe_media_file(combined_source_path, ffprobe_bin=ffprobe_bin)
+    overlay_transition = (
+        overlay_transition_settings(editorial_template) if editorial_template is not None else None
+    )
+    validate_overlay_timeline_before_render(
+        overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+        transition=overlay_transition,
+    )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
         timeline=overlay_timeline,
         clip_duration_seconds=combined_probe.duration_seconds,
         frame_width=TARGET_WIDTH,
         frame_height=TARGET_HEIGHT,
+        transition=overlay_transition,
     )
     overlay_safe_area = build_overlay_safe_area_report(
         overlay_timeline,

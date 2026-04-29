@@ -12,9 +12,12 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from content_lab_editing.edit_plan import SceneAwareEditPlan, SceneEditPlanSegment
+
+if TYPE_CHECKING:
+    from content_lab_editing.overlays import OverlayTransitionSettings
 
 TransitionStyle: TypeAlias = Literal["hard_cut", "whip_cut", "cross_fade"]
 EndCardTreatment: TypeAlias = Literal["hold_final_frame", "cta_overlay", "tag_card"]
@@ -133,6 +136,25 @@ EDITORIAL_TEMPLATES: tuple[EditorialTemplate, ...] = (
 )
 
 DEFAULT_EDITORIAL_TEMPLATE: EditorialTemplate = HOOK_FIRST_V1
+
+
+def overlay_transition_settings(template: EditorialTemplate) -> OverlayTransitionSettings:
+    """Map a scene editorial template to default text-overlay fade/handoff policy.
+
+    ``cross_fade`` uses short symmetric fades and permits overlapping geometry so
+    fade curves can crossfade; hard / whip cuts keep the default primary track
+    (no crossfade overlap).
+    """
+
+    from content_lab_editing.overlays import OverlayTransitionSettings
+
+    if template.transition_style == "cross_fade":
+        return OverlayTransitionSettings(
+            enter_duration_ms=220.0,
+            exit_duration_ms=220.0,
+            allow_crossfade_overlap=True,
+        )
+    return OverlayTransitionSettings()
 
 
 def get_editorial_template(template_id: str) -> EditorialTemplate:
@@ -526,6 +548,7 @@ __all__ = [
     "apply_overlay_density_cap",
     "get_editorial_template",
     "get_overlay_style_preset",
+    "overlay_transition_settings",
     "resolve_canonical_overlay_role",
     "select_and_apply_editorial_template",
     "select_editorial_template",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from content_lab_editing.edit_plan import SceneAwareEditPlan, SceneEditPlanSegment
+from content_lab_editing.overlays import OverlayTransitionSettings
 from content_lab_editing.templates import (
     CALM_EXPLAINER_V1,
     DEFAULT_EDITORIAL_TEMPLATE,
@@ -16,6 +17,7 @@ from content_lab_editing.templates import (
     apply_editorial_template,
     apply_overlay_density_cap,
     get_editorial_template,
+    overlay_transition_settings,
     select_and_apply_editorial_template,
     select_editorial_template,
 )
@@ -48,6 +50,18 @@ def test_default_template_identity() -> None:
     assert HOOK_FIRST_V1.template_id == "hook_first_v1"
     assert HOOK_FIRST_V1.template_version.startswith("hook_first_v1")
     assert HOOK_FIRST_V1 in EDITORIAL_TEMPLATES
+
+
+def test_overlay_transition_settings_matches_cross_fade_template() -> None:
+    settings = overlay_transition_settings(CALM_EXPLAINER_V1)
+    assert settings.allow_crossfade_overlap is True
+    assert settings.enter_duration_ms == 220.0
+    assert settings.exit_duration_ms == 220.0
+
+
+def test_overlay_transition_settings_defaults_for_hard_cut() -> None:
+    settings = overlay_transition_settings(HOOK_FIRST_V1)
+    assert settings == OverlayTransitionSettings()
 
 
 def test_editorial_template_metadata_roundtrip() -> None:

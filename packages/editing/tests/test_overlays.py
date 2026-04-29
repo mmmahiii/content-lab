@@ -9,6 +9,7 @@ from content_lab_editing.layout import SafeAreaInsets9_16
 from content_lab_editing.overlays import (
     OverlayLayoutError,
     OverlayTextPolicyError,
+    OverlayTransitionSettings,
     TextOverlay,
     build_drawtext_filters,
     build_overlay_render_report,
@@ -45,7 +46,7 @@ def test_build_drawtext_filters_uses_safe_defaults_for_edit_plan() -> None:
     assert "x=(w-text_w)/2" in filters[0]
     assert "y=h-text_h-160" in filters[0]
     assert "box=1" in filters[0]
-    assert "enable='between(t,0.250,0.750)'" in filters[0]
+    assert "enable='gte(t,0.250)*lt(t,0.750)'" in filters[0]
 
 
 def test_normalize_overlay_timeline_clamps_open_ended_overlay_to_clip_duration() -> None:
@@ -129,7 +130,7 @@ def test_build_overlay_render_report_traces_timeline_and_scene_plan_references()
     assert refs[0]["used_for_video_render"] is False
 
 
-def test_build_rendered_overlay_manifest_collision_groups_time_overlap() -> None:
+def test_build_rendered_overlay_manifest_uses_rendered_timing_for_collision_groups() -> None:
     timeline = [
         {"text": "A", "start_seconds": 0, "end_seconds": 2},
         {"text": "B", "start_seconds": 1, "end_seconds": 3},
@@ -144,8 +145,9 @@ def test_build_rendered_overlay_manifest_collision_groups_time_overlap() -> None
 
     assert manifest.schema_version == "rendered_overlay_manifest_v1"
     assert len(manifest.overlays) == 3
-    assert manifest.overlays[0].collision_group == manifest.overlays[1].collision_group
+    assert manifest.overlays[0].collision_group != manifest.overlays[1].collision_group
     assert manifest.overlays[2].collision_group != manifest.overlays[0].collision_group
+    assert manifest.overlays[0].effective_visible_end_seconds == pytest.approx(1.0)
     assert manifest.overlays[0].wrap_lines == ("A",)
     assert manifest.overlays[0].safe_area["frame_width_px"] == 1080
 
@@ -385,3 +387,106 @@ def test_hook_overlay_raises_when_token_cannot_fit() -> None:
     with pytest.raises(OverlayLayoutError) as exc:
         build_drawtext_filters([hook], clip_duration_seconds=2.0)
     assert exc.value.code == "hook_unreadable"
+
+
+def test_adjacent_overlay_handoff_is_half_open_in_enable_expression() -> None:
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=3.0),
+            TextOverlay(text="B", start_seconds=3.0, end_seconds=6.0),
+        ],
+        clip_duration_seconds=10.0,
+    )
+    assert len(overlays) == 2
+    filters = build_drawtext_filters(overlays)
+    assert "gte(t,0.000)*lt(t,3.000)'" in filters[0]
+    assert "gte(t,3.000)*lt(t,6.000)'" in filters[1]
+
+
+def test_overlapping_overlays_trim_earlier_end_by_default() -> None:
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=5.0),
+            TextOverlay(text="B", start_seconds=3.0, end_seconds=8.0),
+        ],
+    )
+    assert overlays[0].end_seconds == 3.0
+    assert overlays[1].start_seconds == 3.0
+
+
+def test_allow_overlay_stack_preserves_authored_overlap() -> None:
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=5.0),
+            TextOverlay(text="B", start_seconds=3.0, end_seconds=8.0),
+        ],
+        allow_overlay_stack=True,
+    )
+    assert overlays[0].end_seconds == 5.0
+    assert overlays[1].start_seconds == 3.0
+
+
+def test_handoff_gap_shortens_prior_overlay_before_next_start() -> None:
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=3.0),
+            TextOverlay(text="B", start_seconds=3.0, end_seconds=6.0),
+        ],
+        handoff_gap_seconds=0.05,
+    )
+    assert overlays[0].end_seconds == pytest.approx(2.95)
+    assert overlays[1].start_seconds == 3.0
+
+
+def test_transition_settings_merge_fades_into_drawtext_alpha() -> None:
+    transition = OverlayTransitionSettings(enter_duration_ms=200.0, exit_duration_ms=150.0)
+    filters = build_drawtext_filters(
+        [TextOverlay(text="Hi", start_seconds=0.0, end_seconds=2.0)],
+        clip_duration_seconds=5.0,
+        transition=transition,
+    )
+    assert len(filters) == 1
+    assert "alpha='" in filters[0]
+    assert "max(0.200" in filters[0]
+    assert "max(0.150" in filters[0]
+
+
+def test_fade_timeline_trims_overlap_before_fade_merge() -> None:
+    transition = OverlayTransitionSettings(enter_duration_ms=400.0, exit_duration_ms=400.0)
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=5.0),
+            TextOverlay(text="B", start_seconds=4.0, end_seconds=8.0),
+        ],
+        transition=transition,
+    )
+    assert overlays[0].end_seconds == 4.0
+    assert overlays[1].start_seconds == 4.0
+    assert overlays[0].exit_duration_ms is not None
+    assert overlays[0].exit_duration_ms > 0
+
+
+def test_allow_crossfade_overlap_skips_geometry_trim() -> None:
+    transition = OverlayTransitionSettings(allow_crossfade_overlap=True)
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=5.0),
+            TextOverlay(text="B", start_seconds=3.0, end_seconds=8.0),
+        ],
+        transition=transition,
+    )
+    assert overlays[0].end_seconds == 5.0
+    assert overlays[1].start_seconds == 3.0
+
+
+def test_handoff_gap_ms_adds_to_effective_trim_gap() -> None:
+    transition = OverlayTransitionSettings(handoff_gap_ms=50.0)
+    overlays = normalize_overlay_timeline(
+        [
+            TextOverlay(text="A", start_seconds=0.0, end_seconds=3.0),
+            TextOverlay(text="B", start_seconds=3.0, end_seconds=6.0),
+        ],
+        transition=transition,
+    )
+    assert overlays[0].end_seconds == pytest.approx(2.95)
+    assert overlays[1].start_seconds == 3.0
