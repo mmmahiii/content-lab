@@ -15,7 +15,10 @@ from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
 from content_lab_api.schemas.operator_debug import (
     ProcessReelOperatorDebugOut,
+    ProcessReelQASurfaceOut,
+    StructuredQAFindingOut,
     build_process_reel_operator_debug,
+    resolve_process_reel_qa_surface,
 )
 
 
@@ -140,6 +143,17 @@ class RunOut(BaseModel):
     updated_at: datetime
 
 
+class RunQaSummaryOut(BaseModel):
+    """Compact QA rollup for run detail (structured findings + human-readable failures)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool | None = None
+    verdict: str | None = None
+    failure_messages: list[str] = Field(default_factory=list)
+    structured_findings: list[StructuredQAFindingOut] = Field(default_factory=list)
+
+
 class RunDetailOut(RunOut):
     """Run detail response enriched with task-level and outbox delivery visibility."""
 
@@ -147,6 +161,7 @@ class RunDetailOut(RunOut):
     task_status_counts: dict[str, int] = Field(default_factory=dict)
     outbox: RunOutboxOut = Field(default_factory=RunOutboxOut)
     operator_debug: ProcessReelOperatorDebugOut | None = None
+    qa_summary: RunQaSummaryOut | None = None
 
 
 def task_to_summary(task: Task) -> TaskSummaryOut:
@@ -185,6 +200,28 @@ def run_to_out(run: Run) -> RunOut:
     )
 
 
+def _run_qa_summary_from_surface(qa: ProcessReelQASurfaceOut | None) -> RunQaSummaryOut | None:
+    if qa is None:
+        return None
+    findings = list(qa.structured_findings)
+    messages: list[str] = []
+    for row in findings:
+        if row.passed:
+            continue
+        normalized = row.message.strip()
+        if not normalized:
+            continue
+        messages.append(f"[{row.severity}] {row.finding_type}: {normalized}")
+    if not messages and qa.passed is False:
+        messages.append("QA did not pass; see task results or expand operator debug for gate output.")
+    return RunQaSummaryOut(
+        passed=qa.passed,
+        verdict=qa.verdict,
+        failure_messages=messages,
+        structured_findings=findings,
+    )
+
+
 def run_to_detail(
     run: Run,
     *,
@@ -196,6 +233,8 @@ def run_to_detail(
     tasks = sorted(run.tasks, key=lambda task: (task.created_at, task.id))
     counts = Counter(task.status for task in tasks)
     base = run_to_out(run)
+    qa_surface = resolve_process_reel_qa_surface(summary=run.output_payload, tasks=tasks)
+    qa_summary = _run_qa_summary_from_surface(qa_surface)
     operator_debug = build_process_reel_operator_debug(
         workflow_key=run.workflow_key,
         summary=run.output_payload,
@@ -208,6 +247,7 @@ def run_to_detail(
         task_status_counts=dict(sorted(counts.items())),
         outbox=outbox or RunOutboxOut(),
         operator_debug=operator_debug,
+        qa_summary=qa_summary,
     )
 
 

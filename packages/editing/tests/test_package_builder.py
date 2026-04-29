@@ -157,6 +157,76 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
     assert client.put_object.call_count == 7
 
 
+def test_build_ready_to_post_package_attaches_overlay_render_trace(tmp_path: Path) -> None:
+    client = Mock()
+    layout = CanonicalStorageLayout(bucket="content-lab")
+    final_video = tmp_path / "input-video.mp4"
+    cover = tmp_path / "input-cover.png"
+    final_video.write_bytes(b"video-bytes")
+    cover.write_bytes(_ONE_BY_ONE_PNG)
+
+    def _stored(
+        ref: StorageRef, *, content_type: str | None, metadata: dict[str, str]
+    ) -> StoredObject:
+        return StoredObject(
+            ref=ref,
+            size_bytes=123,
+            content_type=content_type,
+            metadata=metadata,
+            checksum_sha256="sha256:" + ("a" * 64),
+        )
+
+    client.put_object.side_effect = lambda **kwargs: _stored(
+        kwargs["ref"],
+        content_type=kwargs.get("content_type"),
+        metadata=dict(kwargs.get("metadata", {})),
+    )
+
+    built = build_ready_to_post_package(
+        client=client,
+        layout=layout,
+        reel_id="reel-local-456",
+        final_video_path=final_video,
+        cover_path=cover,
+        caption_variants=[{"variant": "short", "text": "Short caption"}],
+        posting_plan={"platform": "instagram"},
+        provenance={"source_run_id": "run-456"},
+        creative_trace={
+            "schema_version": "phase_1",
+            "artifact_type": "creative_trace",
+            "brief": {"title": "Desk reset"},
+        },
+        overlay_render_trace={
+            "artifact_type": "overlay_render_trace",
+            "schema_version": 1,
+            "overlay_count": 0,
+            "combined_video_filter": "scale=1080:1920",
+        },
+        temp_root=tmp_path / "scratch-overlay",
+    )
+
+    overlay_path = built.local_package.directory / "overlay_render_trace.json"
+    assert overlay_path.exists()
+    assert built.local_package.manifest is not None
+    assert built.local_package.manifest["artifact_count"] == 7
+    artifact_names = {a["name"] for a in built.local_package.manifest["artifacts"]}
+    assert artifact_names == {
+        "caption_variants",
+        "cover",
+        "creative_trace",
+        "final_video",
+        "overlay_render_trace",
+        "posting_plan",
+        "provenance",
+    }
+    assert built.package_payload["overlay_render_trace_uri"] == (
+        "s3://content-lab/reels/packages/reel-local-456/overlay_render_trace.json"
+    )
+    assert built.package_payload["overlay_render_trace"]["overlay_count"] == 0
+    assert built.stored_package.artifact_by_name("overlay_render_trace") is not None
+    assert client.put_object.call_count == 8
+
+
 def _integration_client() -> tuple[S3StorageClient, str]:
     bucket = os.getenv("MINIO_BUCKET", "content-lab")
     client = S3StorageClient(

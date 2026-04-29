@@ -41,6 +41,20 @@ class CreativeTraceSurfaceOut(BaseModel):
     body: dict[str, Any] | None = None
 
 
+class StructuredQAFindingOut(BaseModel):
+    """Unified finding row for operator UI and API surfaces."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_type: str = Field(min_length=1)
+    gate_name: str = Field(min_length=1)
+    severity: str = Field(min_length=1)
+    passed: bool
+    field_path: str = ""
+    message: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class ProcessReelQASurfaceOut(BaseModel):
     """QA rollup: semantic script findings alongside format / repetition / alignment."""
 
@@ -53,6 +67,7 @@ class ProcessReelQASurfaceOut(BaseModel):
     repetition: dict[str, Any] | None = None
     alignment: dict[str, Any] | None = None
     checks: list[dict[str, Any]] = Field(default_factory=list)
+    structured_findings: list[StructuredQAFindingOut] = Field(default_factory=list)
 
 
 class ProcessReelOperatorDebugOut(BaseModel):
@@ -125,6 +140,16 @@ def _qa_surface_from_mapping(qa_payload: Mapping[str, Any]) -> ProcessReelQASurf
         for item in checks_raw:
             if isinstance(item, Mapping):
                 checks.append(dict(item))
+    structured_raw = details.get("structured_findings")
+    structured: list[StructuredQAFindingOut] = []
+    if isinstance(structured_raw, list):
+        for item in structured_raw:
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                structured.append(StructuredQAFindingOut.model_validate(dict(item)))
+            except Exception:
+                continue
     return ProcessReelQASurfaceOut(
         passed=details.get("passed") if "passed" in details else None,
         verdict=str(details["verdict"]) if details.get("verdict") is not None else None,
@@ -141,6 +166,7 @@ def _qa_surface_from_mapping(qa_payload: Mapping[str, Any]) -> ProcessReelQASurf
             dict(details["alignment"]) if isinstance(details.get("alignment"), Mapping) else None
         ),
         checks=checks,
+        structured_findings=structured,
     )
 
 
@@ -190,6 +216,24 @@ def _creative_trace_surface(
         generator=generator,
         body=body,
     )
+
+
+def resolve_process_reel_qa_surface(
+    *,
+    summary: Mapping[str, Any] | None,
+    tasks: list[Task] | None = None,
+) -> ProcessReelQASurfaceOut | None:
+    """Build the QA rollup from run ``output_payload`` and/or persisted ``qa`` task rows."""
+
+    merged_summary: dict[str, Any] = dict(summary or {})
+    step_outputs = merged_summary.get("step_outputs")
+    if not isinstance(step_outputs, Mapping):
+        step_outputs = {}
+
+    qa_payload = _merge_qa_from_tasks(_coerce_mapping(step_outputs.get("qa")), tasks)
+    if not qa_payload:
+        return None
+    return _qa_surface_from_mapping(qa_payload)
 
 
 def build_process_reel_operator_debug(

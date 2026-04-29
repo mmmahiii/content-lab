@@ -20,6 +20,7 @@ from content_lab_editing.templates import (
     EDITORIAL_TEMPLATE_VERSION_METADATA_KEY,
     HOOK_FIRST_V1,
 )
+from content_lab_storage.paths import OVERLAY_RENDER_TRACE_FILENAME
 
 from ._media_helpers import build_fixture_clip, extract_png_bytes, probe_media
 
@@ -66,6 +67,12 @@ def test_render_basic_vertical_edit_adds_silence_for_local_clip_without_audio(
     assert artifact.overlay_render_trace_path.name == OVERLAY_RENDER_TRACE_FILENAME
     assert artifact.overlay_render_trace_path.exists()
     assert artifact.staged_segment_paths == (artifact.staged_source_path,)
+    assert artifact.overlay_render_trace_path is not None
+    assert artifact.overlay_render_trace is not None
+    trace_path = artifact.final_video_path.parent / OVERLAY_RENDER_TRACE_FILENAME
+    assert trace_path.exists()
+    assert artifact.overlay_render_trace_path == trace_path
+    assert artifact.overlay_render_trace["overlay_count"] == 0
     assert output_probe["width"] == 1080
     assert output_probe["height"] == 1920
     assert output_probe["has_audio_track"] is True
@@ -162,6 +169,8 @@ def test_render_basic_vertical_edit_applies_overlay_timeline(tmp_path: Path) -> 
 
     assert before_overlay == after_overlay
     assert during_overlay != before_overlay
+    assert artifact.overlay_render_trace is not None
+    assert artifact.overlay_render_trace["overlay_count"] == 1
 
 
 def test_render_basic_vertical_edit_assembles_scene_aware_plan(tmp_path: Path) -> None:
