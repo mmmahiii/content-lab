@@ -35,7 +35,7 @@ from content_lab_api.services import (
     ProcessReelPersistenceService,
     ProcessReelQAResult,
 )
-from content_lab_core.types import Platform
+from content_lab_core.types import Platform, QAVerdict
 from content_lab_orchestrator.flows import (
     DEFAULT_FLOW_NAME,
     example_flow,
@@ -67,6 +67,7 @@ from content_lab_orchestrator.flows.storage_integrity_check import (
     ReelPackageIntegrityCandidate,
     StorageIntegrityCheckResult,
 )
+from content_lab_qa.overlay import OverlayTextFidelityReport
 from content_lab_worker.actors.runway import process_runway_asset
 
 _SHA256_A = "sha256:" + ("a" * 64)
@@ -230,7 +231,14 @@ class RecordingProcessReelExecutor:
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, object]:
         self.calls.append("creative_planning")
-        return {"brief_id": f"brief-{execution.reel_id}"}
+        return {
+            "brief_id": f"brief-{execution.reel_id}",
+            "script": {
+                "caption_variants": [
+                    {"variant": "primary", "text": "Lightweight ideas for a calm weekend."},
+                ],
+            },
+        }
 
     def resolve_assets(self, execution: ProcessReelExecution) -> dict[str, object]:
         self.calls.append("asset_resolution")
@@ -292,6 +300,9 @@ class RecordingProcessReelExecutor:
                     },
                 ],
             },
+            "caption_variants": [
+                {"variant": "test_primary", "text": "Sunday reset ideas you can try today."},
+            ],
             "provenance": {
                 "editor_version": "basic_vertical_v1",
                 "assets": [
@@ -1515,10 +1526,64 @@ def test_process_reel_flow_marks_qa_failure_and_skips_packaging(
     }
 
 
+def test_process_reel_flow_marks_package_qa_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import content_lab_api.services.process_reel as api_process_reel
+    from content_lab_core.types import QAVerdict
+    from content_lab_qa.package import PackageQAResult
+
+    _, repository, executor = _install_service(monkeypatch, qa_passes=True)
+
+    def _failing_evaluate_package(_payload: object) -> PackageQAResult:
+        return PackageQAResult(
+            verdict=QAVerdict.FAIL,
+            message="package qa blocked publish",
+            errors=["package qa blocked publish"],
+            checks=[],
+        )
+
+    monkeypatch.setattr(api_process_reel, "evaluate_package", _failing_evaluate_package)
+
+    result = process_reel(reel_id="reel-42", dry_run=False)
+
+    assert executor.calls == [
+        "creative_planning",
+        "asset_resolution",
+        "editing",
+        "qa",
+        "packaging",
+    ]
+    assert result["reel_status"] == "qa_failed"
+    assert result["run_status"] == "failed"
+    assert result.get("error") == "package qa blocked publish"
+    package_qa = result.get("package_qa")
+    assert isinstance(package_qa, dict)
+    assert package_qa.get("passed") is False
+
+    run_id = result["run_id"]
+    assert repository.reels["reel-42"].status == "qa_failed"
+    assert repository.tasks[(run_id, "packaging")].status == "failed"
+    assert repository.tasks[(run_id, "qa")].status == "succeeded"
+    assert result["task_statuses"]["packaging"] == "failed"
+
+
 def test_process_reel_flow_runs_full_phase_one_package_generation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # This integration fixture drives long on-screen titles; layout/collision coverage lives
+    # in ``packages/qa`` overlay tests. Stub render-aware overlay QA so we can exercise packaging.
+    monkeypatch.setattr(
+        process_reel_flow_module,
+        "evaluate_overlay_text_fidelity_qa",
+        lambda *, script, editing=None: OverlayTextFidelityReport(
+            verdict=QAVerdict.PASS,
+            message="Overlay fidelity skipped for packaging integration fixture.",
+            findings=(),
+        ),
+    )
+
     _, repository, event_sink, storage_client, asset_resolver = _install_phase_one_service(
         monkeypatch,
         tmp_path=tmp_path,
@@ -1604,6 +1669,27 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     )
     assert f"s3://content-lab/reels/packages/{result['reel_id']}/creative_trace.json" in stored_uris
     assert f"s3://content-lab/reels/packages/{result['reel_id']}/final_video.mp4" in stored_uris
+
+
+def test_process_reel_flow_blocks_ready_when_overlay_text_does_not_fit_layout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, repository, _, _, asset_resolver = _install_phase_one_service(
+        monkeypatch,
+        tmp_path=tmp_path,
+    )
+    assert asset_resolver is not None
+
+    result = process_reel(reel_id="reel-42", dry_run=False)
+
+    assert result["reel_status"] == "qa_failed"
+    assert result["run_status"] == "failed"
+    qa = cast(dict[str, Any], result["step_outputs"]["qa"])
+    checks = cast(list[dict[str, Any]], qa["checks"])
+    overlay_checks = [check for check in checks if check.get("gate_name") == "overlay_text_fidelity"]
+    assert overlay_checks
+    assert overlay_checks[0].get("verdict") == "fail"
 
 
 def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> None:
@@ -1712,6 +1798,11 @@ def test_process_reel_flow_hard_fails_lint_before_asset_spend(
 
 
 def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExecution:
+    from content_lab_editing.overlay_layout import build_overlay_render_manifest_for_qa
+    from content_lab_editing.overlays import normalize_overlay_timeline
+
+    from content_lab_qa.overlay import default_overlay_stack_policy_for_template
+
     execution = ProcessReelExecution(
         reel_id="reel-42",
         org_id="org-1",
@@ -1721,9 +1812,26 @@ def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExe
         dry_run=False,
     )
     execution.outputs["creative_planning"] = dict(creative_output)
+    script = dict(dict(creative_output).get("script", {}))
+    duration_raw = script.get("duration_seconds")
+    duration = float(duration_raw) if duration_raw is not None else 12.0
+    overlays = normalize_overlay_timeline(
+        script.get("overlay_timeline"),
+        clip_duration_seconds=duration,
+    )
+    overlay_manifest, overlay_safe_area = build_overlay_render_manifest_for_qa(
+        overlays,
+        frame_width=1080,
+        frame_height=1920,
+    )
     execution.outputs["editing"] = {
         "final_video_path": "/tmp/final_video.mp4",
         "cover_path": "/tmp/cover.png",
+        "duration_seconds": duration,
+        "editorial_template_id": None,
+        "overlay_stack_policy": default_overlay_stack_policy_for_template(None),
+        "overlay_render_manifest": overlay_manifest,
+        "overlay_safe_area": overlay_safe_area,
     }
     execution.outputs["asset_resolution"] = {
         "asset_key_hash": "asset-key-hash",
@@ -1903,6 +2011,8 @@ def test_process_reel_qa_passes_when_semantic_and_format_are_healthy(
     semantic_details = cast(dict[str, Any], result.details["semantic_script"])
     assert semantic_details["verdict"] == "pass"
     assert semantic_details["findings"] == []
+    overlay_details = cast(dict[str, Any], result.details["overlay_text_fidelity"])
+    assert overlay_details["verdict"] == "pass"
 
 
 def test_process_reel_qa_fails_when_script_is_semantically_weak(
@@ -1948,6 +2058,54 @@ def test_process_reel_qa_fails_when_script_is_semantically_weak(
     assert "cta_heavy_script" in finding_codes
     format_details = cast(dict[str, Any], result.details["format"])
     assert format_details["verdict"] == "pass"
+
+
+def test_process_reel_qa_fails_on_overlay_text_mismatch_in_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_passing_format_report(monkeypatch)
+    _stub_passing_alignment_report(monkeypatch)
+    executor = PhaseOneProcessReelExecutor(
+        planning_context_loader=FakePlanningContextLoader(),
+        asset_resolver=cast(Any, FailingProcessReelAssetResolver()),
+        storage_client=FakeStorageClient(),
+        package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="[REDACTED]"),
+    )
+    execution = _build_qa_execution(creative_output=_strong_creative_output())
+    manifest = cast(list[dict[str, Any]], execution.outputs["editing"]["overlay_render_manifest"])
+    value_entry = next(i for i, row in enumerate(manifest) if row["text"] == "Three controlled rotations")
+    manifest[value_entry] = {**manifest[value_entry], "text": "Three controlled meetings"}
+
+    result = executor.run_qa(execution)
+
+    assert result.passed is False
+    overlay = cast(dict[str, Any], result.details["overlay_text_fidelity"])
+    assert overlay["verdict"] == "fail"
+    codes = [cast(str, f["code"]) for f in cast(list[dict[str, Any]], overlay["findings"])]
+    assert "overlay_text_mismatch" in codes
+
+
+def test_process_reel_qa_fails_when_overlay_manifest_missing_with_planned_overlays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_passing_format_report(monkeypatch)
+    _stub_passing_alignment_report(monkeypatch)
+    executor = PhaseOneProcessReelExecutor(
+        planning_context_loader=FakePlanningContextLoader(),
+        asset_resolver=cast(Any, FailingProcessReelAssetResolver()),
+        storage_client=FakeStorageClient(),
+        package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="[REDACTED]"),
+    )
+    execution = _build_qa_execution(creative_output=_strong_creative_output())
+    del execution.outputs["editing"]["overlay_render_manifest"]
+
+    result = executor.run_qa(execution)
+
+    assert result.passed is False
+    overlay = cast(dict[str, Any], result.details["overlay_text_fidelity"])
+    assert overlay["verdict"] == "fail"
+    codes = [cast(str, f["code"]) for f in cast(list[dict[str, Any]], overlay["findings"])]
+    assert "overlay_manifest_missing" in codes
 
 
 def test_process_reel_flow_marks_qa_failed_on_semantically_weak_script(

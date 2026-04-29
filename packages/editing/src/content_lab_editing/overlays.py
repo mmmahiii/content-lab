@@ -1275,19 +1275,22 @@ def build_drawtext_filters(
     allow_overlay_stack: bool = False,
     handoff_gap_seconds: float = DEFAULT_OVERLAY_HANDOFF_GAP_SECONDS,
     transition: OverlayTransitionSettings | None = None,
+    normalized_timeline: tuple[TextOverlay, ...] | None = None,
 ) -> tuple[str, ...]:
     """Convert a timeline to FFmpeg drawtext clauses."""
 
-    overlays = normalize_overlay_timeline(
-        timeline,
-        clip_duration_seconds=clip_duration_seconds,
-        frame_width=frame_width,
-        frame_height=frame_height,
-        safe_insets=safe_insets,
-        allow_overlay_stack=allow_overlay_stack,
-        handoff_gap_seconds=handoff_gap_seconds,
-        transition=transition,
-    )
+    overlays = normalized_timeline
+    if overlays is None:
+        overlays = normalize_overlay_timeline(
+            timeline,
+            clip_duration_seconds=clip_duration_seconds,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            safe_insets=safe_insets,
+            allow_overlay_stack=allow_overlay_stack,
+            handoff_gap_seconds=handoff_gap_seconds,
+            transition=transition,
+        )
     if validate_layout:
         for overlay in overlays:
             validate_overlay_fits_frame(
@@ -1302,7 +1305,7 @@ def build_drawtext_filters(
 def build_overlay_video_filter(
     *,
     base_filter: str,
-    timeline: OverlayTimeline | None,
+    timeline: OverlayTimeline | None = None,
     clip_duration_seconds: float | None = None,
     frame_width: int = DEFAULT_OVERLAY_FRAME_WIDTH,
     frame_height: int = DEFAULT_OVERLAY_FRAME_HEIGHT,
@@ -1311,6 +1314,7 @@ def build_overlay_video_filter(
     allow_overlay_stack: bool = False,
     handoff_gap_seconds: float = DEFAULT_OVERLAY_HANDOFF_GAP_SECONDS,
     transition: OverlayTransitionSettings | None = None,
+    normalized_timeline: tuple[TextOverlay, ...] | None = None,
 ) -> str:
     """Append overlay drawtext filters to an existing video filter chain."""
 
@@ -1324,6 +1328,7 @@ def build_overlay_video_filter(
         allow_overlay_stack=allow_overlay_stack,
         handoff_gap_seconds=handoff_gap_seconds,
         transition=transition,
+        normalized_timeline=normalized_timeline,
     )
     if not filters:
         return base_filter

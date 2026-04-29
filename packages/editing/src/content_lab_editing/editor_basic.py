@@ -15,10 +15,12 @@ from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_fram
 from content_lab_editing.edit_plan import SceneAwareEditPlan
 from content_lab_editing.overlays import (
     OverlayTimeline,
+    TextOverlay,
     build_overlay_render_report,
     build_overlay_safe_area_report,
     build_overlay_video_filter,
     build_rendered_overlay_manifest,
+    normalize_overlay_timeline,
 )
 from content_lab_editing.templates import (
     EditorialTemplate,
@@ -94,6 +96,7 @@ class BasicEditorArtifact:
     applied_edit_plan: SceneAwareEditPlan | None = None
     overlay_render_report: dict[str, Any] | None = None
     overlay_safe_area: dict[str, object] | None = None
+    overlay_manifest: tuple[TextOverlay, ...] = ()
 
 
 def render_basic_vertical_edit(
@@ -146,15 +149,21 @@ def render_basic_vertical_edit(
     overlay_transition = (
         overlay_transition_settings(editorial_template) if editorial_template is not None else None
     )
-    validate_overlay_timeline_before_render(
+    normalized_overlays = normalize_overlay_timeline(
         overlay_timeline,
+        clip_duration_seconds=source_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
+        transition=overlay_transition,
+    )
+    validate_overlay_timeline_before_render(
+        normalized_overlays,
         clip_duration_seconds=source_probe.duration_seconds,
         transition=overlay_transition,
     )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
-        timeline=overlay_timeline,
-        clip_duration_seconds=source_probe.duration_seconds,
+        normalized_timeline=normalized_overlays,
         frame_width=TARGET_WIDTH,
         frame_height=TARGET_HEIGHT,
         transition=overlay_transition,
@@ -232,6 +241,7 @@ def render_basic_vertical_edit(
         applied_edit_plan=None,
         overlay_render_report=overlay_render_report,
         overlay_safe_area=overlay_safe_area,
+        overlay_manifest=normalized_overlays,
     )
 
 
@@ -281,15 +291,21 @@ def _render_scene_aware_edit(
     overlay_transition = (
         overlay_transition_settings(editorial_template) if editorial_template is not None else None
     )
-    validate_overlay_timeline_before_render(
+    normalized_overlays = normalize_overlay_timeline(
         overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+        frame_width=TARGET_WIDTH,
+        frame_height=TARGET_HEIGHT,
+        transition=overlay_transition,
+    )
+    validate_overlay_timeline_before_render(
+        normalized_overlays,
         clip_duration_seconds=combined_probe.duration_seconds,
         transition=overlay_transition,
     )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
-        timeline=overlay_timeline,
-        clip_duration_seconds=combined_probe.duration_seconds,
+        normalized_timeline=normalized_overlays,
         frame_width=TARGET_WIDTH,
         frame_height=TARGET_HEIGHT,
         transition=overlay_transition,
@@ -371,6 +387,7 @@ def _render_scene_aware_edit(
         applied_edit_plan=edit_plan,
         overlay_render_report=overlay_render_report,
         overlay_safe_area=overlay_safe_area,
+        overlay_manifest=normalized_overlays,
     )
 
 

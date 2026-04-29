@@ -152,6 +152,7 @@ def build_ready_to_post_package(
             manifest=local_package.manifest,
             provenance=provenance,
             creative_trace=creative_trace,
+            caption_variants=caption_variants,
         ),
     )
 
@@ -248,6 +249,24 @@ def _manifest_artifact(
     }
 
 
+def _caption_variants_for_package_payload(
+    value: str | Sequence[str] | Sequence[Mapping[str, Any]],
+) -> str | list[Any]:
+    """Return a JSON-serializable copy of caption variants for downstream QA."""
+
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        rows: list[Any] = []
+        for item in value:
+            if isinstance(item, Mapping):
+                rows.append({str(key): item[key] for key in item})
+            else:
+                rows.append(str(item))
+        return rows
+    return str(value)
+
+
 def _package_payload(
     *,
     reel_id: str,
@@ -255,6 +274,7 @@ def _package_payload(
     manifest: Mapping[str, Any] | None,
     provenance: Mapping[str, Any],
     creative_trace: Mapping[str, Any] | None,
+    caption_variants: str | Sequence[str] | Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     artifacts = [artifact.as_payload() for artifact in stored_package.artifacts]
     provenance_artifact = stored_package.artifact_by_name("provenance")
@@ -271,6 +291,7 @@ def _package_payload(
             None if creative_trace_artifact is None else creative_trace_artifact.storage_uri
         ),
         "creative_trace": {} if creative_trace is None else dict(creative_trace),
+        "caption_variants": _caption_variants_for_package_payload(caption_variants),
         "artifacts": artifacts,
     }
 
