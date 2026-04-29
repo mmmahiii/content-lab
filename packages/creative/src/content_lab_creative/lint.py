@@ -8,49 +8,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from content_lab_creative.copy_lint import CopyLintCategory, evaluate_user_facing_text
 from content_lab_creative.types import GeneratedScriptOutput
 
 CreativeLintOutcome = Literal["pass", "warn", "fail"]
 CreativeLintFindingOutcome = Literal["warn", "fail"]
 
-_FAIL_META_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
-    (
-        "meta_plain_language_step",
-        re.compile(r"\bplain[- ]language step\b", re.IGNORECASE),
-        "Text describes script planning instead of final viewer-facing content.",
-    ),
-    (
-        "meta_setup_instruction",
-        re.compile(r"\b(set up|setup|core setup|name the|show the payoff)\b", re.IGNORECASE),
-        "Text contains production instructions instead of final script copy.",
-    ),
-    (
-        "meta_generation_language",
-        re.compile(
-            r"\b(fresh angle|persona[- ]fit|planner language|generation process|"
-            r"script package|short[- ]form reel|packaged as|hook text|overlay text|"
-            r"caption plan|hashtags ready)\b",
-            re.IGNORECASE,
-        ),
-        "Text refers to generation artifacts rather than the reel subject.",
-    ),
-    (
-        "placeholder_hook",
-        re.compile(
-            r"\b(fast hook|write (the )?hook|insert hook|todo|placeholder)\b", re.IGNORECASE
-        ),
-        "Text contains placeholder hook language.",
-    ),
-)
-_WARN_META_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
-    (
-        "abstract_script_language",
-        re.compile(
-            r"\b(proof beat|ending beat|workflow|viewer-facing|content pillar)\b", re.IGNORECASE
-        ),
-        "Text uses abstract script-planning language.",
-    ),
-)
 _DANGLING_HOOK_ENDINGS = {
     "a",
     "an",
@@ -86,6 +49,15 @@ class CreativeLintFinding(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     field_path: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=240)
+    category: CopyLintCategory | None = Field(
+        default=None,
+        description="Copy-lint category from the central registry (structural checks use null).",
+    )
+    matched_phrase: str = Field(
+        default="",
+        max_length=160,
+        description="The exact source substring that triggered a rule, when applicable.",
+    )
     snippet: str = Field(min_length=1, max_length=280)
 
 
@@ -125,7 +97,11 @@ def lint_script_output(script: GeneratedScriptOutput | Mapping[str, Any]) -> Cre
     checked_fields = [field_path for field_path, _ in text_fields]
 
     for field_path, text in text_fields:
-        findings.extend(_lint_text_field(field_path, text))
+        findings.extend(
+            _lint_text_field(
+                field_path, text, caption_rules=_caption_only_rules_applicable(field_path)
+            )
+        )
 
     hook_text = str(payload.get("hook_text", "")).strip()
     if hook_text:
@@ -167,30 +143,27 @@ def _script_text_fields(payload: Mapping[str, Any]) -> Iterable[tuple[str, str]]
             yield f"pinned_comments[{index}].text", text
 
 
-def _lint_text_field(field_path: str, text: str) -> list[CreativeLintFinding]:
+def _caption_only_rules_applicable(field_path: str) -> bool:
+    return field_path.startswith("caption_variants[") and "].text" in field_path
+
+
+def _lint_text_field(
+    field_path: str, text: str, *, caption_rules: bool
+) -> list[CreativeLintFinding]:
+    matches = evaluate_user_facing_text(text, caption_scoped=caption_rules)
     findings: list[CreativeLintFinding] = []
-    for code, pattern, message in _FAIL_META_PATTERNS:
-        if pattern.search(text):
-            findings.append(
-                CreativeLintFinding(
-                    outcome="fail",
-                    code=code,
-                    field_path=field_path,
-                    message=message,
-                    snippet=_snippet(text),
-                )
+    for m in matches:
+        findings.append(
+            CreativeLintFinding(
+                outcome="fail" if m.severity == "fail" else "warn",
+                code=m.code,
+                field_path=field_path,
+                message=m.message,
+                category=m.category,
+                matched_phrase=m.matched_text,
+                snippet=_snippet(text),
             )
-    for code, pattern, message in _WARN_META_PATTERNS:
-        if pattern.search(text):
-            findings.append(
-                CreativeLintFinding(
-                    outcome="warn",
-                    code=code,
-                    field_path=field_path,
-                    message=message,
-                    snippet=_snippet(text),
-                )
-            )
+        )
     return findings
 
 

@@ -7,11 +7,13 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from content_lab_creative.brief import CreativeBrief
+from content_lab_creative.caption_variants import apply_caption_packaging
 from content_lab_creative.lint import lint_script_output
 from content_lab_creative.persona import PageConstraints
 from content_lab_creative.types import (
     CaptionVariant,
     CaptionVariantName,
+    CreativeMode,
     GeneratedScriptOutput,
     OverlayCue,
     PinnedComment,
@@ -25,6 +27,13 @@ from content_lab_creative.types import (
 BriefLike = CreativeBrief | PlannedCreativeBrief
 ScriptGeneratorPathLike = ScriptGeneratorPath | str
 _SCRIPT_GENERATOR_ENV = "CONTENT_LAB_SCRIPT_GENERATOR"
+# Director tags include the mode slug; those tokens must not appear in ready-to-post caption copy
+# (they match caption-scoped “mode / explore / …” copy-lint rules when embedded in hashtags).
+_CAPTION_HASHTAG_MODE_SLUGS = frozenset(m.value for m in CreativeMode)
+
+
+def _hashtags_for_published_caption(hashtags: list[str]) -> list[str]:
+    return [h for h in hashtags if h and h.lstrip("#").lower() not in _CAPTION_HASHTAG_MODE_SLUGS]
 
 
 @dataclass(frozen=True)
@@ -192,10 +201,13 @@ def normalize_script_generator_path(
 
 
 def _attach_lint_result(output: GeneratedScriptOutput) -> GeneratedScriptOutput:
-    lint_result = lint_script_output(output).model_dump(mode="json")
-    generation_metadata = dict(output.generation_metadata)
+    packaged, packaging_meta = apply_caption_packaging(output)
+    lint_result = lint_script_output(packaged).model_dump(mode="json")
+    generation_metadata = dict(packaged.generation_metadata)
     generation_metadata["creative_lint"] = lint_result
-    return output.model_copy(update={"generation_metadata": generation_metadata})
+    generation_metadata["script_lint"] = lint_result
+    generation_metadata["caption_packaging"] = packaging_meta
+    return packaged.model_copy(update={"generation_metadata": generation_metadata})
 
 
 def _normalize_brief(brief: BriefLike) -> ScriptBriefContext:
@@ -378,7 +390,7 @@ def _build_caption_variants(
             variant=CaptionVariantName.STANDARD,
             text=(
                 f"{_base_caption(context)} {standard_cta} "
-                f"Hashtags ready: {' '.join(hashtags)}{disclosure}"
+                f"{' '.join(_hashtags_for_published_caption(hashtags))}{disclosure}"
             ).strip(),
         ),
         CaptionVariant(
@@ -406,7 +418,8 @@ def _build_provider_caption_variants(
             variant=CaptionVariantName.STANDARD,
             text=(
                 f"{_base_caption(context)} Use the first move today, then keep the final "
-                f"takeaway close for next time. {standard_cta} {' '.join(hashtags)}{disclosure}"
+                f"takeaway close for next time. {standard_cta} "
+                f"{' '.join(_hashtags_for_published_caption(hashtags))}{disclosure}"
             ).strip(),
         ),
         CaptionVariant(
@@ -509,10 +522,10 @@ def _close_overlay_text(context: ScriptBriefContext) -> str:
 
 
 def _base_caption(context: ScriptBriefContext) -> str:
+    if context.page_name and context.content_pillar:
+        return f"{context.page_name} breaks down {context.content_pillar} in a practical way."
     if context.description:
         return context.description
-    if context.content_pillar and context.page_name:
-        return f"{context.page_name} breaks down {context.content_pillar} in a practical way."
     return f"{context.title} gives viewers one practical move to use today."
 
 

@@ -1,3 +1,6 @@
+# Local worktree label (see git config contentlab.worktreeName)
+.worktree-name
+
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -62,6 +62,9 @@ def test_deterministic_script_generator_is_stable_for_planned_briefs() -> None:
     assert first.generation_metadata["fallback"] is True
     first_lint = cast(dict[str, Any], first.generation_metadata["creative_lint"])
     assert first_lint["outcome"] == "fail"
+    assert first.generation_metadata.get("script_lint") == first_lint
+    assert "caption_packaging" in first.generation_metadata
+    assert "prefilter_caption_lint" in first.generation_metadata["caption_packaging"]
     assert first.hook_text == "Mobility reset for busy professionals who want"
     assert [variant.variant.value for variant in first.caption_variants] == [
         "short",

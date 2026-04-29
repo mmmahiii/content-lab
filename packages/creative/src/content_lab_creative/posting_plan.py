@@ -37,6 +37,27 @@ _CAPTION_VARIANT_BY_MODE: dict[CreativeMode, str] = {
 }
 
 
+def _resolve_recommended_caption_variant(mode: CreativeMode, available: set[str] | None) -> str:
+    """Map mode to a slot name that exists on the published script; never points at a dropped slot."""
+
+    requested = _CAPTION_VARIANT_BY_MODE[mode]
+    if not available or requested in available:
+        return requested
+    for slot in ("standard", "engagement", "short"):
+        if slot in available:
+            return slot
+    return min(available) if available else requested
+
+
+def resolve_recommended_caption_for_slots(
+    mode: CreativeMode | str, available_caption_variants: Sequence[str]
+) -> str:
+    """Return a caption slot for ``mode`` that exists in ``available_caption_variants`` (e.g. ``short``)."""
+    mode_enum = mode if isinstance(mode, CreativeMode) else CreativeMode(mode)
+    available = {str(s).strip().lower() for s in available_caption_variants if str(s).strip()}
+    return _resolve_recommended_caption_variant(mode_enum, available or None)
+
+
 def _clean_text(value: str, *, field_name: str, max_length: int) -> str:
     normalized = " ".join(str(value).strip().split())
     if not normalized:
@@ -239,14 +260,26 @@ def build_posting_plan(
     family: PostingPlanFamilyContext | Mapping[str, Any],
     mode: CreativeMode | str,
     variant: PostingPlanVariantContext | Mapping[str, Any],
+    available_caption_variants: Sequence[str] | None = None,
 ) -> PostingPlanArtifact:
-    """Build a deterministic posting-plan artifact from policy and variant context."""
+    """Build a deterministic posting-plan artifact from policy and variant context.
+
+    When ``available_caption_variants`` is provided (e.g. after script caption packaging),
+    ``recommended_caption_variant`` is remapped to a slot that still exists in the output.
+    """
 
     policy_snapshot = _coerce_policy_document(policy)
     page_context = PostingPlanPageContext.model_validate(page)
     family_context = PostingPlanFamilyContext.model_validate(family)
     variant_context = PostingPlanVariantContext.model_validate(variant)
     selected_mode = CreativeMode(mode)
+    if available_caption_variants is None:
+        available: set[str] | None = None
+    else:
+        slots = {
+            str(slot).strip().lower() for slot in available_caption_variants if str(slot).strip()
+        }
+        available = slots or None
 
     seed_material = json.dumps(
         _stable_json_value(
@@ -276,7 +309,9 @@ def build_posting_plan(
         publication=PostingPlanPublication(
             priority=_PRIORITY_BY_MODE[selected_mode],
             target_platforms=list(page_context.target_platforms),
-            recommended_caption_variant=_CAPTION_VARIANT_BY_MODE[selected_mode],
+            recommended_caption_variant=_resolve_recommended_caption_variant(
+                selected_mode, available
+            ),
             publish_window=PostingWindow(
                 day_offset=posting_window_index,
                 weekday=weekday,
@@ -349,4 +384,5 @@ __all__ = [
     "PostingWindow",
     "build_posting_plan",
     "serialize_posting_plan_json",
+    "resolve_recommended_caption_for_slots",
 ]
