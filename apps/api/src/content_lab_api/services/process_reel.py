@@ -26,7 +26,7 @@ from content_lab_api.models.reel import GeneratedReelStatus, Reel
 from content_lab_api.models.reel_family import ReelFamily
 from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
-from content_lab_qa import evaluate_package
+from content_lab_qa.package import PackageQualityAssuranceError, evaluate_package
 from content_lab_runs import RunStatus, TaskStatus
 from content_lab_storage import CanonicalStorageLayout
 
@@ -345,6 +345,9 @@ class StubProcessReelExecutor:
                     },
                 ],
             },
+            "caption_variants": [
+                {"variant": "stub_primary", "text": "Quick tips from today's reel—save for later."},
+            ],
             "provenance": {
                 "editor_version": "stub_vertical_v1",
                 "assets": [
@@ -1008,7 +1011,7 @@ class ProcessReelPersistenceService:
                     status=TaskStatus.FAILED.value,
                     result=failure_payload,
                 )
-                raise ValueError(package_qa.message)
+                raise PackageQualityAssuranceError(package_qa.message, package_qa=package_qa)
         except Exception as exc:
             if "package_qa" not in locals():
                 self._repository.update_task(
@@ -1079,6 +1082,42 @@ class ProcessReelPersistenceService:
             reel_status=GeneratedReelStatus.QA_FAILED.value,
             run_status=RunStatus.FAILED.value,
         )
+        self._repository.update_reel(
+            reel_id=execution.reel_id,
+            status=GeneratedReelStatus.QA_FAILED.value,
+            metadata_patch={PROCESS_REEL_METADATA_KEY: {"last_summary": summary}},
+        )
+        self._repository.update_run(
+            run_id=execution.run_id,
+            status=RunStatus.FAILED.value,
+            output_payload=summary,
+            set_finished_at=True,
+        )
+        self._repository.update_task(
+            run_id=execution.run_id,
+            task_type=PROCESS_REEL_TASK_TYPE,
+            status=TaskStatus.FAILED.value,
+            result=summary,
+        )
+        return summary
+
+    def mark_package_qa_failed(
+        self,
+        execution: ProcessReelExecution,
+        *,
+        error_message: str,
+        package_qa: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Mark the reel as ``qa_failed`` after package-level QA blocks publish."""
+
+        summary = self._build_summary(
+            execution,
+            reel_status=GeneratedReelStatus.QA_FAILED.value,
+            run_status=RunStatus.FAILED.value,
+            error_message=error_message,
+        )
+        if package_qa is not None:
+            summary["package_qa"] = dict(package_qa)
         self._repository.update_reel(
             reel_id=execution.reel_id,
             status=GeneratedReelStatus.QA_FAILED.value,

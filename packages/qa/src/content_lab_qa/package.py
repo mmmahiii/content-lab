@@ -12,6 +12,7 @@ from content_lab_core.models import DomainModel
 from content_lab_core.types import QAVerdict
 from content_lab_qa.gate import QAResult
 from content_lab_qa.provenance import validate_package_provenance
+from content_lab_qa.text import validate_caption_meta_language
 
 _REQUIRED_PACKAGE_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("final_video", "final_video.mp4"),
@@ -45,11 +46,20 @@ class PackageQAResult(DomainModel):
         }
 
 
+class PackageQualityAssuranceError(ValueError):
+    """Raised when ready-to-post package gates fail (completeness, captions, provenance, etc.)."""
+
+    def __init__(self, message: str, *, package_qa: PackageQAResult | None = None) -> None:
+        super().__init__(message)
+        self.package_qa = package_qa
+
+
 def evaluate_package(package_payload: Mapping[str, Any] | object) -> PackageQAResult:
     """Evaluate ready-to-post package completeness and provenance deterministically."""
 
     checks: list[QAResult] = [
         validate_package_completeness(package_payload),
+        validate_caption_meta_language(package_payload),
         validate_package_provenance(_provenance_payload(package_payload)),
     ]
     errors = [check.message for check in checks if not check.passed and check.message]
@@ -286,4 +296,9 @@ def _provenance_payload(package_payload: Mapping[str, Any] | object) -> Mapping[
     return raw_provenance
 
 
-__all__ = ["PackageQAResult", "evaluate_package", "validate_package_completeness"]
+__all__ = [
+    "PackageQAResult",
+    "PackageQualityAssuranceError",
+    "evaluate_package",
+    "validate_package_completeness",
+]

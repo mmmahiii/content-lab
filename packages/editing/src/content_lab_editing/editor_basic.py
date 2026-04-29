@@ -12,7 +12,12 @@ from urllib.parse import urlparse
 
 from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_frame
 from content_lab_editing.edit_plan import SceneAwareEditPlan
-from content_lab_editing.overlays import OverlayTimeline, build_overlay_video_filter
+from content_lab_editing.overlays import (
+    OverlayTimeline,
+    TextOverlay,
+    build_overlay_video_filter,
+    normalize_overlay_timeline,
+)
 from content_lab_editing.templates import (
     EditorialTemplate,
     apply_editorial_template,
@@ -79,6 +84,7 @@ class BasicEditorArtifact:
     editorial_template_id: str | None = None
     editorial_template_version: str | None = None
     applied_edit_plan: SceneAwareEditPlan | None = None
+    overlay_manifest: tuple[TextOverlay, ...] = ()
 
 
 def render_basic_vertical_edit(
@@ -126,10 +132,13 @@ def render_basic_vertical_edit(
         storage_client=storage_client,
     )
     source_probe = probe_media_file(staged_source_path, ffprobe_bin=ffprobe_bin)
+    normalized_overlays = normalize_overlay_timeline(
+        overlay_timeline,
+        clip_duration_seconds=source_probe.duration_seconds,
+    )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
-        timeline=overlay_timeline,
-        clip_duration_seconds=source_probe.duration_seconds,
+        normalized_timeline=normalized_overlays,
     )
 
     final_video_path = output_dir / FINAL_VIDEO_FILENAME
@@ -174,6 +183,7 @@ def render_basic_vertical_edit(
         editorial_template_id=None,
         editorial_template_version=None,
         applied_edit_plan=None,
+        overlay_manifest=normalized_overlays,
     )
 
 
@@ -219,10 +229,13 @@ def _render_scene_aware_edit(
         ffmpeg_bin=ffmpeg_bin,
     )
     combined_probe = probe_media_file(combined_source_path, ffprobe_bin=ffprobe_bin)
+    normalized_overlays = normalize_overlay_timeline(
+        overlay_timeline,
+        clip_duration_seconds=combined_probe.duration_seconds,
+    )
     video_filter = build_overlay_video_filter(
         base_filter=_VIDEO_FILTER,
-        timeline=overlay_timeline,
-        clip_duration_seconds=combined_probe.duration_seconds,
+        normalized_timeline=normalized_overlays,
     )
 
     final_video_path = output_dir / FINAL_VIDEO_FILENAME
@@ -271,6 +284,7 @@ def _render_scene_aware_edit(
             editorial_template.template_version if editorial_template is not None else None
         ),
         applied_edit_plan=edit_plan,
+        overlay_manifest=normalized_overlays,
     )
 
 

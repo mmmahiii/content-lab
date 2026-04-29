@@ -11,6 +11,15 @@ from content_lab_api.services import ProcessReelExecution, ProcessReelQAResult
 from content_lab_core.types import QAVerdict
 from content_lab_orchestrator.flows.process_reel import PhaseOneProcessReelExecutor
 from content_lab_qa.format import FormatQAReport, ProbedMedia
+from content_lab_qa.overlay import OverlayTextFidelityReport
+
+
+def _dummy_passing_overlay(*, script: object, editing: object | None = None) -> OverlayTextFidelityReport:
+    return OverlayTextFidelityReport(
+        verdict=QAVerdict.PASS,
+        message="overlay QA patched in bad-reel regression tests",
+        findings=(),
+    )
 
 # apps/orchestrator/tests/ -> worktree root -> packages/
 _PACKAGES_ROOT = Path(__file__).resolve().parents[3] / "packages"
@@ -87,6 +96,11 @@ def test_process_reel_qa_fails_on_semantic_drift_with_technical_format_patched(
         "evaluate_format_qa",
         lambda **kwargs: _dummy_passing_format_report(),
     )
+    monkeypatch.setattr(
+        _process_reel_module,
+        "evaluate_overlay_text_fidelity_qa",
+        lambda *, script, editing=None: _dummy_passing_overlay(script=script, editing=editing),
+    )
     ex = _execution_for_bundle(case_id="intent_drift_solar_mismatch")
     executor = object.__new__(PhaseOneProcessReelExecutor)
     executor._ffprobe_bin = "ffprobe"
@@ -107,6 +121,11 @@ def test_process_reel_qa_passes_baseline_with_technical_format_patched(
         _process_reel_module,
         "evaluate_format_qa",
         lambda **kwargs: _dummy_passing_format_report(),
+    )
+    monkeypatch.setattr(
+        _process_reel_module,
+        "evaluate_overlay_text_fidelity_qa",
+        lambda *, script, editing=None: _dummy_passing_overlay(script=script, editing=editing),
     )
     ex = _execution_for_bundle(case_id="well_aligned_baseline")
     executor = object.__new__(PhaseOneProcessReelExecutor)

@@ -45,7 +45,11 @@ from content_lab_creative import (
     plan_creative_brief,
 )
 from content_lab_creative.script_generator import ScriptGenerator, ScriptGeneratorPathLike
-from content_lab_editing import build_ready_to_post_package, render_basic_vertical_edit
+from content_lab_editing import (
+    build_overlay_render_manifest_for_qa,
+    build_ready_to_post_package,
+    render_basic_vertical_edit,
+)
 from content_lab_outbox import (
     build_process_reel_event_payload,
     process_reel_event_type,
@@ -70,14 +74,18 @@ from content_lab_api.services.process_reel import ProcessReelExecution, ProcessR
 from content_lab_core.types import Platform, QAVerdict
 from content_lab_orchestrator.correlation import orchestrator_service_context
 from content_lab_qa import (
+    PackageQualityAssuranceError,
     RepetitionGateRequest,
     RepetitionHistoryStore,
     RepetitionPolicy,
     SemanticScriptQARequest,
+    default_overlay_stack_policy_for_template,
     evaluate_alignment_qa,
     evaluate_format_qa,
+    evaluate_overlay_text_fidelity_qa,
     evaluate_repetition,
     evaluate_semantic_script,
+    validate_caption_meta_language,
 )
 from content_lab_runs import TaskRowSpec, TaskStatus
 from content_lab_shared.settings import Settings
@@ -137,6 +145,14 @@ class ProcessReelRuntime(Protocol):
     def mark_ready(self, execution: ProcessReelExecutionLike) -> dict[str, Any]: ...
 
     def mark_qa_failed(self, execution: ProcessReelExecutionLike) -> dict[str, Any]: ...
+
+    def mark_package_qa_failed(
+        self,
+        execution: ProcessReelExecutionLike,
+        *,
+        error_message: str,
+        package_qa: Mapping[str, Any] | None,
+    ) -> dict[str, Any]: ...
 
     def mark_failed(
         self,
@@ -631,6 +647,12 @@ class PhaseOneProcessReelExecutor:
             + "\n",
             encoding="utf-8",
         )
+        overlay_rows, overlay_safe_area = build_overlay_render_manifest_for_qa(
+            artifact.overlay_manifest,
+            frame_width=int(artifact.width),
+            frame_height=int(artifact.height),
+        )
+        stack_policy = default_overlay_stack_policy_for_template(artifact.editorial_template_id)
         return {
             "edit_id": f"edit-{execution.reel_id}",
             "template_version": artifact.template_version,
@@ -646,6 +668,10 @@ class PhaseOneProcessReelExecutor:
             "width": artifact.width,
             "height": artifact.height,
             "has_audio_track": artifact.has_audio_track,
+            "editorial_template_id": artifact.editorial_template_id,
+            "overlay_stack_policy": stack_policy,
+            "overlay_safe_area": overlay_safe_area,
+            "overlay_render_manifest": overlay_rows,
         }
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
@@ -688,15 +714,27 @@ class PhaseOneProcessReelExecutor:
             compiled_prompt=_mapping(creative_output.get("compiled_prompt")),
             editing=editing_output,
         )
+        overlay_fidelity_report = evaluate_overlay_text_fidelity_qa(
+            script=_mapping(creative_output.get("script")),
+            editing=editing_output,
+        )
+        script_payload = _mapping(creative_output.get("script"))
+        caption_meta_result = validate_caption_meta_language(
+            {"creative_trace": {"script": script_payload}},
+        )
         alignment_gate = alignment_report.as_qa_result()
         repetition_failed = repetition_result.verdict.value == "fail"
         semantic_failed = not semantic_report.passed and semantic_report.verdict.value == "fail"
         alignment_failed = alignment_report.blocks_readiness
+        overlay_fidelity_failed = overlay_fidelity_report.blocks_readiness
+        caption_meta_failed = not caption_meta_result.passed
         passed = (
             format_report.passed
             and not repetition_failed
             and not semantic_failed
             and not alignment_failed
+            and not overlay_fidelity_failed
+            and not caption_meta_failed
         )
         verdict = "pass"
         if not passed:
@@ -705,6 +743,8 @@ class PhaseOneProcessReelExecutor:
             repetition_result.verdict.value == "warn"
             or semantic_report.verdict.value == "warn"
             or alignment_report.verdict == QAVerdict.WARN
+            or overlay_fidelity_report.verdict == QAVerdict.WARN
+            or caption_meta_result.verdict == QAVerdict.WARN
         ):
             verdict = "warn"
 
@@ -717,6 +757,8 @@ class PhaseOneProcessReelExecutor:
                     repetition_result.as_payload(),
                     semantic_report.as_qa_result().as_payload(),
                     alignment_gate.as_payload(),
+                    overlay_fidelity_report.as_qa_result().as_payload(),
+                    caption_meta_result.as_payload(),
                 ],
                 "format": {
                     "verdict": format_report.verdict.value,
@@ -743,6 +785,15 @@ class PhaseOneProcessReelExecutor:
                     "skip_reason": alignment_report.skip_reason,
                     "lead_text": alignment_report.lead_text,
                 },
+                "overlay_text_fidelity": {
+                    "verdict": overlay_fidelity_report.verdict.value,
+                    "message": overlay_fidelity_report.message,
+                    "findings": [
+                        finding.model_dump(mode="json")
+                        for finding in overlay_fidelity_report.findings
+                    ],
+                },
+                "caption_meta_language": caption_meta_result.as_payload(),
             },
         )
 
@@ -945,6 +996,23 @@ def mark_process_reel_qa_failed(execution_payload: dict[str, Any]) -> dict[str, 
 
 
 @task
+def mark_process_reel_package_qa_failed(
+    execution_payload: dict[str, Any],
+    failure_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Mark a reel as ``qa_failed`` when package-level QA blocks publish."""
+
+    execution = _execution_from_payload(execution_payload)
+    package_qa = failure_payload.get("package_qa")
+    normalized_qa = dict(package_qa) if isinstance(package_qa, Mapping) else None
+    return build_process_reel_runtime().mark_package_qa_failed(
+        execution,
+        error_message=str(failure_payload["error"]),
+        package_qa=normalized_qa,
+    )
+
+
+@task
 def mark_process_reel_failed(
     execution_payload: dict[str, Any],
     *,
@@ -1039,7 +1107,16 @@ def process_reel(
             emit_process_reel_terminal_event(summary)
             return summary
         current_step = "packaging"
-        execution = execute_packaging(execution)
+        try:
+            execution = execute_packaging(execution)
+        except PackageQualityAssuranceError as exc:
+            package_qa_payload = exc.package_qa.as_payload() if exc.package_qa else None
+            summary = mark_process_reel_package_qa_failed(
+                execution,
+                {"error": str(exc), "package_qa": package_qa_payload},
+            )
+            emit_process_reel_terminal_event(summary)
+            return summary
         summary = mark_process_reel_ready(execution)
         emit_process_reel_terminal_event(summary)
         return summary

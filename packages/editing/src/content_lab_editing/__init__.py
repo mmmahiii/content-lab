@@ -11,6 +11,10 @@ from content_lab_editing.editor_basic import (
     render_basic_vertical_edit,
 )
 from content_lab_editing.instructions import EditInstruction, EditOperation, EditPlan
+from content_lab_editing.overlay_layout import (
+    build_overlay_render_manifest_for_qa,
+    default_overlay_safe_area,
+)
 from content_lab_editing.package_builder import (
     BuiltReelPackage,
     LocalReelPackage,
@@ -37,6 +41,7 @@ __all__ = [
     "BuiltReelPackage",
     "CALM_EXPLAINER_V1",
     "DEFAULT_EDITORIAL_TEMPLATE",
+    "default_overlay_safe_area",
     "EDITORIAL_TEMPLATES",
     "EditInstruction",
     "EditOperation",
@@ -50,6 +55,7 @@ __all__ = [
     "SceneEditPlanSegment",
     "apply_editorial_template",
     "apply_overlay_density_cap",
+    "build_overlay_render_manifest_for_qa",
     "build_package_directory",
     "build_ready_to_post_package",
     "build_scene_aware_edit_plan",

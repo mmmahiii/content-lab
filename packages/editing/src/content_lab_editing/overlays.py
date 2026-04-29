@@ -239,27 +239,31 @@ def build_drawtext_filters(
     timeline: OverlayTimeline | None,
     *,
     clip_duration_seconds: float | None = None,
+    normalized_timeline: tuple[TextOverlay, ...] | None = None,
 ) -> tuple[str, ...]:
     """Convert a timeline to FFmpeg drawtext clauses."""
 
-    overlays = normalize_overlay_timeline(
-        timeline,
-        clip_duration_seconds=clip_duration_seconds,
-    )
-    return tuple(overlay.drawtext_filter() for overlay in overlays)
+    if normalized_timeline is None:
+        normalized_timeline = normalize_overlay_timeline(
+            timeline,
+            clip_duration_seconds=clip_duration_seconds,
+        )
+    return tuple(overlay.drawtext_filter() for overlay in normalized_timeline)
 
 
 def build_overlay_video_filter(
     *,
     base_filter: str,
-    timeline: OverlayTimeline | None,
+    timeline: OverlayTimeline | None = None,
     clip_duration_seconds: float | None = None,
+    normalized_timeline: tuple[TextOverlay, ...] | None = None,
 ) -> str:
     """Append overlay drawtext filters to an existing video filter chain."""
 
     filters = build_drawtext_filters(
         timeline,
         clip_duration_seconds=clip_duration_seconds,
+        normalized_timeline=normalized_timeline,
     )
     if not filters:
         return base_filter

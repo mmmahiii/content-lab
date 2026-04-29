@@ -53,6 +53,9 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
                 },
             ],
         },
+        "caption_variants": [
+            {"variant": "primary", "text": "Behind the scenes from this week's shoot."},
+        ],
         "provenance_uri": f"s3://content-lab/reels/packages/{reel_id}/provenance.json",
         "provenance": {
             "editor_version": "basic_vertical_v1",
@@ -237,6 +240,6 @@ def test_process_reel_service_fails_packaging_for_invalid_provenance() -> None:
 
     packaging_result = repository.tasks[(execution.run_id, "packaging")].result
     assert packaging_result is not None
-    assert packaging_result["package_qa"]["checks"][1]["message"] == (
+    assert packaging_result["package_qa"]["checks"][2]["message"] == (
         "Package provenance must include at least one provider lineage entry."
     )

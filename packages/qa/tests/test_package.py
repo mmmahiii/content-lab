@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from content_lab_qa.package import evaluate_package, validate_package_completeness
+from content_lab_qa.text import lint_caption_texts, validate_caption_meta_language
 
 _SHA256_A = "sha256:" + ("a" * 64)
 _SHA256_B = "sha256:" + ("b" * 64)
@@ -16,6 +17,9 @@ def _valid_package_payload() -> dict[str, Any]:
         "reel_id": "reel-123",
         "package_root_uri": "s3://content-lab/reels/packages/reel-123",
         "manifest_uri": "s3://content-lab/reels/packages/reel-123/package_manifest.json",
+        "caption_variants": [
+            {"variant": "primary", "text": "Ship-day recap with three quick tips."},
+        ],
         "manifest": {
             "version": 1,
             "artifact_count": 5,
@@ -148,4 +152,53 @@ def test_evaluate_package_aggregates_package_and_provenance_checks() -> None:
     assert not result.passed
     assert result.errors == ["Package provenance must include at least one provider lineage entry."]
     assert payload["checks"][0]["gate_name"] == "package_completeness"
-    assert payload["checks"][1]["gate_name"] == "package_provenance"
+    assert payload["checks"][1]["gate_name"] == "caption_meta_language"
+    assert payload["checks"][2]["gate_name"] == "package_provenance"
+
+
+def test_validate_caption_meta_language_fails_for_clear_caption_bug() -> None:
+    payload = _valid_package_payload()
+    payload["caption_variants"] = [
+        {"variant": "broken", "text": "We saved the clear caption for editors to replace before publish."},
+    ]
+    result = validate_caption_meta_language(payload)
+
+    assert not result.passed
+    assert result.details["failure_code"] == "caption_internal_system"
+    findings = result.details["findings"]
+    assert isinstance(findings, list) and findings
+    assert findings[0]["code"] == "caption_internal_system"
+    assert "clear caption" in findings[0]["caption_text"].lower()
+
+
+def test_evaluate_package_fails_when_caption_meta_language_invalid() -> None:
+    payload = _valid_package_payload()
+    payload["caption_variants"] = [{"variant": "x", "text": "Internal caption — draft only."}]
+    result = evaluate_package(payload)
+
+    assert not result.passed
+    assert result.checks[1].gate_name == "caption_meta_language"
+    assert not result.checks[1].passed
+    assert "caption_text" in result.checks[1].details["findings"][0]
+
+
+def test_evaluate_package_fails_when_caption_sources_missing() -> None:
+    payload = _valid_package_payload()
+    del payload["caption_variants"]
+    payload["creative_trace"] = {}
+    result = evaluate_package(payload)
+
+    assert not result.passed
+    assert result.checks[1].gate_name == "caption_meta_language"
+    assert result.checks[1].verdict.value == "fail"
+    assert result.checks[1].details["errors"] == ["missing_caption_sources"]
+
+
+def test_lint_caption_texts_deduplicates_repeated_rows() -> None:
+    duplicate_text = "We saved the clear caption for editors to replace."
+    entries = [
+        ("caption_variants[0]/a", duplicate_text),
+        ("caption_variants[0]/a", duplicate_text),
+    ]
+    findings = lint_caption_texts(entries)
+    assert len(findings) == 1

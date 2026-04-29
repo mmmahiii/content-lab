@@ -124,6 +124,7 @@ def test_build_ready_to_post_package_attaches_creative_trace(tmp_path: Path) -> 
         "s3://content-lab/reels/packages/reel-local-123/creative_trace.json"
     )
     assert built.package_payload["creative_trace"]["brief"]["title"] == "Desk reset"
+    assert built.package_payload["caption_variants"] == [{"variant": "short", "text": "Short caption"}]
     assert built.stored_package.artifact_by_name("creative_trace") is not None
     assert client.put_object.call_count == 7
 
