@@ -123,6 +123,42 @@ def test_render_basic_vertical_edit_requires_storage_client_for_s3_sources(tmp_p
         )
 
 
+def test_render_basic_vertical_edit_rejects_probe_mismatch_vs_expected_timeline(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "fixture-2s.mp4"
+    build_fixture_clip(
+        output_path=source_path,
+        width=720,
+        height=1280,
+        include_audio=False,
+        duration_seconds=2.0,
+    )
+    with pytest.raises(ValueError, match="Source media duration"):
+        render_basic_vertical_edit(
+            source_uri=source_path,
+            workdir=tmp_path / "job-mismatch",
+            expected_timeline_duration_seconds=10,
+        )
+
+
+def test_render_basic_vertical_edit_accepts_matching_expected_timeline(tmp_path: Path) -> None:
+    source_path = tmp_path / "fixture-5s.mp4"
+    build_fixture_clip(
+        output_path=source_path,
+        width=720,
+        height=1280,
+        include_audio=True,
+        duration_seconds=5.0,
+    )
+    artifact = render_basic_vertical_edit(
+        source_uri=source_path,
+        workdir=tmp_path / "job-match",
+        expected_timeline_duration_seconds=5,
+    )
+    assert artifact.final_video_path.exists()
+
+
 def test_render_basic_vertical_edit_applies_overlay_timeline(tmp_path: Path) -> None:
     source_path = tmp_path / "fixture-black.mp4"
     build_fixture_clip(

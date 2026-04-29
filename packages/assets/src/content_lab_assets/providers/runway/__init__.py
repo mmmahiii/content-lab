@@ -40,6 +40,14 @@ _TERMINAL_FAILURE_PREFIXES = ("SAFETY.", "INPUT_PREPROCESSING.SAFETY.")
 _RETRYABLE_FAILURE_PREFIXES = ("INTERNAL", "INPUT_PREPROCESSING.INTERNAL")
 
 
+def clamp_runway_gen45_clip_duration_seconds(requested_seconds: int) -> int:
+    """Return a whole-second Gen4.5 clip duration bounded by API limits (phase-1 default floor: 5s)."""
+
+    if requested_seconds < 5:
+        return 5
+    return min(int(requested_seconds), RUNWAY_GEN45_MAX_DURATION_SECONDS)
+
+
 class RunwayInsufficientCreditsError(RuntimeError):
     """Raised when Runway rejects a request because the account has no usable credits."""
 
@@ -436,6 +444,7 @@ __all__ = [
     "RUNWAY_API_BASE_URL",
     "RUNWAY_API_VERSION",
     "RUNWAY_GEN45_MAX_DURATION_SECONDS",
+    "clamp_runway_gen45_clip_duration_seconds",
     "RUNWAY_PROVIDER",
     "RunwayClient",
     "RunwayDownloadedAsset",
