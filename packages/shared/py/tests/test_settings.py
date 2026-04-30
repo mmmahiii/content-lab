@@ -78,6 +78,26 @@ class TestSettingsDefaults:
         assert s.environment == "local"
         assert s.log_level == "INFO"
 
+    def test_psycopg_database_url_strips_sqlalchemy_driver(self) -> None:
+        s = load_default_settings()
+        assert (
+            s.psycopg_database_url == "postgresql://contentlab:contentlab@localhost:5433/contentlab"
+        )
+
+    def test_psycopg_database_url_leaves_plain_postgresql_url(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                **DEFAULT_TEST_ENV,
+                "DATABASE_URL": "postgresql://contentlab:contentlab@localhost:5433/contentlab",
+            },
+            clear=True,
+        ):
+            s = Settings(_env_file=None)
+        assert (
+            s.psycopg_database_url == "postgresql://contentlab:contentlab@localhost:5433/contentlab"
+        )
+
 
 class TestSettingsEnvOverride:
     """Env vars override defaults (pydantic-settings contract)."""

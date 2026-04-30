@@ -62,3 +62,10 @@ class Settings(BaseSettings):
     # -- Runtime --
     environment: str = "local"
     log_level: str = "INFO"
+
+    @property
+    def psycopg_database_url(self) -> str:
+        """Return a libpq-compatible URL for direct psycopg.connect() calls."""
+        if self.database_url.startswith("postgresql+psycopg://"):
+            return "postgresql://" + self.database_url.split("://", 1)[1]
+        return self.database_url
