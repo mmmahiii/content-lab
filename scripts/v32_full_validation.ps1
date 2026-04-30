@@ -143,6 +143,7 @@ try {
 
     Write-Host "`n=== Running MVP smoke ===" -ForegroundColor Cyan
     Invoke-Step { python .\scripts\e2e_mvp_smoke.py --repo-root . --api-base-url $ApiBaseUrl --provider-mode mock } "e2e_mvp_smoke.py"
+    Write-Host "MinIO package objects are under the smoke JSON reel_id / package_root_uri, not the DB run_id." -ForegroundColor Yellow
 
     Write-Host "`n=== Running no-regeneration regression ===" -ForegroundColor Cyan
     Invoke-Step { python .\scripts\e2e_no_regen.py --repo-root . --api-base-url $ApiBaseUrl } "e2e_no_regen.py"
@@ -186,27 +187,63 @@ with psycopg.connect(db_url) as conn:
     with conn.cursor() as cur:
         cur.execute(
             """
-            select id, status, output_payload
+            select id, status, output_payload, run_metadata
             from runs
             where workflow_key = 'process_reel'
+              and run_metadata->'client'->>'source' = 'e2e-mvp-smoke'
             order by finished_at desc nulls last, updated_at desc
             limit 1
             """
         )
         row = cur.fetchone()
+        query_scope = "latest e2e-mvp-smoke process_reel run"
+
+        if not row:
+            cur.execute(
+                """
+                select id, status, output_payload, run_metadata
+                from runs
+                where workflow_key = 'process_reel'
+                order by finished_at desc nulls last, updated_at desc
+                limit 1
+                """
+            )
+            row = cur.fetchone()
+            query_scope = "latest global process_reel run"
 
 if not row:
     raise SystemExit("No process_reel run found.")
 
-run_id, status, output_payload = row
+run_id, status, output_payload, run_metadata = row
+payload = output_payload if isinstance(output_payload, dict) else json.loads(output_payload or "{}")
+metadata = run_metadata if isinstance(run_metadata, dict) else json.loads(run_metadata or "{}")
 if status != "succeeded":
-    payload = output_payload if isinstance(output_payload, dict) else json.loads(output_payload or "{}")
     task_statuses = payload.get("task_statuses") or {}
     raise SystemExit(
-        f"Latest process_reel run is not succeeded: run_id={run_id}, status={status}, task_statuses={task_statuses}"
+        f"{query_scope} is not succeeded: run_id={run_id}, status={status}, task_statuses={task_statuses}"
     )
 
-print(f"Validated latest process_reel run: {run_id}")
+reel_id = (
+    payload.get("reel_id")
+    or payload.get("package", {}).get("reel_id")
+    or metadata.get("target", {}).get("reel_id")
+    or metadata.get("client", {}).get("reel_id")
+)
+package_root_uri = (
+    payload.get("package_root_uri")
+    or payload.get("package", {}).get("package_root_uri")
+    or payload.get("package", {}).get("root_uri")
+)
+if not package_root_uri and reel_id:
+    bucket = load_env_value("MINIO_BUCKET") or "content-lab"
+    package_root_uri = f"s3://{bucket}/reels/packages/{reel_id}/"
+
+print(f"Validated {query_scope}: {run_id}")
+if reel_id:
+    print(f"MinIO reel_id/package prefix: {reel_id}")
+if package_root_uri:
+    print(f"MinIO package_root_uri: {package_root_uri}")
+print("Use the reel_id/package_root_uri above for MinIO package browsing; run_id is the workflow aggregate id.")
 print("v3.2 DB/artifact checks can proceed because latest run succeeded.")
 '@
     Push-Location .\apps\api

@@ -1578,8 +1578,7 @@ def _escape_filter_value(value: str) -> str:
 
 def _escape_drawtext_text(value: str) -> str:
     escaped = _escape_filter_value(value)
-    escaped = escaped.replace("%", r"\%")
-    return escaped.replace("\n", r"\n")
+    return escaped.replace("%", r"\%")
 
 
 def build_overlay_render_report(

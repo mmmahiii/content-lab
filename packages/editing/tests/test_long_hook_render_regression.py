@@ -9,6 +9,7 @@ from content_lab_editing.overlays import (
     DEFAULT_OVERLAY_MARGIN_X,
     TextOverlay,
     bottom_overlay_has_vertical_safe_area,
+    build_drawtext_filters,
     estimate_drawtext_block_height_px,
     estimate_wrapped_line_count,
     parse_drawtext_filter_text,
@@ -44,6 +45,25 @@ def test_long_hook_source_equals_final_drawtext_literal() -> None:
     assert parsed == LONG_HOOK_OPERATIONS_RESET_G002
     assert "can do today" in parsed
     assert "fix_bounds=1" in clause
+
+
+def test_autofit_hook_drawtext_uses_real_newline_not_literal_backslash_n() -> None:
+    clause = build_drawtext_filters(
+        [
+            TextOverlay(
+                text=LONG_HOOK_OPERATIONS_RESET_G002,
+                overlay_role="hook",
+                start_seconds=0,
+                end_seconds=3,
+            )
+        ],
+        clip_duration_seconds=12.0,
+    )[0]
+
+    assert "\\n" not in clause
+    assert "busynfounders" not in clause
+    assert "busy\nfounders" in clause
+    assert parse_drawtext_filter_text(clause) == "The operations reset busy\nfounders can do today"
 
 
 def test_long_hook_layout_fits_vertical_safe_area_and_readable_wrapping() -> None:

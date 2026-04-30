@@ -356,7 +356,9 @@ def test_hook_overlay_wraps_to_two_lines_and_records_manifest_fields() -> None:
     )
     filters = build_drawtext_filters([hook], clip_duration_seconds=2.0)
     assert len(filters) == 1
-    flat = filters[0].replace("\\n", " ")
+    assert "\\n" not in filters[0]
+    assert "busynfounders" not in filters[0]
+    flat = filters[0].replace("\n", " ")
     for w in phrase.split():
         assert w in flat
     assert "fontsize=" in filters[0]
