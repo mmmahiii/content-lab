@@ -108,6 +108,7 @@ To run the full scaffold check (infra, installs, lint, format, typecheck, tests,
 
 - Docker daemon must be started manually in the VM (`sudo nohup dockerd > /tmp/dockerd.log 2>&1 &`) before running `docker compose`.
 - Poetry virtualenvs use Python 3.11 specifically; if Poetry picks up a different Python, run `poetry env use python3.11` in each project directory.
+- Do not default to "reinstall dependencies". Agents should only suggest dependency reinstallation when there is clear evidence it addresses the specific failure.
 - The orchestrator test (`apps/orchestrator/tests/test_flow.py`) emits many Pydantic V2 deprecation warnings from Prefect internals — these are harmless.
 - The API's `on_event("startup")` triggers a FastAPI deprecation warning in tests — also harmless.
 - Alembic migrations live in `apps/api/migrations/`. Run `cd apps/api && poetry run alembic upgrade head` after infra is up.
