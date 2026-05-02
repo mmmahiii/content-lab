@@ -182,6 +182,8 @@ if not db_url:
 
 if db_url.startswith("postgresql+psycopg://"):
     db_url = "postgresql://" + db_url.split("://", 1)[1]
+if db_url.startswith("postgresql+asyncpg://"):
+    db_url = "postgresql://" + db_url.split("://", 1)[1]
 
 with psycopg.connect(db_url) as conn:
     with conn.cursor() as cur:

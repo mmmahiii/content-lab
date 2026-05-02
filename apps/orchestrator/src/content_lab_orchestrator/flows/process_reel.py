@@ -46,6 +46,7 @@ from content_lab_creative import (
 )
 from content_lab_creative.script_generator import ScriptGenerator, ScriptGeneratorPathLike
 from content_lab_editing import (
+    build_canonical_timeline,
     build_overlay_render_manifest_for_qa,
     build_ready_to_post_package,
     render_basic_vertical_edit,
@@ -82,9 +83,11 @@ from content_lab_qa import (
     default_overlay_stack_policy_for_template,
     evaluate_alignment_qa,
     evaluate_format_qa,
+    evaluate_media_sync_qa,
     evaluate_overlay_text_fidelity_qa,
     evaluate_repetition,
     evaluate_semantic_script,
+    evaluate_timeline_timing_qa,
     validate_caption_meta_language,
 )
 from content_lab_runs import TaskRowSpec, TaskStatus
@@ -102,6 +105,7 @@ _PRIMARY_ASSET_RATIO = "9:16"
 # Orchestrator calls Runway in-process; allow long-running Gen4 jobs (~10 min at 5s cadence).
 _RUNWAY_SYNC_MAX_POLLS = 120
 _RUNWAY_SYNC_POLL_INTERVAL_SECONDS = 5.0
+_DURATION_MISMATCH_TOLERANCE_SECONDS = 0.25
 
 
 def _primary_asset_duration_seconds(requested_duration_seconds: int) -> int:
@@ -538,6 +542,14 @@ class PhaseOneProcessReelExecutor:
         script_lint = _script_lint_result(script_payload)
         scene_plan = compile_scene_plan(brief=brief, script=script)
         scene_plan_payload = scene_plan.model_dump(mode="json")
+        canonical_timeline_payload = build_canonical_timeline(
+            timeline_id=f"timeline-{execution.reel_id}",
+            duration_seconds=float(scene_plan.duration_seconds),
+            source_uri=f"s3://pending/reel/{execution.reel_id}/source.mp4",
+            scene_plan=scene_plan_payload,
+            overlay_timeline=cast(Any, script_payload.get("overlay_timeline")),
+            spoken_script=cast(Any, script_payload.get("spoken_script")),
+        ).model_dump(mode="json")
         posting_plan = build_posting_plan(
             policy=brief.policy,
             page=PostingPlanPageContext(
@@ -569,6 +581,7 @@ class PhaseOneProcessReelExecutor:
                 "script_generation": script_generation,
                 "script_lint": script_lint,
                 "scene_plan": scene_plan_payload,
+                "canonical_timeline": canonical_timeline_payload,
                 "posting_plan": posting_plan.model_dump(mode="json"),
                 "creative_blocked": True,
             }
@@ -584,6 +597,7 @@ class PhaseOneProcessReelExecutor:
             "script_generation": script_generation,
             "script_lint": script_lint,
             "scene_plan": scene_plan_payload,
+            "canonical_timeline": canonical_timeline_payload,
             "compiled_prompt": compiled_prompt_payload,
             "posting_plan": posting_plan.model_dump(mode="json"),
             "primary_asset_request": {
@@ -620,16 +634,47 @@ class PhaseOneProcessReelExecutor:
         creative_output = _step_output(execution, "creative_planning")
         asset_output = _step_output(execution, "asset_resolution")
         source_uri = _required_text(asset_output.get("storage_uri"), field_name="asset_resolution")
-        overlay_timeline = _mapping(creative_output.get("script")).get("overlay_timeline")
+        script_payload = _mapping(creative_output.get("script"))
         scene_plan_payload = _mapping(creative_output.get("scene_plan"))
+        canonical_timeline_payload = _mapping(creative_output.get("canonical_timeline"))
+        if not canonical_timeline_payload:
+            canonical_timeline_payload = build_canonical_timeline(
+                timeline_id=f"timeline-{execution.reel_id}",
+                duration_seconds=float(
+                    scene_plan_payload.get("duration_seconds")
+                    or script_payload.get("duration_seconds")
+                    or _DEFAULT_REEL_DURATION_SECONDS
+                ),
+                source_uri=source_uri,
+                scene_plan=scene_plan_payload,
+                overlay_timeline=cast(Any, script_payload.get("overlay_timeline")),
+                spoken_script=cast(Any, script_payload.get("spoken_script")),
+            ).model_dump(mode="json")
+
+        canonical_overlay_timeline = cast(
+            list[dict[str, Any]],
+            canonical_timeline_payload.get("overlays", []),
+        )
+        canonical_scene_plan = {
+            "schema_version": "canonical_timeline_projection_v1",
+            "duration_seconds": canonical_timeline_payload.get("duration_seconds"),
+            "scenes": canonical_timeline_payload.get("scenes", []),
+        }
+        expected_timeline_duration_seconds = float(canonical_timeline_payload["duration_seconds"])
+        requested_provider_duration_seconds = _optional_float(
+            _mapping(asset_output.get("canonical_params")).get("duration_seconds")
+        ) or _optional_float(
+            _mapping(creative_output.get("primary_asset_request")).get("duration_seconds")
+        )
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
         artifact = render_basic_vertical_edit(
             source_uri=source_uri,
             workdir=workdir,
             storage_client=self._storage_client,
-            overlay_timeline=cast(Any, overlay_timeline),
-            scene_plan_for_overlay_diagnostics=scene_plan_payload,
+            overlay_timeline=cast(Any, canonical_overlay_timeline),
+            scene_plan_for_overlay_diagnostics=canonical_scene_plan,
+            expected_timeline_duration_seconds=expected_timeline_duration_seconds,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
         )
@@ -637,11 +682,7 @@ class PhaseOneProcessReelExecutor:
         timeline_path.write_text(
             json.dumps(
                 {
-                    "overlay_timeline": overlay_timeline,
-                    "scene_plan": scene_plan_payload,
-                    "spoken_script": _mapping(creative_output.get("script")).get(
-                        "spoken_script", []
-                    ),
+                    "timeline": canonical_timeline_payload,
                     "overlay_render_report": artifact.overlay_render_report,
                     "rendered_overlay_manifest": artifact.rendered_overlay_manifest.as_json_dict(),
                     "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
@@ -658,6 +699,25 @@ class PhaseOneProcessReelExecutor:
             frame_height=int(artifact.height),
         )
         stack_policy = default_overlay_stack_policy_for_template(artifact.editorial_template_id)
+        duration_contract = _validate_duration_contract(
+            requested_provider_duration_seconds=requested_provider_duration_seconds,
+            source_clip_duration_seconds=float(artifact.source_duration_seconds),
+            scene_plan_duration_seconds=expected_timeline_duration_seconds,
+            final_rendered_duration_seconds=float(artifact.duration_seconds),
+            tolerance_seconds=_DURATION_MISMATCH_TOLERANCE_SECONDS,
+        )
+        timeline_render_trace_payload = _build_timeline_render_trace(
+            canonical_timeline=canonical_timeline_payload,
+            final_rendered_duration_seconds=float(artifact.duration_seconds),
+            source_asset_duration_seconds=float(artifact.source_duration_seconds),
+            duration_contract=duration_contract,
+            cover_frame_timestamp_seconds=float(artifact.cover_frame_timestamp_seconds),
+        )
+        timeline_render_trace_path = workdir / "timeline_render_trace.json"
+        timeline_render_trace_path.write_text(
+            json.dumps(timeline_render_trace_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         return {
             "edit_id": f"edit-{execution.reel_id}",
             "template_version": artifact.template_version,
@@ -669,7 +729,14 @@ class PhaseOneProcessReelExecutor:
             "cover_uri": artifact.cover_image_path.as_uri(),
             "cover_frame_timestamp_seconds": artifact.cover_frame_timestamp_seconds,
             "timeline_uri": timeline_path.as_uri(),
+            "timeline": canonical_timeline_payload,
+            "timeline_render_trace_uri": timeline_render_trace_path.as_uri(),
+            "timeline_render_trace": timeline_render_trace_payload,
             "duration_seconds": artifact.duration_seconds,
+            "source_duration_seconds": artifact.source_duration_seconds,
+            "requested_provider_duration_seconds": requested_provider_duration_seconds,
+            "scene_plan_duration_seconds": expected_timeline_duration_seconds,
+            "duration_contract": duration_contract,
             "width": artifact.width,
             "height": artifact.height,
             "has_audio_track": artifact.has_audio_track,
@@ -727,6 +794,14 @@ class PhaseOneProcessReelExecutor:
             script=_mapping(creative_output.get("script")),
             editing=editing_output,
         )
+        timeline_timing_report = evaluate_timeline_timing_qa(
+            script=_mapping(creative_output.get("script")),
+            scene_plan=_mapping(creative_output.get("scene_plan")) or None,
+            editing=editing_output,
+        )
+        media_sync_report = evaluate_media_sync_qa(
+            editing=editing_output,
+        )
         script_payload = _mapping(creative_output.get("script"))
         caption_meta_result = validate_caption_meta_language(
             {"creative_trace": {"script": script_payload}},
@@ -736,6 +811,8 @@ class PhaseOneProcessReelExecutor:
         semantic_failed = not semantic_report.passed and semantic_report.verdict.value == "fail"
         alignment_failed = alignment_report.blocks_readiness
         overlay_fidelity_failed = overlay_fidelity_report.blocks_readiness
+        timeline_timing_failed = timeline_timing_report.verdict == QAVerdict.FAIL
+        media_sync_failed = media_sync_report.verdict == QAVerdict.FAIL
         caption_meta_failed = not caption_meta_result.passed
         passed = (
             format_report.passed
@@ -743,6 +820,8 @@ class PhaseOneProcessReelExecutor:
             and not semantic_failed
             and not alignment_failed
             and not overlay_fidelity_failed
+            and not timeline_timing_failed
+            and not media_sync_failed
             and not caption_meta_failed
         )
         verdict = "pass"
@@ -767,6 +846,8 @@ class PhaseOneProcessReelExecutor:
                     semantic_report.as_qa_result().as_payload(),
                     alignment_gate.as_payload(),
                     overlay_fidelity_report.as_qa_result().as_payload(),
+                    timeline_timing_report.as_payload(),
+                    media_sync_report.as_payload(),
                     caption_meta_result.as_payload(),
                 ],
                 "format": {
@@ -802,6 +883,8 @@ class PhaseOneProcessReelExecutor:
                         for finding in overlay_fidelity_report.findings
                     ],
                 },
+                "timeline_timing": timeline_timing_report.as_payload(),
+                "media_sync": media_sync_report.as_payload(),
                 "caption_meta_language": caption_meta_result.as_payload(),
             },
         )
@@ -810,6 +893,12 @@ class PhaseOneProcessReelExecutor:
         creative_output = _step_output(execution, "creative_planning")
         asset_output = _step_output(execution, "asset_resolution")
         editing_output = _step_output(execution, "editing")
+        timeline_payload = _mapping(editing_output.get("timeline"))
+        if not timeline_payload:
+            raise ValueError("editing.timeline is required for package assembly")
+        timeline_render_trace_payload = _mapping(editing_output.get("timeline_render_trace"))
+        if not timeline_render_trace_payload:
+            raise ValueError("editing.timeline_render_trace is required for package assembly")
         workdir = self._run_workdir(execution, "package")
         workdir.mkdir(parents=True, exist_ok=True)
         creative_trace = None
@@ -840,6 +929,8 @@ class PhaseOneProcessReelExecutor:
                 editing_output=editing_output,
             ),
             creative_trace=creative_trace,
+            timeline=timeline_payload,
+            timeline_render_trace=timeline_render_trace_payload,
             temp_root=workdir,
             upload_metadata={
                 "reel-id": execution.reel_id,
@@ -1261,6 +1352,105 @@ def _asset_ids(asset_output: Mapping[str, Any]) -> list[str]:
         generation = _mapping(asset_output.get("generation"))
         asset_id = _optional_text(generation.get("asset_id"))
     return [] if asset_id is None else [asset_id]
+
+
+def _validate_duration_contract(
+    *,
+    requested_provider_duration_seconds: float | None,
+    source_clip_duration_seconds: float,
+    scene_plan_duration_seconds: float,
+    final_rendered_duration_seconds: float,
+    tolerance_seconds: float,
+) -> dict[str, Any]:
+    values: dict[str, float | None] = {
+        "requested_provider_duration_seconds": (
+            None
+            if requested_provider_duration_seconds is None
+            else float(requested_provider_duration_seconds)
+        ),
+        "source_clip_duration_seconds": float(source_clip_duration_seconds),
+        "scene_plan_duration_seconds": float(scene_plan_duration_seconds),
+        "final_rendered_duration_seconds": float(final_rendered_duration_seconds),
+    }
+    comparisons = (
+        (
+            "source_vs_requested",
+            "source_clip_duration_seconds",
+            "requested_provider_duration_seconds",
+        ),
+        ("source_vs_scene_plan", "source_clip_duration_seconds", "scene_plan_duration_seconds"),
+        ("final_vs_scene_plan", "final_rendered_duration_seconds", "scene_plan_duration_seconds"),
+        (
+            "final_vs_requested",
+            "final_rendered_duration_seconds",
+            "requested_provider_duration_seconds",
+        ),
+    )
+    mismatches: list[dict[str, Any]] = []
+    for code, left_key, right_key in comparisons:
+        left = values[left_key]
+        right = values[right_key]
+        if left is None or right is None:
+            continue
+        delta = abs(float(left) - float(right))
+        if delta > tolerance_seconds:
+            mismatches.append(
+                {
+                    "code": code,
+                    "left_key": left_key,
+                    "right_key": right_key,
+                    "left_seconds": float(left),
+                    "right_seconds": float(right),
+                    "delta_seconds": delta,
+                    "tolerance_seconds": tolerance_seconds,
+                }
+            )
+    if mismatches:
+        details = "; ".join(
+            f"{item['code']} ({item['left_seconds']:.3f}s vs {item['right_seconds']:.3f}s, "
+            f"delta={item['delta_seconds']:.3f}s > tol={tolerance_seconds:.3f}s)"
+            for item in mismatches
+        )
+        raise ValueError(f"Duration contract mismatch: {details}")
+    return {
+        "status": "pass",
+        "tolerance_seconds": tolerance_seconds,
+        **values,
+        "mismatches": [],
+    }
+
+
+def _build_timeline_render_trace(
+    *,
+    canonical_timeline: Mapping[str, Any],
+    final_rendered_duration_seconds: float,
+    source_asset_duration_seconds: float,
+    duration_contract: Mapping[str, Any],
+    cover_frame_timestamp_seconds: float,
+) -> dict[str, Any]:
+    scenes = canonical_timeline.get("scenes")
+    overlays = canonical_timeline.get("overlays")
+    audio_tracks = canonical_timeline.get("audio_tracks")
+    return {
+        "schema_version": "timeline_render_trace.v1",
+        "timeline_id": canonical_timeline.get("timeline_id"),
+        "scene_timings": list(scenes) if isinstance(scenes, list) else [],
+        "overlay_timings": list(overlays) if isinstance(overlays, list) else [],
+        "audio_timings": list(audio_tracks) if isinstance(audio_tracks, list) else [],
+        "fade_durations": [
+            {
+                "track_id": track.get("track_id"),
+                "fade_in_seconds": track.get("fade_in_seconds"),
+                "fade_out_seconds": track.get("fade_out_seconds"),
+            }
+            for track in (audio_tracks if isinstance(audio_tracks, list) else [])
+            if isinstance(track, Mapping)
+        ],
+        "final_render_duration_seconds": float(final_rendered_duration_seconds),
+        "source_asset_duration_seconds": float(source_asset_duration_seconds),
+        "duration_mismatch_checks": dict(duration_contract),
+        "cover_timestamp_seconds": float(cover_frame_timestamp_seconds),
+    }
 
 
 def _repetition_policy(asset_output: Mapping[str, Any]) -> RepetitionPolicy:

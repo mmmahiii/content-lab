@@ -131,7 +131,7 @@ export default async function PackageDetailPage({
 
       <SectionCard
         title="Package summary"
-        description="Start here to see which run and reel produced the package and where it lives."
+        description="Start here to see which run and reel produced the package and where it lives. Run queued reflects when this workflow run was created; Packaged at reflects the packaging step when recorded. Object storage Last-Modified times follow upload semantics and may differ."
       >
         <MetaGrid
           items={[
@@ -139,8 +139,14 @@ export default async function PackageDetailPage({
             { label: 'Reel id', value: packageDetail.reel_id ?? 'Not recorded' },
             { label: 'Package root', value: packageDetail.package_root_uri ?? 'Not recorded' },
             { label: 'Manifest uri', value: packageDetail.manifest_uri ?? 'Not recorded' },
-            { label: 'Created', value: formatTimestamp(packageDetail.created_at) },
-            { label: 'Updated', value: formatTimestamp(packageDetail.updated_at) },
+            { label: 'Run queued', value: formatTimestamp(packageDetail.created_at) },
+            { label: 'Run updated', value: formatTimestamp(packageDetail.updated_at) },
+            {
+              label: 'Packaged at',
+              value: packageDetail.packaged_at
+                ? formatTimestamp(packageDetail.packaged_at)
+                : 'Not recorded',
+            },
           ]}
         />
       </SectionCard>

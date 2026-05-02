@@ -30,6 +30,7 @@ class FormatQAConstraints(BaseModel):
     min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS
     max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS
     require_audio: bool = True
+    audio_video_drift_tolerance_seconds: float = 0.25
 
 
 class ProbedMedia(BaseModel):
@@ -41,6 +42,7 @@ class ProbedMedia(BaseModel):
     height: int | None = None
     duration_seconds: float | None = None
     has_audio: bool | None = None
+    audio_duration_seconds: float | None = None
     error: str = ""
 
     @property
@@ -124,6 +126,10 @@ def evaluate_format_qa(
         _audio_check(
             media=final_video,
             require_audio=effective_constraints.require_audio,
+        ),
+        _audio_video_sync_check(
+            media=final_video,
+            tolerance_seconds=effective_constraints.audio_video_drift_tolerance_seconds,
         ),
         _cover_exists_check(cover),
         _resolution_check(
@@ -379,6 +385,66 @@ def _audio_check(*, media: ProbedMedia, require_audio: bool) -> QAResult:
     )
 
 
+def _audio_video_sync_check(*, media: ProbedMedia, tolerance_seconds: float) -> QAResult:
+    if not media.exists:
+        return QAResult(
+            gate_name="final_video_audio_sync",
+            verdict=QAVerdict.FAIL,
+            message=f"Final video is missing at {media.path}.",
+            details={"path": media.path, "tolerance_seconds": tolerance_seconds},
+        )
+    if media.error:
+        return QAResult(
+            gate_name="final_video_audio_sync",
+            verdict=QAVerdict.FAIL,
+            message=f"Unable to inspect final video audio sync: {media.error}",
+            details={"path": media.path, "tolerance_seconds": tolerance_seconds},
+        )
+    if media.has_audio is not True:
+        return QAResult(
+            gate_name="final_video_audio_sync",
+            verdict=QAVerdict.FAIL,
+            message="Final video must include audio for sync validation.",
+            details={"path": media.path, "tolerance_seconds": tolerance_seconds},
+        )
+    if media.duration_seconds is None or media.audio_duration_seconds is None:
+        return QAResult(
+            gate_name="final_video_audio_sync",
+            verdict=QAVerdict.FAIL,
+            message="Final video audio/video durations are unavailable for sync validation.",
+            details={"path": media.path, "tolerance_seconds": tolerance_seconds},
+        )
+    drift = abs(media.audio_duration_seconds - media.duration_seconds)
+    if drift > tolerance_seconds:
+        return QAResult(
+            gate_name="final_video_audio_sync",
+            verdict=QAVerdict.FAIL,
+            message=(
+                "Final video audio duration drift exceeds tolerance: "
+                f"audio={_format_seconds(media.audio_duration_seconds)}, "
+                f"video={_format_seconds(media.duration_seconds)}, "
+                f"drift={_format_seconds(drift)}."
+            ),
+            details={
+                "path": media.path,
+                "audio_duration_seconds": media.audio_duration_seconds,
+                "video_duration_seconds": media.duration_seconds,
+                "drift_seconds": drift,
+                "tolerance_seconds": tolerance_seconds,
+            },
+        )
+    return QAResult(
+        gate_name="final_video_audio_sync",
+        verdict=QAVerdict.PASS,
+        message="Final video audio duration is synchronized within tolerance.",
+        details={
+            "path": media.path,
+            "drift_seconds": drift,
+            "tolerance_seconds": tolerance_seconds,
+        },
+    )
+
+
 def _probe_media(
     path: str | Path,
     *,
@@ -474,6 +540,21 @@ def _probe_media(
     has_audio = any(
         isinstance(stream, dict) and stream.get("codec_type") == "audio" for stream in streams
     )
+    audio_stream = next(
+        (
+            stream
+            for stream in streams
+            if isinstance(stream, dict) and stream.get("codec_type") == "audio"
+        ),
+        None,
+    )
+    audio_duration = None
+    if isinstance(audio_stream, dict):
+        audio_duration = _coerce_float(audio_stream.get("duration"))
+        if audio_duration is None:
+            format_payload = payload.get("format")
+            if isinstance(format_payload, dict):
+                audio_duration = _coerce_float(format_payload.get("duration"))
 
     return ProbedMedia(
         path=str(resolved_path),
@@ -482,6 +563,7 @@ def _probe_media(
         height=height,
         duration_seconds=duration_seconds,
         has_audio=has_audio,
+        audio_duration_seconds=audio_duration,
     )
 
 

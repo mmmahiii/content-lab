@@ -1,5 +1,14 @@
 """Video/image editing pipeline and Runway adapter integration."""
 
+from content_lab_editing.canonical_timeline import (
+    CanonicalTimeline,
+    TimelineAudioTrack,
+    TimelineEditSegment,
+    TimelineOverlay,
+    TimelineScene,
+    TimelineSourceClip,
+    build_canonical_timeline,
+)
 from content_lab_editing.edit_plan import (
     SceneAwareEditPlan,
     SceneEditPlanSegment,
@@ -39,6 +48,7 @@ from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayMa
 
 __all__ = [
     "BasicEditorArtifact",
+    "CanonicalTimeline",
     "BuiltReelPackage",
     "CALM_EXPLAINER_V1",
     "DEFAULT_EDITORIAL_TEMPLATE",
@@ -56,10 +66,16 @@ __all__ = [
     "RenderedOverlayManifestEntry",
     "SceneAwareEditPlan",
     "SceneEditPlanSegment",
+    "TimelineAudioTrack",
+    "TimelineEditSegment",
+    "TimelineOverlay",
+    "TimelineScene",
+    "TimelineSourceClip",
     "apply_editorial_template",
     "apply_overlay_density_cap",
     "build_overlay_render_manifest_for_qa",
     "build_package_directory",
+    "build_canonical_timeline",
     "build_ready_to_post_package",
     "build_scene_aware_edit_plan",
     "build_single_clip_edit_plan",

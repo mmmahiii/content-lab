@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -27,6 +28,7 @@ from content_lab_storage import (
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
     PROVENANCE_FILENAME,
+    TIMELINE_FILENAME,
     CanonicalStorageLayout,
     StorageRef,
 )
@@ -36,6 +38,19 @@ router = APIRouter(prefix="/orgs/{org_id}/packages", tags=["packages"])
 _SUPPORT_ARTIFACT_NAMES = frozenset(
     {"manifest", "package_manifest", "provenance", "creative_trace"}
 )
+_PROCESS_REEL_PACKAGING_TASK_TYPE = "packaging"
+
+
+def _packaged_at_from_tasks(tasks: list[Task]) -> datetime | None:
+    """When packaging finished successfully, as reflected on the durable task row."""
+    for row in tasks:
+        if row.task_type == _PROCESS_REEL_PACKAGING_TASK_TYPE and (
+            str(row.status or "").lower() == "succeeded"
+        ):
+            return row.updated_at
+    return None
+
+
 _PACKAGE_ARTIFACT_FILENAMES = {
     "final_video": FINAL_VIDEO_FILENAME,
     "cover": COVER_IMAGE_FILENAME,
@@ -43,6 +58,7 @@ _PACKAGE_ARTIFACT_FILENAMES = {
     "posting_plan": POSTING_PLAN_FILENAME,
     "provenance": PROVENANCE_FILENAME,
     "creative_trace": CREATIVE_TRACE_FILENAME,
+    "timeline": TIMELINE_FILENAME,
     "manifest": PACKAGE_MANIFEST_FILENAME,
     "package_manifest": PACKAGE_MANIFEST_FILENAME,
 }
@@ -258,6 +274,9 @@ def get_package(
     creative_trace_uri = package_payload.get("creative_trace_uri") or _artifact_uri_by_name(
         artifacts, "creative_trace"
     )
+    timeline_uri = package_payload.get("timeline_uri") or _artifact_uri_by_name(
+        artifacts, "timeline"
+    )
 
     reel_uuid = _optional_uuid(
         package_payload.get("reel_id") or _coerce_mapping(run.input_params).get("reel_id")
@@ -300,6 +319,13 @@ def get_package(
             str(creative_trace_uri), reel_id=reel_uuid, artifact_name="creative_trace"
         )
     )
+    validated_timeline_uri = (
+        None
+        if timeline_uri is None or reel_uuid is None
+        else _validate_package_object_uri(
+            str(timeline_uri), reel_id=reel_uuid, artifact_name="timeline"
+        )
+    )
 
     operator_debug = build_process_reel_operator_debug(
         workflow_key=run.workflow_key,
@@ -336,6 +362,12 @@ def get_package(
             if validated_creative_trace_uri is None
             else build_signed_download(storage_uri=validated_creative_trace_uri)
         ),
+        timeline_uri=validated_timeline_uri,
+        timeline_download=(
+            None
+            if validated_timeline_uri is None
+            else build_signed_download(storage_uri=validated_timeline_uri)
+        ),
         operator_debug=operator_debug,
         artifacts=[
             PackageArtifactOut(
@@ -370,4 +402,5 @@ def get_package(
         outbox_notification=_package_ready_outbox(db, org_id=org_id, run_id=run_id),
         created_at=run.created_at,
         updated_at=run.updated_at,
+        packaged_at=_packaged_at_from_tasks(task_rows),
     )

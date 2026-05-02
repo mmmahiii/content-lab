@@ -21,6 +21,8 @@ _REQUIRED_PACKAGE_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("caption_variants", "caption_variants.txt"),
     ("posting_plan", "posting_plan.json"),
     ("provenance", "provenance.json"),
+    ("timeline", "timeline.json"),
+    ("timeline_render_trace", "timeline_render_trace.json"),
 )
 _HEX_DIGITS = frozenset("0123456789abcdef")
 

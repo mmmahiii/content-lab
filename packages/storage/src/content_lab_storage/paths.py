@@ -11,6 +11,8 @@ PACKAGE_MANIFEST_FILENAME = "package_manifest.json"
 PROVENANCE_FILENAME = "provenance.json"
 CREATIVE_TRACE_FILENAME = "creative_trace.json"
 OVERLAY_RENDER_TRACE_FILENAME = "overlay_render_trace.json"
+TIMELINE_FILENAME = "timeline.json"
+TIMELINE_RENDER_TRACE_FILENAME = "timeline_render_trace.json"
 FINAL_VIDEO_FILENAME = "final_video.mp4"
 COVER_IMAGE_FILENAME = "cover.png"
 CAPTION_VARIANTS_FILENAME = "caption_variants.txt"
@@ -36,6 +38,8 @@ class ReelPackageRefs:
     provenance: StorageRef
     creative_trace: StorageRef
     overlay_render_trace: StorageRef
+    timeline: StorageRef
+    timeline_render_trace: StorageRef
     manifest: StorageRef
 
 
@@ -94,5 +98,7 @@ class CanonicalStorageLayout:
                 reel_id,
                 OVERLAY_RENDER_TRACE_FILENAME,
             ),
+            timeline=self.reel_package_object(reel_id, TIMELINE_FILENAME),
+            timeline_render_trace=self.reel_package_object(reel_id, TIMELINE_RENDER_TRACE_FILENAME),
             manifest=self.reel_package_object(reel_id, PACKAGE_MANIFEST_FILENAME),
         )

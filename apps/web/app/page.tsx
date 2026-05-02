@@ -1,10 +1,5 @@
-import React from 'react';
+import { PageWorkspace } from './page-workspace';
 
-import { HomeRouteView } from './_components/operator-console';
-import { loadOperatorDashboard } from './_lib/operator-dashboard';
-
-export default async function HomePage() {
-  const dashboard = await loadOperatorDashboard();
-
-  return <HomeRouteView dashboard={dashboard} />;
+export default function HomePage() {
+  return <PageWorkspace />;
 }

@@ -25,6 +25,42 @@ _ONE_BY_ONE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9nWZkAAAAASUVORK5CYII="
 )
 
+_TIMELINE = {
+    "version": "med-001.v1",
+    "timeline_id": "timeline-test",
+    "duration_seconds": 12.0,
+    "cover_frame_timestamp_seconds": 0.0,
+    "source_clips": [{"clip_id": "source-001", "duration_seconds": 12.0}],
+    "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
+    "edit_segments": [
+        {
+            "segment_id": "segment-001",
+            "timeline_start_seconds": 0.0,
+            "timeline_end_seconds": 12.0,
+            "source_clip_id": "source-001",
+            "source_start_seconds": 0.0,
+            "source_end_seconds": 12.0,
+        }
+    ],
+    "overlays": [],
+    "audio_tracks": [
+        {"track_id": "audio-master", "role": "master", "start_seconds": 0.0, "end_seconds": 12.0}
+    ],
+}
+_TIMELINE_RENDER_TRACE = {
+    "schema_version": "timeline_render_trace.v1",
+    "scene_timings": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
+    "overlay_timings": [],
+    "audio_timings": [{"track_id": "audio-master", "start_seconds": 0.0, "end_seconds": 12.0}],
+    "fade_durations": [
+        {"track_id": "audio-master", "fade_in_seconds": 0.12, "fade_out_seconds": 0.18}
+    ],
+    "final_render_duration_seconds": 12.0,
+    "source_asset_duration_seconds": 12.0,
+    "duration_mismatch_checks": {"status": "pass", "mismatches": []},
+    "cover_timestamp_seconds": 0.0,
+}
+
 
 def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path: Path) -> None:
     final_video = tmp_path / "input-video.mp4"
@@ -42,6 +78,8 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
         ],
         posting_plan={"platform": "instagram", "scheduled_for": "2026-03-26T10:00:00Z"},
         provenance={"source_run_id": "run-123", "asset_ids": ["asset-1", "asset-2"]},
+        timeline=_TIMELINE,
+        timeline_render_trace=_TIMELINE_RENDER_TRACE,
         temp_root=tmp_path / "scratch",
     )
 
@@ -53,16 +91,20 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
         "package_manifest.json",
         "posting_plan.json",
         "provenance.json",
+        "timeline.json",
+        "timeline_render_trace.json",
     }
     manifest = json.loads((built.directory / "package_manifest.json").read_text(encoding="utf-8"))
     assert manifest["complete"] is True
-    assert manifest["artifact_count"] == 5
+    assert manifest["artifact_count"] == 7
     assert {artifact["name"] for artifact in manifest["artifacts"]} == {
         "caption_variants",
         "cover",
         "final_video",
         "posting_plan",
         "provenance",
+        "timeline",
+        "timeline_render_trace",
     }
 
 
@@ -86,6 +128,8 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         caption_variants="Caption",
         posting_plan={},
         provenance={},
+        timeline=_TIMELINE,
+        timeline_render_trace=_TIMELINE_RENDER_TRACE,
         temp_root=tmp_path / "scratch-ed",
         editing_metadata={"safe_area_9_16": safe_report},
     )
@@ -128,6 +172,8 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         caption_variants=[{"variant": "short", "text": "Short caption"}],
         posting_plan={"platform": "instagram"},
         provenance={"source_run_id": "run-123"},
+        timeline=_TIMELINE,
+        timeline_render_trace=_TIMELINE_RENDER_TRACE,
         creative_trace={
             "schema_version": "phase_1",
             "artifact_type": "creative_trace",
@@ -139,7 +185,7 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
     trace_path = built.local_package.directory / "creative_trace.json"
     assert trace_path.exists()
     assert built.local_package.manifest is not None
-    assert built.local_package.manifest["artifact_count"] == 6
+    assert built.local_package.manifest["artifact_count"] == 8
     assert {artifact["name"] for artifact in built.local_package.manifest["artifacts"]} == {
         "caption_variants",
         "cover",
@@ -147,6 +193,8 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         "final_video",
         "posting_plan",
         "provenance",
+        "timeline",
+        "timeline_render_trace",
     }
     assert built.package_payload["creative_trace_uri"] == (
         "s3://content-lab/reels/packages/reel-local-123/creative_trace.json"
@@ -156,7 +204,7 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         {"variant": "short", "text": "Short caption"}
     ]
     assert built.stored_package.artifact_by_name("creative_trace") is not None
-    assert client.put_object.call_count == 7
+    assert client.put_object.call_count == 9
 
 
 def test_build_ready_to_post_package_attaches_overlay_render_trace(tmp_path: Path) -> None:
@@ -193,6 +241,8 @@ def test_build_ready_to_post_package_attaches_overlay_render_trace(tmp_path: Pat
         caption_variants=[{"variant": "short", "text": "Short caption"}],
         posting_plan={"platform": "instagram"},
         provenance={"source_run_id": "run-456"},
+        timeline=_TIMELINE,
+        timeline_render_trace=_TIMELINE_RENDER_TRACE,
         creative_trace={
             "schema_version": "phase_1",
             "artifact_type": "creative_trace",
@@ -210,7 +260,7 @@ def test_build_ready_to_post_package_attaches_overlay_render_trace(tmp_path: Pat
     overlay_path = built.local_package.directory / "overlay_render_trace.json"
     assert overlay_path.exists()
     assert built.local_package.manifest is not None
-    assert built.local_package.manifest["artifact_count"] == 7
+    assert built.local_package.manifest["artifact_count"] == 9
     artifact_names = {a["name"] for a in built.local_package.manifest["artifacts"]}
     assert artifact_names == {
         "caption_variants",
@@ -220,13 +270,15 @@ def test_build_ready_to_post_package_attaches_overlay_render_trace(tmp_path: Pat
         "overlay_render_trace",
         "posting_plan",
         "provenance",
+        "timeline",
+        "timeline_render_trace",
     }
     assert built.package_payload["overlay_render_trace_uri"] == (
         "s3://content-lab/reels/packages/reel-local-456/overlay_render_trace.json"
     )
     assert built.package_payload["overlay_render_trace"]["overlay_count"] == 0
     assert built.stored_package.artifact_by_name("overlay_render_trace") is not None
-    assert client.put_object.call_count == 8
+    assert client.put_object.call_count == 10
 
 
 def _integration_client() -> tuple[S3StorageClient, str]:
@@ -275,6 +327,8 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
         ],
         posting_plan={"platform": "instagram", "publish_window": "morning"},
         provenance={"source_run_id": "run-abc", "asset_ids": ["asset-1"]},
+        timeline=_TIMELINE,
+        timeline_render_trace=_TIMELINE_RENDER_TRACE,
         temp_root=tmp_path / "builder",
         upload_metadata={"source": "pytest"},
     )
@@ -296,6 +350,8 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
         "package_manifest",
         "posting_plan",
         "provenance",
+        "timeline",
+        "timeline_render_trace",
     }
 
     manifest_object = client.get_object(
@@ -303,11 +359,13 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
     )
     manifest = json.loads(manifest_object.body.decode("utf-8"))
     assert manifest["complete"] is True
-    assert manifest["artifact_count"] == 5
+    assert manifest["artifact_count"] == 7
     assert {artifact["name"] for artifact in manifest["artifacts"]} == {
         "caption_variants",
         "cover",
         "final_video",
         "posting_plan",
         "provenance",
+        "timeline",
+        "timeline_render_trace",
     }

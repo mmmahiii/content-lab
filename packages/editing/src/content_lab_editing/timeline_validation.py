@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -212,8 +212,7 @@ def validate_overlay_timeline_before_render(
 
 def validate_timeline_against_final_duration(
     *,
-    overlay_timeline: Sequence[Mapping[str, Any]] | None,
-    scene_plan: Mapping[str, Any] | None,
+    canonical_timeline: Mapping[str, Any] | None,
     final_duration_seconds: float,
     min_final_cta_duration_seconds: float = DEFAULT_MIN_FINAL_CTA_DURATION_SECONDS,
     frame_tolerance_seconds: float = DEFAULT_FRAME_TOLERANCE_SECONDS,
@@ -222,14 +221,24 @@ def validate_timeline_against_final_duration(
     final_duration = float(final_duration_seconds)
     tolerance = max(float(frame_tolerance_seconds), 0.0)
 
-    for index, raw in enumerate(overlay_timeline or ()):
+    overlays = (
+        canonical_timeline.get("overlays") if isinstance(canonical_timeline, Mapping) else None
+    )
+    for index, raw in enumerate(overlays or ()):
+        if not isinstance(raw, Mapping):
+            continue
         start = _read_timing_float(raw, "start_seconds", "start") or 0.0
         end = _read_timing_float(raw, "end_seconds", "end")
-        duration = _read_timing_float(raw, "duration_seconds", "duration")
-        if end is None and duration is not None:
-            end = start + duration
         if end is None:
-            end = final_duration
+            findings.append(
+                TimelineValidationFinding(
+                    code="overlay_missing_required_end",
+                    severity="fail",
+                    message="Canonical timeline overlays must include explicit end_seconds.",
+                    details={"index": index},
+                )
+            )
+            continue
         if end > final_duration + tolerance:
             findings.append(
                 TimelineValidationFinding(
@@ -239,7 +248,11 @@ def validate_timeline_against_final_duration(
                     details={"index": index, "end_seconds": end},
                 )
             )
-        role = str(raw.get("emphasis") or raw.get("overlay_role") or "").strip().lower()
+        role = (
+            str(raw.get("emphasis") or raw.get("overlay_role") or raw.get("role") or "")
+            .strip()
+            .lower()
+        )
         if role in {"cta", "disclosure"} and end - start < min_final_cta_duration_seconds:
             findings.append(
                 TimelineValidationFinding(
@@ -254,7 +267,7 @@ def validate_timeline_against_final_duration(
                 )
             )
 
-    scenes = scene_plan.get("scenes") if isinstance(scene_plan, Mapping) else None
+    scenes = canonical_timeline.get("scenes") if isinstance(canonical_timeline, Mapping) else None
     if isinstance(scenes, list):
         for index, scene in enumerate(scenes):
             if not isinstance(scene, Mapping):

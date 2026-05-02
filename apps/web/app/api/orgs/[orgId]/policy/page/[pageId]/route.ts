@@ -11,19 +11,16 @@ function resolveApiBaseUrl(): string {
   return raw.replace(/\/$/, '');
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ orgId: string }> },
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ orgId: string; pageId: string }> },
 ) {
-  const { orgId } = await params;
-  const body = await request.text();
-  const response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/pages`, {
-    method: 'POST',
+  const { orgId, pageId } = await params;
+  const response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/policy/page/${pageId}`, {
+    method: 'GET',
     headers: {
       Accept: 'application/json',
-      'Content-Type': 'application/json',
     },
-    body,
     cache: 'no-store',
   });
 
@@ -36,16 +33,20 @@ export async function POST(
   });
 }
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ orgId: string }> },
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ orgId: string; pageId: string }> },
 ) {
-  const { orgId } = await params;
-  const response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/pages`, {
-    method: 'GET',
+  const { orgId, pageId } = await params;
+  const body = await request.text();
+  const response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/policy/page/${pageId}`, {
+    method: 'PATCH',
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Actor-Id': request.headers.get('x-actor-id') ?? 'operator:ui-rebuild',
     },
+    body,
     cache: 'no-store',
   });
 

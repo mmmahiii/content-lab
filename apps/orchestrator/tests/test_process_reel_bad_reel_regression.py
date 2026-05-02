@@ -74,6 +74,57 @@ def _execution_for_bundle(*, case_id: str) -> ProcessReelExecution:
         "scene_plan": bundle["scene_plan"],
         "compiled_prompt": bundle["compiled_prompt"],
     }
+    editing = cast(dict[str, Any], dict(bundle["editing"]))
+    duration = float(editing.get("duration_seconds") or 12.0)
+    scenes = cast(list[dict[str, Any]], bundle["scene_plan"].get("scenes", []))
+    overlays = cast(list[dict[str, Any]], bundle["script"].get("overlay_timeline", []))
+    editing["cover_frame_timestamp_seconds"] = float(
+        editing.get("cover_frame_timestamp_seconds") or 0.0
+    )
+    editing["timeline"] = {
+        "version": "med-001.v1",
+        "timeline_id": f"timeline-{case_id}",
+        "duration_seconds": duration,
+        "cover_frame_timestamp_seconds": editing["cover_frame_timestamp_seconds"],
+        "source_clips": [{"clip_id": "source-001", "duration_seconds": duration}],
+        "scenes": [
+            {
+                "scene_id": str(scene.get("scene_id") or f"scene-{idx+1:03d}"),
+                "start_seconds": float(scene.get("start_seconds") or 0.0),
+                "end_seconds": float(scene.get("end_seconds") or 0.0),
+            }
+            for idx, scene in enumerate(scenes)
+        ],
+        "edit_segments": [
+            {
+                "segment_id": f"segment-{idx+1:03d}",
+                "timeline_start_seconds": float(scene.get("start_seconds") or 0.0),
+                "timeline_end_seconds": float(scene.get("end_seconds") or 0.0),
+                "source_clip_id": "source-001",
+                "source_start_seconds": float(scene.get("start_seconds") or 0.0),
+                "source_end_seconds": float(scene.get("end_seconds") or 0.0),
+            }
+            for idx, scene in enumerate(scenes)
+        ],
+        "overlays": [
+            {
+                "overlay_id": str(overlay.get("overlay_id") or f"overlay-{idx+1:03d}"),
+                "start_seconds": float(overlay.get("start_seconds") or overlay.get("start") or 0.0),
+                "end_seconds": float(overlay.get("end_seconds") or overlay.get("end") or duration),
+                "text": str(overlay.get("text") or ""),
+                "role": str(overlay.get("emphasis") or overlay.get("overlay_role") or "other"),
+            }
+            for idx, overlay in enumerate(overlays)
+        ],
+        "audio_tracks": [
+            {
+                "track_id": "audio-master",
+                "role": "master",
+                "start_seconds": 0.0,
+                "end_seconds": duration,
+            }
+        ],
+    }
     return ProcessReelExecution(
         reel_id="00000000-0000-4000-8000-000000000001",
         org_id="00000000-0000-4000-8000-000000000002",
@@ -83,7 +134,7 @@ def _execution_for_bundle(*, case_id: str) -> ProcessReelExecution:
         dry_run=False,
         outputs={
             "creative_planning": planning,
-            "editing": bundle["editing"],
+            "editing": editing,
             "asset_resolution": bundle["asset_resolution"],
         },
     )

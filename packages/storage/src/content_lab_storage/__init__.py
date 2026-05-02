@@ -23,6 +23,8 @@ from content_lab_storage.paths import (
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
     PROVENANCE_FILENAME,
+    TIMELINE_FILENAME,
+    TIMELINE_RENDER_TRACE_FILENAME,
     CanonicalStorageLayout,
     ReelPackageRefs,
 )
@@ -50,6 +52,8 @@ __all__ = [
     "POSTING_PLAN_FILENAME",
     "PresignedDownload",
     "PROVENANCE_FILENAME",
+    "TIMELINE_FILENAME",
+    "TIMELINE_RENDER_TRACE_FILENAME",
     "REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES",
     "ReelPackageRefs",
     "ReelPackageArtifact",

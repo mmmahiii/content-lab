@@ -51,6 +51,13 @@ from content_lab_qa.text import (
     evaluate_user_facing_text,
     validate_caption_meta_language,
 )
+from content_lab_qa.timing import (
+    MEDIA_SYNC_GATE_NAME,
+    TIMELINE_TIMING_GATE_NAME,
+    TimelineTimingConstraints,
+    evaluate_media_sync_qa,
+    evaluate_timeline_timing_qa,
+)
 
 __all__ = [
     "AlignmentFinding",
@@ -78,6 +85,9 @@ __all__ = [
     "SemanticScriptQAReport",
     "OverlayTextFidelityFinding",
     "OverlayTextFidelityReport",
+    "TIMELINE_TIMING_GATE_NAME",
+    "MEDIA_SYNC_GATE_NAME",
+    "TimelineTimingConstraints",
     "default_overlay_stack_policy_for_template",
     "evaluate_alignment_qa",
     "evaluate_format_qa",
@@ -86,6 +96,8 @@ __all__ = [
     "evaluate_repetition",
     "evaluate_reel_package_format",
     "evaluate_semantic_script",
+    "evaluate_media_sync_qa",
+    "evaluate_timeline_timing_qa",
     "evaluate_user_facing_text",
     "validate_package_completeness",
     "validate_package_script_semantics",

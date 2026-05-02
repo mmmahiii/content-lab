@@ -249,7 +249,61 @@ class RecordingProcessReelExecutor:
 
     def edit_reel(self, execution: ProcessReelExecution) -> dict[str, object]:
         self.calls.append("editing")
-        return {"timeline_uri": f"memory://edits/{execution.reel_id}.json"}
+        return {
+            "timeline_uri": f"memory://edits/{execution.reel_id}.json",
+            "timeline_render_trace_uri": f"memory://edits/{execution.reel_id}-render-trace.json",
+            "duration_seconds": 12.0,
+            "cover_frame_timestamp_seconds": 0.0,
+            "timeline": {
+                "version": "med-001.v1",
+                "timeline_id": f"timeline-{execution.reel_id}",
+                "duration_seconds": 12.0,
+                "cover_frame_timestamp_seconds": 0.0,
+                "source_clips": [{"clip_id": "source-001", "duration_seconds": 12.0}],
+                "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
+                "edit_segments": [
+                    {
+                        "segment_id": "segment-001",
+                        "timeline_start_seconds": 0.0,
+                        "timeline_end_seconds": 12.0,
+                        "source_clip_id": "source-001",
+                        "source_start_seconds": 0.0,
+                        "source_end_seconds": 12.0,
+                    }
+                ],
+                "overlays": [],
+                "audio_tracks": [
+                    {
+                        "track_id": "audio-master",
+                        "role": "master",
+                        "start_seconds": 0.0,
+                        "end_seconds": 12.0,
+                    }
+                ],
+            },
+            "timeline_render_trace": {
+                "schema_version": "timeline_render_trace.v1",
+                "scene_timings": [
+                    {"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}
+                ],
+                "overlay_timings": [],
+                "audio_timings": [
+                    {
+                        "track_id": "audio-master",
+                        "role": "master",
+                        "start_seconds": 0.0,
+                        "end_seconds": 12.0,
+                    }
+                ],
+                "fade_durations": [
+                    {"track_id": "audio-master", "fade_in_seconds": 0.12, "fade_out_seconds": 0.18}
+                ],
+                "final_render_duration_seconds": 12.0,
+                "source_asset_duration_seconds": 12.0,
+                "duration_mismatch_checks": {"status": "pass", "mismatches": []},
+                "cover_timestamp_seconds": 0.0,
+            },
+        }
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
         self.calls.append("qa")
@@ -270,7 +324,7 @@ class RecordingProcessReelExecutor:
             "manifest_uri": f"memory://packages/{execution.reel_id}/package_manifest.json",
             "manifest": {
                 "version": 1,
-                "artifact_count": 5,
+                "artifact_count": 7,
                 "complete": True,
                 "artifacts": [
                     {
@@ -298,6 +352,16 @@ class RecordingProcessReelExecutor:
                         "filename": "provenance.json",
                         "checksum_sha256": _SHA256_E,
                     },
+                    {
+                        "name": "timeline",
+                        "filename": "timeline.json",
+                        "checksum_sha256": "sha256:" + ("0" * 64),
+                    },
+                    {
+                        "name": "timeline_render_trace",
+                        "filename": "timeline_render_trace.json",
+                        "checksum_sha256": "sha256:" + ("1" * 64),
+                    },
                 ],
             },
             "caption_variants": [
@@ -313,6 +377,12 @@ class RecordingProcessReelExecutor:
                 ],
                 "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
             },
+            "timeline_uri": f"memory://packages/{execution.reel_id}/timeline.json",
+            "timeline": execution.outputs["editing"].get("timeline", {}),
+            "timeline_render_trace_uri": (
+                f"memory://packages/{execution.reel_id}/timeline_render_trace.json"
+            ),
+            "timeline_render_trace": execution.outputs["editing"].get("timeline_render_trace", {}),
             "artifacts": [
                 {
                     "name": "final_video",
@@ -343,6 +413,18 @@ class RecordingProcessReelExecutor:
                     "filename": "provenance.json",
                     "storage_uri": f"memory://packages/{execution.reel_id}/provenance.json",
                     "checksum_sha256": _SHA256_E,
+                },
+                {
+                    "name": "timeline",
+                    "filename": "timeline.json",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/timeline.json",
+                    "checksum_sha256": "sha256:" + ("0" * 64),
+                },
+                {
+                    "name": "timeline_render_trace",
+                    "filename": "timeline_render_trace.json",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/timeline_render_trace.json",
+                    "checksum_sha256": "sha256:" + ("1" * 64),
                 },
                 {
                     "name": "package_manifest",
@@ -1466,6 +1548,29 @@ def test_daily_reel_factory_rejects_invalid_factory_dispatch_mode() -> None:
         )
 
 
+def test_duration_contract_validator_passes_when_within_tolerance() -> None:
+    payload = process_reel_flow_module._validate_duration_contract(
+        requested_provider_duration_seconds=12.0,
+        source_clip_duration_seconds=12.1,
+        scene_plan_duration_seconds=12.0,
+        final_rendered_duration_seconds=11.9,
+        tolerance_seconds=0.25,
+    )
+    assert payload["status"] == "pass"
+    assert payload["mismatches"] == []
+
+
+def test_duration_contract_validator_fails_on_large_mismatch() -> None:
+    with pytest.raises(ValueError, match="Duration contract mismatch"):
+        process_reel_flow_module._validate_duration_contract(
+            requested_provider_duration_seconds=12.0,
+            source_clip_duration_seconds=10.0,
+            scene_plan_duration_seconds=12.0,
+            final_rendered_duration_seconds=10.0,
+            tolerance_seconds=0.25,
+        )
+
+
 def test_process_reel_flow_persists_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _, repository, executor = _install_service(monkeypatch, qa_passes=True)
 
@@ -1648,7 +1753,11 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     timeline_uri = cast(str, editing_output["timeline_uri"])
     timeline_path = Path(unquote(urlparse(timeline_uri).path).lstrip("/"))
     timeline_payload = process_reel_flow_module.json.loads(timeline_path.read_text())
-    assert timeline_payload["scene_plan"] == scene_plan
+    assert timeline_payload["timeline"]["scenes"] == editing_output["timeline"]["scenes"]
+    audio_tracks = cast(list[dict[str, Any]], timeline_payload["timeline"]["audio_tracks"])
+    assert audio_tracks
+    assert "fade_in_seconds" in audio_tracks[0]
+    assert "fade_out_seconds" in audio_tracks[0]
 
     run_id = result["run_id"]
     assert repository.reels["reel-42"].status == "ready"
@@ -1830,10 +1939,47 @@ def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExe
         "final_video_path": "/tmp/final_video.mp4",
         "cover_path": "/tmp/cover.png",
         "duration_seconds": duration,
+        "cover_frame_timestamp_seconds": 0.0,
         "editorial_template_id": None,
         "overlay_stack_policy": default_overlay_stack_policy_for_template(None),
         "overlay_render_manifest": overlay_manifest,
         "overlay_safe_area": overlay_safe_area,
+        "timeline": {
+            "version": "med-001.v1",
+            "timeline_id": "timeline-qa",
+            "duration_seconds": duration,
+            "cover_frame_timestamp_seconds": 0.0,
+            "source_clips": [{"clip_id": "source-001", "duration_seconds": duration}],
+            "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": duration}],
+            "edit_segments": [
+                {
+                    "segment_id": "segment-001",
+                    "timeline_start_seconds": 0.0,
+                    "timeline_end_seconds": duration,
+                    "source_clip_id": "source-001",
+                    "source_start_seconds": 0.0,
+                    "source_end_seconds": duration,
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": f"overlay-{idx+1:03d}",
+                    "start_seconds": row.start_seconds,
+                    "end_seconds": row.end_seconds,
+                    "text": row.text,
+                    "role": row.overlay_role,
+                }
+                for idx, row in enumerate(overlays)
+            ],
+            "audio_tracks": [
+                {
+                    "track_id": "audio-master",
+                    "role": "master",
+                    "start_seconds": 0.0,
+                    "end_seconds": duration,
+                }
+            ],
+        },
     }
     execution.outputs["asset_resolution"] = {
         "asset_key_hash": "asset-key-hash",

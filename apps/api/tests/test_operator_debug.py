@@ -176,11 +176,14 @@ def test_package_detail_out_accepts_new_fields() -> None:
         "provenance_download": None,
         "creative_trace_uri": None,
         "creative_trace_download": None,
+        "timeline_uri": None,
+        "timeline_download": None,
         "operator_debug": None,
         "artifacts": [],
         "outbox_notification": None,
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
+        "packaged_at": None,
     }
     PackageDetailOut.model_validate(payload)
 

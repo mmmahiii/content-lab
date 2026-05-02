@@ -141,6 +141,26 @@ def test_render_basic_vertical_edit_rejects_probe_mismatch_vs_expected_timeline(
         )
 
 
+def test_render_basic_vertical_edit_rejects_12s_plan_with_10s_asset(tmp_path: Path) -> None:
+    """MED-009 regression: do not allow silent 12s plan render from 10s media."""
+    source_path = tmp_path / "fixture-10s.mp4"
+    build_fixture_clip(
+        output_path=source_path,
+        width=720,
+        height=1280,
+        include_audio=True,
+        duration_seconds=10.0,
+    )
+    with pytest.raises(
+        ValueError, match="Source media duration does not match expected timeline duration"
+    ):
+        render_basic_vertical_edit(
+            source_uri=source_path,
+            workdir=tmp_path / "job-12s-plan-10s-asset",
+            expected_timeline_duration_seconds=12,
+        )
+
+
 def test_render_basic_vertical_edit_accepts_matching_expected_timeline(tmp_path: Path) -> None:
     source_path = tmp_path / "fixture-5s.mp4"
     build_fixture_clip(
@@ -269,6 +289,39 @@ def test_render_basic_vertical_edit_assembles_scene_aware_plan(tmp_path: Path) -
     first_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.2)
     second_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.9)
     assert first_frame != second_frame
+
+
+def test_render_basic_vertical_edit_fails_when_scene_asset_is_shorter_than_plan(
+    tmp_path: Path,
+) -> None:
+    short_source = tmp_path / "short-segment.mp4"
+    build_fixture_clip(
+        output_path=short_source,
+        width=640,
+        height=640,
+        include_audio=False,
+        duration_seconds=0.35,
+        video_source="color=c=yellow:size=640x640:rate=24",
+    )
+    edit_plan = SceneAwareEditPlan(
+        segments=[
+            SceneEditPlanSegment(
+                segment_id="segment-001",
+                scene_id="scene-short",
+                purpose="hook",
+                source_uri=str(short_source),
+                duration_seconds=0.6,
+                timeline_start_seconds=0.0,
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="shorter than planned duration"):
+        render_basic_vertical_edit(
+            source_uri=short_source,
+            workdir=tmp_path / "job-short-segment",
+            edit_plan=edit_plan,
+        )
 
 
 def test_render_basic_vertical_edit_applies_editorial_template(tmp_path: Path) -> None:

@@ -282,6 +282,57 @@ class StubProcessReelExecutor:
         return {
             "edit_id": f"edit-{execution.reel_id}",
             "timeline_uri": f"memory://edits/{execution.reel_id}.json",
+            "timeline_render_trace_uri": f"memory://edits/{execution.reel_id}-render-trace.json",
+            "timeline": {
+                "version": "med-001.v1",
+                "timeline_id": f"timeline-{execution.reel_id}",
+                "duration_seconds": 12.0,
+                "cover_frame_timestamp_seconds": 0.0,
+                "source_clips": [{"clip_id": "source-001", "duration_seconds": 12.0}],
+                "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
+                "edit_segments": [
+                    {
+                        "segment_id": "segment-001",
+                        "timeline_start_seconds": 0.0,
+                        "timeline_end_seconds": 12.0,
+                        "source_clip_id": "source-001",
+                        "source_start_seconds": 0.0,
+                        "source_end_seconds": 12.0,
+                    }
+                ],
+                "overlays": [],
+                "audio_tracks": [
+                    {
+                        "track_id": "audio-master",
+                        "role": "master",
+                        "start_seconds": 0.0,
+                        "end_seconds": 12.0,
+                    }
+                ],
+            },
+            "timeline_render_trace": {
+                "schema_version": "timeline_render_trace.v1",
+                "timeline_id": f"timeline-{execution.reel_id}",
+                "scene_timings": [
+                    {"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}
+                ],
+                "overlay_timings": [],
+                "audio_timings": [
+                    {
+                        "track_id": "audio-master",
+                        "role": "master",
+                        "start_seconds": 0.0,
+                        "end_seconds": 12.0,
+                    }
+                ],
+                "fade_durations": [
+                    {"track_id": "audio-master", "fade_in_seconds": 0.12, "fade_out_seconds": 0.18}
+                ],
+                "final_render_duration_seconds": 12.0,
+                "source_asset_duration_seconds": 12.0,
+                "duration_mismatch_checks": {"status": "pass", "mismatches": []},
+                "cover_timestamp_seconds": 0.0,
+            },
             "cover_uri": f"memory://covers/{execution.reel_id}.jpg",
         }
 
@@ -310,13 +361,15 @@ class StubProcessReelExecutor:
         posting_plan_checksum = "sha256:" + ("d" * 64)
         provenance_checksum = "sha256:" + ("e" * 64)
         manifest_checksum = "sha256:" + ("f" * 64)
+        timeline_checksum = "sha256:" + ("0" * 64)
+        timeline_render_trace_checksum = "sha256:" + ("1" * 64)
         return {
             "package_root_uri": package_root_uri,
             "manifest_uri": package_refs.manifest.uri,
             "ready_for_publish": True,
             "manifest": {
                 "version": 1,
-                "artifact_count": 5,
+                "artifact_count": 7,
                 "complete": True,
                 "artifacts": [
                     {
@@ -343,6 +396,16 @@ class StubProcessReelExecutor:
                         "name": "provenance",
                         "filename": "provenance.json",
                         "checksum_sha256": provenance_checksum,
+                    },
+                    {
+                        "name": "timeline",
+                        "filename": "timeline.json",
+                        "checksum_sha256": timeline_checksum,
+                    },
+                    {
+                        "name": "timeline_render_trace",
+                        "filename": "timeline_render_trace.json",
+                        "checksum_sha256": timeline_render_trace_checksum,
                     },
                 ],
             },
@@ -374,6 +437,12 @@ class StubProcessReelExecutor:
                     ],
                 },
             },
+            "timeline_uri": package_refs.timeline.uri,
+            "timeline": execution.outputs[ProcessReelStep.EDITING.value].get("timeline", {}),
+            "timeline_render_trace_uri": package_refs.timeline_render_trace.uri,
+            "timeline_render_trace": execution.outputs[ProcessReelStep.EDITING.value].get(
+                "timeline_render_trace", {}
+            ),
             "artifacts": [
                 {
                     "name": "final_video",
@@ -404,6 +473,18 @@ class StubProcessReelExecutor:
                     "filename": "provenance.json",
                     "storage_uri": package_refs.provenance.uri,
                     "checksum_sha256": provenance_checksum,
+                },
+                {
+                    "name": "timeline",
+                    "filename": "timeline.json",
+                    "storage_uri": package_refs.timeline.uri,
+                    "checksum_sha256": timeline_checksum,
+                },
+                {
+                    "name": "timeline_render_trace",
+                    "filename": "timeline_render_trace.json",
+                    "storage_uri": package_refs.timeline_render_trace.uri,
+                    "checksum_sha256": timeline_render_trace_checksum,
                 },
                 {
                     "name": "package_manifest",

@@ -62,8 +62,55 @@ def _editing_stub(script: dict[str, Any]) -> dict[str, Any]:
         frame_width=1080,
         frame_height=1920,
     )
+    timeline_overlays = [
+        {
+            "overlay_id": str(item.get("overlay_id") or f"overlay-{idx+1:03d}"),
+            "start_seconds": float(item.get("start_seconds", 0.0)),
+            "end_seconds": float(item.get("end_seconds", script["duration_seconds"])),
+            "text": str(item.get("text", "")),
+            "role": str(item.get("emphasis") or item.get("overlay_role") or "other"),
+            "emphasis": str(item.get("emphasis") or item.get("overlay_role") or "other"),
+            "vertical_align": str(item.get("vertical_align", "bottom")),
+        }
+        for idx, item in enumerate(cast(list[dict[str, Any]], script.get("overlay_timeline", [])))
+    ]
     return {
         "duration_seconds": float(script["duration_seconds"]),
+        "timeline": {
+            "version": "med-001.v1",
+            "timeline_id": "timeline-test",
+            "duration_seconds": float(script["duration_seconds"]),
+            "cover_frame_timestamp_seconds": 0.0,
+            "source_clips": [
+                {"clip_id": "source-001", "duration_seconds": float(script["duration_seconds"])}
+            ],
+            "scenes": [
+                {
+                    "scene_id": "scene-001",
+                    "start_seconds": 0.0,
+                    "end_seconds": float(script["duration_seconds"]),
+                }
+            ],
+            "edit_segments": [
+                {
+                    "segment_id": "segment-001",
+                    "timeline_start_seconds": 0.0,
+                    "timeline_end_seconds": float(script["duration_seconds"]),
+                    "source_clip_id": "source-001",
+                    "source_start_seconds": 0.0,
+                    "source_end_seconds": float(script["duration_seconds"]),
+                }
+            ],
+            "overlays": timeline_overlays,
+            "audio_tracks": [
+                {
+                    "track_id": "audio-master",
+                    "role": "master",
+                    "start_seconds": 0.0,
+                    "end_seconds": float(script["duration_seconds"]),
+                }
+            ],
+        },
         "editorial_template_id": None,
         "overlay_stack_policy": default_overlay_stack_policy_for_template(None),
         "overlay_render_manifest": rows,

@@ -86,7 +86,11 @@ def evaluate_overlay_text_fidelity_qa(
         script.get("duration_seconds"),
     )
 
-    timeline = script.get("overlay_timeline")
+    timeline_payload = editing_payload.get("timeline")
+    if isinstance(timeline_payload, Mapping):
+        timeline = timeline_payload.get("overlays")
+    else:
+        timeline = script.get("overlay_timeline")
     try:
         planned = _planned_overlay_rows(timeline, clip_duration_seconds=duration)
         authored = _authored_overlay_rows(timeline, clip_duration_seconds=duration)

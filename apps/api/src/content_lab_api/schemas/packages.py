@@ -54,8 +54,11 @@ class PackageDetailOut(BaseModel):
     provenance_download: SignedDownloadOut | None = None
     creative_trace_uri: str | None = None
     creative_trace_download: SignedDownloadOut | None = None
+    timeline_uri: str | None = None
+    timeline_download: SignedDownloadOut | None = None
     operator_debug: ProcessReelOperatorDebugOut | None = None
     artifacts: list[PackageArtifactOut] = Field(default_factory=list)
     outbox_notification: PackageOutboxNotificationOut | None = None
     created_at: datetime
     updated_at: datetime
+    packaged_at: datetime | None = None

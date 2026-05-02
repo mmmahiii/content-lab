@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
-from content_lab_api.models import Org, OutboxEvent, Run
+from content_lab_api.models import Org, OutboxEvent, Run, Task
 from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
 
 
@@ -94,6 +94,17 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
     db_session.add(run)
     db_session.flush()
     db_session.add(
+        Task(
+            org_id=org.id,
+            run_id=run.id,
+            task_type="packaging",
+            idempotency_key=f"packaging-{run.id}",
+            status="succeeded",
+            payload={},
+            result={"package_qa": {"passed": True}},
+        )
+    )
+    db_session.add(
         OutboxEvent(
             org_id=org.id,
             aggregate_type="run",
@@ -110,6 +121,7 @@ def test_get_package_returns_manifest_provenance_and_signed_artifacts(
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload.get("packaged_at") is not None
     assert payload["run_id"] == str(run.id)
     assert payload["org_id"] == str(org.id)
     assert payload["reel_id"] == str(reel_id)

@@ -180,3 +180,30 @@ def update_page(
         _raise_duplicate_page_error(exc)
     db.refresh(page)
     return page_to_out(page)
+
+
+@router.delete("/{page_id}")
+def delete_page(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    page = _get_page_or_404(db, org_id, page_id)
+    _record_audit(
+        db,
+        request,
+        org_id=org_id,
+        action="page.deleted",
+        page=page,
+        payload={
+            "ownership": page.kind,
+            "platform": page.platform,
+            "display_name": page.display_name,
+            "external_page_id": page.external_page_id,
+            "handle": page.handle,
+        },
+    )
+    db.delete(page)
+    db.commit()
+    return {"deleted": True}

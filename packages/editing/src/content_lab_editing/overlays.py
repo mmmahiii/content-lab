@@ -231,10 +231,22 @@ class TextOverlay:
     ) -> TextOverlay:
         """Build an overlay from instruction-style params."""
 
+        start_seconds = _read_optional_float(payload, "start_seconds", "start")
+        if start_seconds is None:
+            raise ValueError("Overlay field 'start_seconds' is required")
+        end_seconds = _read_optional_float(payload, "end_seconds", "end")
+        if end_seconds is None:
+            duration_seconds = _read_optional_float(payload, "duration_seconds", "duration")
+            if duration_seconds is not None:
+                if duration_seconds <= 0.0:
+                    raise ValueError("Overlay field 'duration_seconds' must be greater than 0")
+                end_seconds = float(start_seconds) + float(duration_seconds)
+        if end_seconds is None:
+            raise ValueError("Overlay field 'end_seconds' is required")
         overlay = cls(
             text=_require_overlay_text(payload),
-            start_seconds=_read_optional_float(payload, "start_seconds", "start") or 0.0,
-            end_seconds=_read_optional_float(payload, "end_seconds", "end"),
+            start_seconds=start_seconds,
+            end_seconds=end_seconds,
             font_size=_read_optional_int(
                 payload,
                 "font_size",
@@ -300,10 +312,6 @@ class TextOverlay:
             fade_in_seconds=0.0 if fade_in_raw is None else max(0.0, float(fade_in_raw)),
             fade_out_seconds=0.0 if fade_out_raw is None else max(0.0, float(fade_out_raw)),
         )
-
-        duration_seconds = _read_optional_float(payload, "duration_seconds", "duration")
-        if overlay.end_seconds is None and duration_seconds is not None:
-            overlay = replace(overlay, end_seconds=overlay.start_seconds + duration_seconds)
 
         overlay = overlay.normalize(clip_duration_seconds=clip_duration_seconds)
         return _merge_style_preset(overlay, payload)

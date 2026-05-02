@@ -14,6 +14,8 @@ _SHA256_B = "sha256:" + ("b" * 64)
 _SHA256_C = "sha256:" + ("c" * 64)
 _SHA256_D = "sha256:" + ("d" * 64)
 _SHA256_E = "sha256:" + ("e" * 64)
+_SHA256_T = "sha256:" + ("0" * 64)
+_SHA256_R = "sha256:" + ("1" * 64)
 
 
 def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
@@ -23,7 +25,7 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
         "manifest_uri": f"s3://content-lab/reels/packages/{reel_id}/package_manifest.json",
         "manifest": {
             "version": 1,
-            "artifact_count": 5,
+            "artifact_count": 7,
             "complete": True,
             "artifacts": [
                 {
@@ -51,12 +53,28 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
                     "filename": "provenance.json",
                     "checksum_sha256": _SHA256_E,
                 },
+                {
+                    "name": "timeline",
+                    "filename": "timeline.json",
+                    "checksum_sha256": _SHA256_T,
+                },
+                {
+                    "name": "timeline_render_trace",
+                    "filename": "timeline_render_trace.json",
+                    "checksum_sha256": _SHA256_R,
+                },
             ],
         },
         "caption_variants": [
             {"variant": "primary", "text": "Behind the scenes from this week's shoot."},
         ],
         "provenance_uri": f"s3://content-lab/reels/packages/{reel_id}/provenance.json",
+        "timeline_uri": f"s3://content-lab/reels/packages/{reel_id}/timeline.json",
+        "timeline_render_trace_uri": (
+            f"s3://content-lab/reels/packages/{reel_id}/timeline_render_trace.json"
+        ),
+        "timeline": {"version": "med-001.v1", "timeline_id": f"timeline-{reel_id}"},
+        "timeline_render_trace": {"schema_version": "timeline_render_trace.v1"},
         "provenance": {
             "editor_version": "basic_vertical_v1",
             "assets": [
@@ -110,6 +128,18 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
                 "checksum_sha256": _SHA256_E,
             },
             {
+                "name": "timeline",
+                "filename": "timeline.json",
+                "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/timeline.json",
+                "checksum_sha256": _SHA256_T,
+            },
+            {
+                "name": "timeline_render_trace",
+                "filename": "timeline_render_trace.json",
+                "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/timeline_render_trace.json",
+                "checksum_sha256": _SHA256_R,
+            },
+            {
                 "name": "package_manifest",
                 "filename": "package_manifest.json",
                 "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/package_manifest.json",
@@ -127,7 +157,10 @@ class _PackagingExecutor:
         return {"asset_refs": [f"asset://{execution.reel_id}/primary"]}
 
     def edit_reel(self, execution: ProcessReelExecution) -> dict[str, Any]:
-        return {"timeline_uri": f"memory://edits/{execution.reel_id}.json"}
+        return {
+            "timeline_uri": f"memory://edits/{execution.reel_id}.json",
+            "timeline_render_trace_uri": f"memory://edits/{execution.reel_id}-render-trace.json",
+        }
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
         return ProcessReelQAResult(passed=True, details={"verdict": "pass"})

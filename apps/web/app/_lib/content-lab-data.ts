@@ -598,6 +598,8 @@ const packageDetail: PackageDetailOut = {
   provenance_download: buildDownload(`${packagedArtifactPath}/provenance.json`),
   creative_trace_uri: `s3://content-lab/${packagedArtifactPath}/creative_trace.json`,
   creative_trace_download: buildDownload(`${packagedArtifactPath}/creative_trace.json`),
+  timeline_uri: `s3://content-lab/${packagedArtifactPath}/timeline.json`,
+  timeline_download: buildDownload(`${packagedArtifactPath}/timeline.json`),
   operator_debug: demoOperatorDebug,
   outbox_notification: {
     event_type: 'process_reel.package_ready',
@@ -652,6 +654,7 @@ const packageDetail: PackageDetailOut = {
   ],
   created_at: packagedRun.created_at,
   updated_at: packagedRun.updated_at,
+  packaged_at: packagedRun.finished_at,
 };
 
 const pages = [page, competitorPage];

@@ -457,11 +457,15 @@ export interface PackageDetailOut {
   provenance_download: SignedDownloadOut | null;
   creative_trace_uri: string | null;
   creative_trace_download: SignedDownloadOut | null;
+  timeline_uri: string | null;
+  timeline_download: SignedDownloadOut | null;
   operator_debug: ProcessReelOperatorDebugOut | null;
   artifacts: PackageArtifactOut[];
   outbox_notification: PackageOutboxNotificationOut | null;
   created_at: ISODateTimeString;
   updated_at: ISODateTimeString;
+  /** When the packaging task last completed successfully; MinIO object times are upload-specific. */
+  packaged_at: ISODateTimeString | null;
 }
 
 export type RunCreateRequest = {

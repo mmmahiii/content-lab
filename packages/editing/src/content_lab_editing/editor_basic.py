@@ -38,6 +38,8 @@ OVERLAY_RENDER_TRACE_FILENAME = "overlay_render_trace.json"
 PHASE1_TEMPLATE_VERSION = "basic_vertical_v1"
 _AUDIO_CHANNEL_LAYOUT = "stereo"
 _AUDIO_SAMPLE_RATE = 48_000
+_AUDIO_FADE_IN_SECONDS = 0.12
+_AUDIO_FADE_OUT_SECONDS = 0.18
 _VIDEO_FILTER = (
     f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
     f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,"
@@ -71,6 +73,7 @@ class MediaProbe:
     height: int
     duration_seconds: float
     has_audio_track: bool
+    audio_duration_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +91,7 @@ class BasicEditorArtifact:
     duration_seconds: float
     cover_frame_timestamp_seconds: float
     source_had_audio_track: bool
+    source_duration_seconds: float
     has_audio_track: bool
     rendered_overlay_manifest: RenderedOverlayManifest
     overlay_render_trace_path: Path
@@ -201,6 +205,7 @@ def render_basic_vertical_edit(
         input_path=staged_source_path,
         output_path=final_video_path,
         source_has_audio=source_probe.has_audio_track,
+        target_duration_seconds=source_probe.duration_seconds,
         video_filter=video_filter,
         ffmpeg_bin=ffmpeg_bin,
     )
@@ -211,8 +216,7 @@ def render_basic_vertical_edit(
             "Basic editor output dimensions were not normalized to "
             f"{TARGET_WIDTH}x{TARGET_HEIGHT}"
         )
-    if not output_probe.has_audio_track:
-        raise RuntimeError("Basic editor output is missing the required audio track")
+    _validate_audio_sync(probe=output_probe)
 
     overlay_render_trace = _overlay_trace_payload(rendered_manifest)
     overlay_render_trace_path.write_text(
@@ -240,6 +244,7 @@ def render_basic_vertical_edit(
         duration_seconds=output_probe.duration_seconds,
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=source_probe.has_audio_track,
+        source_duration_seconds=source_probe.duration_seconds,
         has_audio_track=output_probe.has_audio_track,
         rendered_overlay_manifest=rendered_manifest,
         overlay_render_trace_path=overlay_render_trace_path,
@@ -277,6 +282,12 @@ def _render_scene_aware_edit(
             storage_client=storage_client,
         )
         source_probe = probe_media_file(staged_segment_path, ffprobe_bin=ffprobe_bin)
+        _validate_scene_segment_source_coverage(
+            scene_id=segment.scene_id,
+            source_duration_seconds=source_probe.duration_seconds,
+            source_start_seconds=segment.source_start_seconds,
+            required_duration_seconds=segment.duration_seconds,
+        )
         rendered_segment_path = output_dir / f"segment-{index:03d}.mp4"
         _render_timeline_segment(
             input_path=staged_segment_path,
@@ -296,6 +307,10 @@ def _render_scene_aware_edit(
         ffmpeg_bin=ffmpeg_bin,
     )
     combined_probe = probe_media_file(combined_source_path, ffprobe_bin=ffprobe_bin)
+    _validate_scene_plan_vs_available_media(
+        expected_scene_duration_seconds=edit_plan.duration_seconds,
+        available_media_duration_seconds=combined_probe.duration_seconds,
+    )
     overlay_transition = (
         overlay_transition_settings(editorial_template) if editorial_template is not None else None
     )
@@ -345,6 +360,7 @@ def _render_scene_aware_edit(
         input_path=combined_source_path,
         output_path=final_video_path,
         source_has_audio=combined_probe.has_audio_track,
+        target_duration_seconds=combined_probe.duration_seconds,
         video_filter=video_filter,
         ffmpeg_bin=ffmpeg_bin,
     )
@@ -355,8 +371,7 @@ def _render_scene_aware_edit(
             "Scene-aware editor output dimensions were not normalized to "
             f"{TARGET_WIDTH}x{TARGET_HEIGHT}"
         )
-    if not output_probe.has_audio_track:
-        raise RuntimeError("Scene-aware editor output is missing the required audio track")
+    _validate_audio_sync(probe=output_probe)
 
     overlay_render_trace = _overlay_trace_payload(rendered_manifest)
     overlay_render_trace_path.write_text(
@@ -384,6 +399,7 @@ def _render_scene_aware_edit(
         duration_seconds=output_probe.duration_seconds,
         cover_frame_timestamp_seconds=cover_artifact.timestamp_seconds,
         source_had_audio_track=combined_probe.has_audio_track,
+        source_duration_seconds=combined_probe.duration_seconds,
         has_audio_track=output_probe.has_audio_track,
         rendered_overlay_manifest=rendered_manifest,
         overlay_render_trace_path=overlay_render_trace_path,
@@ -419,6 +435,39 @@ def _validate_expected_timeline_duration(
         raise ValueError(
             "Source media duration does not match expected timeline duration: "
             f"{actual_seconds:.3f}s vs {float(expected_seconds):.3f}s"
+        )
+
+
+def _validate_scene_segment_source_coverage(
+    *,
+    scene_id: str,
+    source_duration_seconds: float,
+    source_start_seconds: float,
+    required_duration_seconds: float,
+) -> None:
+    available_seconds = max(float(source_duration_seconds) - float(source_start_seconds), 0.0)
+    required_seconds = float(required_duration_seconds)
+    if available_seconds + 1e-6 < required_seconds:
+        raise ValueError(
+            "Scene segment source media is shorter than planned duration; "
+            "rebuild scene plan or provide a longer asset "
+            f"(scene_id={scene_id}, available={available_seconds:.3f}s, required={required_seconds:.3f}s)"
+        )
+
+
+def _validate_scene_plan_vs_available_media(
+    *,
+    expected_scene_duration_seconds: float,
+    available_media_duration_seconds: float,
+    tolerance_seconds: float = 0.25,
+) -> None:
+    expected = float(expected_scene_duration_seconds)
+    available = float(available_media_duration_seconds)
+    if abs(expected - available) > tolerance_seconds:
+        raise ValueError(
+            "Scene plan duration does not match available stitched media duration; "
+            "refusing to squeeze scene timings "
+            f"(expected={expected:.3f}s, available={available:.3f}s, tolerance={tolerance_seconds:.3f}s)"
         )
 
 
@@ -499,14 +548,27 @@ def probe_media_file(path: str | Path, *, ffprobe_bin: str = "ffprobe") -> Media
         duration_raw = format_payload.get("duration")
 
     duration_seconds = float(duration_raw or 0.0)
-    has_audio_track = any(
-        isinstance(stream, dict) and stream.get("codec_type") == "audio" for stream in streams
+    audio_stream = next(
+        (
+            stream
+            for stream in streams
+            if isinstance(stream, dict) and stream.get("codec_type") == "audio"
+        ),
+        None,
     )
+    has_audio_track = audio_stream is not None
+    audio_duration_seconds: float | None = None
+    if isinstance(audio_stream, dict):
+        audio_duration_raw = audio_stream.get("duration")
+        if audio_duration_raw in (None, "", "N/A"):
+            audio_duration_raw = format_payload.get("duration")
+        audio_duration_seconds = float(audio_duration_raw) if audio_duration_raw else None
     return MediaProbe(
         width=width,
         height=height,
         duration_seconds=duration_seconds,
         has_audio_track=has_audio_track,
+        audio_duration_seconds=audio_duration_seconds,
     )
 
 
@@ -621,16 +683,36 @@ def _render_final_video(
     input_path: Path,
     output_path: Path,
     source_has_audio: bool,
+    target_duration_seconds: float,
     video_filter: str,
     ffmpeg_bin: str,
 ) -> None:
+    fade_in_s, fade_out_s = _resolved_audio_fades(target_duration_seconds)
+    fade_out_start = max(float(target_duration_seconds) - fade_out_s, 0.0)
     command = [
         ffmpeg_bin,
         "-y",
         "-i",
         str(input_path),
     ]
-    if not source_has_audio:
+    if source_has_audio:
+        command.extend(
+            [
+                "-filter_complex",
+                (
+                    f"[0:v:0]{video_filter}[vout];"
+                    f"[0:a:0]apad,atrim=0:{target_duration_seconds:.3f},"
+                    f"afade=t=in:st=0:d={fade_in_s:.3f},"
+                    f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_s:.3f},"
+                    "asetpts=N/SR/TB[aout]"
+                ),
+                "-map",
+                "[vout]",
+                "-map",
+                "[aout]",
+            ]
+        )
+    else:
         command.extend(
             [
                 "-f",
@@ -640,23 +722,21 @@ def _render_final_video(
                     "anullsrc="
                     f"channel_layout={_AUDIO_CHANNEL_LAYOUT}:sample_rate={_AUDIO_SAMPLE_RATE}"
                 ),
+                "-filter_complex",
+                (
+                    f"[0:v:0]{video_filter}[vout];"
+                    f"[1:a:0]atrim=0:{target_duration_seconds:.3f},"
+                    f"afade=t=in:st=0:d={fade_in_s:.3f},"
+                    f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_s:.3f},"
+                    "asetpts=N/SR/TB[aout]"
+                ),
+                "-map",
+                "[vout]",
+                "-map",
+                "[aout]",
             ]
         )
-
-    command.extend(
-        [
-            "-map_metadata",
-            "-1",
-            "-filter:v",
-            video_filter,
-            "-map",
-            "0:v:0",
-        ]
-    )
-    if source_has_audio:
-        command.extend(["-map", "0:a:0"])
-    else:
-        command.extend(["-map", "1:a:0", "-shortest"])
+    command.extend(["-map_metadata", "-1"])
 
     command.extend(
         [
@@ -678,11 +758,43 @@ def _render_final_video(
             "+faststart",
             "-threads",
             "1",
+            "-shortest",
             str(output_path),
         ]
     )
 
     _run_command(command, failure_prefix=f"Failed to render basic editor output for {input_path}")
+
+
+def _resolved_audio_fades(target_duration_seconds: float) -> tuple[float, float]:
+    span = max(float(target_duration_seconds), 0.0)
+    if span <= 0.0:
+        return (0.0, 0.0)
+    fade_in = min(_AUDIO_FADE_IN_SECONDS, span / 2.0)
+    fade_out = min(_AUDIO_FADE_OUT_SECONDS, span / 2.0)
+    if fade_in + fade_out > span:
+        scale = span / (fade_in + fade_out)
+        fade_in *= scale
+        fade_out *= scale
+    return (fade_in, fade_out)
+
+
+def _validate_audio_sync(
+    *,
+    probe: MediaProbe,
+    tolerance_seconds: float = 0.25,
+) -> None:
+    if not probe.has_audio_track:
+        raise RuntimeError("Rendered output is missing audio track")
+    if probe.audio_duration_seconds is None:
+        raise RuntimeError("Rendered output audio duration is unavailable")
+    drift = abs(float(probe.audio_duration_seconds) - float(probe.duration_seconds))
+    if drift > tolerance_seconds:
+        raise RuntimeError(
+            "Rendered output audio/video drift exceeds tolerance: "
+            f"audio={probe.audio_duration_seconds:.3f}s video={probe.duration_seconds:.3f}s "
+            f"drift={drift:.3f}s tolerance={tolerance_seconds:.3f}s"
+        )
 
 
 def _normalize_source_uri(source_uri: str | Path) -> str:

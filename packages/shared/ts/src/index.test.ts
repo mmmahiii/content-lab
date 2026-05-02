@@ -241,6 +241,13 @@ describe('shared-ts contracts', () => {
       },
       creative_trace_uri: null,
       creative_trace_download: null,
+      timeline_uri: 's3://content-lab/reels/packages/reel-1/timeline_render_trace.json',
+      timeline_download: {
+        storage_uri:
+          's3://content-lab/reels/packages/reel-1/timeline_render_trace.json',
+        url: 'http://localhost:9000/content-lab/reels/packages/reel-1/timeline_render_trace.json',
+        expires_at: '2026-04-09T10:15:00Z',
+      },
       operator_debug: null,
       artifacts: [
         {
@@ -261,6 +268,7 @@ describe('shared-ts contracts', () => {
       outbox_notification: null,
       created_at: '2026-04-09T10:00:00Z',
       updated_at: '2026-04-09T10:15:00Z',
+      packaged_at: '2026-04-09T10:14:00Z',
     };
 
     const trigger: ReelTriggerCreate = {
@@ -439,6 +447,14 @@ describe('shared-ts contracts', () => {
       },
       creative_trace_uri: null,
       creative_trace_download: null,
+      timeline_uri:
+        's3://content-lab/reels/packages/44444444-4444-4444-8444-444444444444/timeline_render_trace.json',
+      timeline_download: {
+        storage_uri:
+          's3://content-lab/reels/packages/44444444-4444-4444-8444-444444444444/timeline_render_trace.json',
+        url: 'http://localhost:9000/content-lab/reels/packages/reel/timeline_render_trace.json?sig=1',
+        expires_at: '2026-04-09T13:00:00.000Z',
+      },
       operator_debug: null,
       artifacts: [
         {
@@ -459,6 +475,7 @@ describe('shared-ts contracts', () => {
       outbox_notification: null,
       created_at: '2026-04-09T12:04:00.000Z',
       updated_at: '2026-04-09T12:10:00.000Z',
+      packaged_at: '2026-04-09T12:09:00.000Z',
     };
 
     expect(health.status).toBe('ok');

@@ -7,6 +7,9 @@
   },
   "scripts": {
     "dev": "pnpm --filter web dev",
+    "dev:stack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-stack.ps1",
+    "dev:stack:full": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-stack.ps1 -Worker",
+    "dev:stack:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-dev-stack.ps1",
     "console:open": "powershell -NoProfile -File open-console.ps1",
     "console:open:docker": "powershell -NoProfile -File open-console.ps1 -DockerWeb",
     "console:stop": "powershell -NoProfile -File stop-console.ps1",

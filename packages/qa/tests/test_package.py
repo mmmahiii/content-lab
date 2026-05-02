@@ -10,6 +10,8 @@ _SHA256_B = "sha256:" + ("b" * 64)
 _SHA256_C = "sha256:" + ("c" * 64)
 _SHA256_D = "sha256:" + ("d" * 64)
 _SHA256_E = "sha256:" + ("e" * 64)
+_SHA256_T = "sha256:" + ("0" * 64)
+_SHA256_R = "sha256:" + ("1" * 64)
 
 
 def _valid_package_payload() -> dict[str, Any]:
@@ -22,7 +24,7 @@ def _valid_package_payload() -> dict[str, Any]:
         ],
         "manifest": {
             "version": 1,
-            "artifact_count": 5,
+            "artifact_count": 7,
             "complete": True,
             "artifacts": [
                 {
@@ -50,6 +52,16 @@ def _valid_package_payload() -> dict[str, Any]:
                     "filename": "provenance.json",
                     "checksum_sha256": _SHA256_E,
                 },
+                {
+                    "name": "timeline",
+                    "filename": "timeline.json",
+                    "checksum_sha256": _SHA256_T,
+                },
+                {
+                    "name": "timeline_render_trace",
+                    "filename": "timeline_render_trace.json",
+                    "checksum_sha256": _SHA256_R,
+                },
             ],
         },
         "provenance": {
@@ -62,6 +74,7 @@ def _valid_package_payload() -> dict[str, Any]:
             ],
             "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
         },
+        "timeline": {"version": "med-001.v1", "timeline_id": "timeline-1"},
         "artifacts": [
             {
                 "name": "final_video",
@@ -92,6 +105,18 @@ def _valid_package_payload() -> dict[str, Any]:
                 "filename": "provenance.json",
                 "storage_uri": "s3://content-lab/reels/packages/reel-123/provenance.json",
                 "checksum_sha256": _SHA256_E,
+            },
+            {
+                "name": "timeline",
+                "filename": "timeline.json",
+                "storage_uri": "s3://content-lab/reels/packages/reel-123/timeline.json",
+                "checksum_sha256": _SHA256_T,
+            },
+            {
+                "name": "timeline_render_trace",
+                "filename": "timeline_render_trace.json",
+                "storage_uri": "s3://content-lab/reels/packages/reel-123/timeline_render_trace.json",
+                "checksum_sha256": _SHA256_R,
             },
             {
                 "name": "package_manifest",

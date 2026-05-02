@@ -235,6 +235,18 @@ On success the script prints the created IDs plus the final `run_status`,
 `reel_status`, and `package_root_uri`. On failure it raises step-scoped errors
 that include the relevant IDs, URIs, or rows that were checked.
 
+### Package page vs MinIO timestamps
+
+The operator package URL is keyed by **run** (`/orgs/{org_id}/packages/{run_id}`),
+while object storage is keyed by **reel** (`reels/packages/{reel_id}/…`). If you
+open MinIO by `reel_id` but the console by an **older** `run_id`, the run’s
+**Run queued** time can look much older than the **Last modified** time on
+objects that were just overwritten by a **newer** run for the same reel. Use
+the `run_id` (and `reel_id`) printed by the smoke script so both views refer to
+the same workflow execution. **Packaged at** in the API/UI comes from the
+packaging task completion time when available; MinIO’s per-object timestamps
+still reflect S3 upload semantics.
+
 ## No-regeneration regression
 
 The exact-reuse cost-control contract has its own repo-level regression script:

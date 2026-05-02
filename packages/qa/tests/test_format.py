@@ -36,6 +36,7 @@ def test_evaluate_format_qa_passes_for_canonical_outputs(tmp_path: Path) -> None
         "final_video_dimensions",
         "final_video_duration",
         "final_video_audio",
+        "final_video_audio_sync",
         "cover_exists",
         "cover_dimensions",
     ]
@@ -71,6 +72,7 @@ def test_evaluate_format_qa_reports_explicit_failures(tmp_path: Path) -> None:
     assert check_by_name["final_video_dimensions"].verdict == QAVerdict.FAIL
     assert check_by_name["final_video_duration"].verdict == QAVerdict.FAIL
     assert check_by_name["final_video_audio"].verdict == QAVerdict.FAIL
+    assert check_by_name["final_video_audio_sync"].verdict == QAVerdict.FAIL
     assert check_by_name["cover_exists"].verdict == QAVerdict.FAIL
     assert check_by_name["cover_dimensions"].verdict == QAVerdict.SKIP
     assert any("720x1280" in reason for reason in report.failure_reasons)
@@ -128,6 +130,79 @@ def test_evaluate_reel_package_format_uses_canonical_filenames(tmp_path: Path) -
     assert report.verdict == QAVerdict.PASS
 
 
+def test_audio_shorter_than_video_fails_sync_gate(tmp_path: Path) -> None:
+    final_video_path = tmp_path / "audio-short.mp4"
+    cover_path = tmp_path / "cover.png"
+    _build_fixture_cover(output_path=cover_path, width=1080, height=1920)
+    _build_fixture_av_mismatch(
+        output_path=final_video_path,
+        width=1080,
+        height=1920,
+        video_duration_seconds=1.2,
+        audio_duration_seconds=0.6,
+    )
+
+    report = evaluate_format_qa(final_video_path=final_video_path, cover_path=cover_path)
+    check_by_name = {check.gate_name: check for check in report.checks}
+    assert report.passed is False
+    assert check_by_name["final_video_audio_sync"].verdict == QAVerdict.FAIL
+
+
+def test_audio_longer_than_video_fails_sync_gate(tmp_path: Path) -> None:
+    final_video_path = tmp_path / "audio-long.mp4"
+    cover_path = tmp_path / "cover.png"
+    _build_fixture_cover(output_path=cover_path, width=1080, height=1920)
+    _build_fixture_av_mismatch(
+        output_path=final_video_path,
+        width=1080,
+        height=1920,
+        video_duration_seconds=0.8,
+        audio_duration_seconds=1.6,
+    )
+
+    report = evaluate_format_qa(final_video_path=final_video_path, cover_path=cover_path)
+    check_by_name = {check.gate_name: check for check in report.checks}
+    assert report.passed is False
+    assert check_by_name["final_video_audio_sync"].verdict == QAVerdict.FAIL
+
+
+def test_missing_audio_fails_per_default_policy(tmp_path: Path) -> None:
+    final_video_path = tmp_path / "missing-audio.mp4"
+    cover_path = tmp_path / "cover.png"
+    _build_fixture_cover(output_path=cover_path, width=1080, height=1920)
+    _build_fixture_clip(
+        output_path=final_video_path,
+        width=1080,
+        height=1920,
+        include_audio=False,
+        duration_seconds=1.0,
+    )
+
+    report = evaluate_format_qa(final_video_path=final_video_path, cover_path=cover_path)
+    check_by_name = {check.gate_name: check for check in report.checks}
+    assert report.passed is False
+    assert check_by_name["final_video_audio"].verdict == QAVerdict.FAIL
+    assert check_by_name["final_video_audio_sync"].verdict == QAVerdict.FAIL
+
+
+def test_valid_synced_audio_passes_sync_gate(tmp_path: Path) -> None:
+    final_video_path = tmp_path / "valid-synced.mp4"
+    cover_path = tmp_path / "cover.png"
+    _build_fixture_cover(output_path=cover_path, width=1080, height=1920)
+    _build_fixture_av_mismatch(
+        output_path=final_video_path,
+        width=1080,
+        height=1920,
+        video_duration_seconds=1.1,
+        audio_duration_seconds=1.1,
+    )
+
+    report = evaluate_format_qa(final_video_path=final_video_path, cover_path=cover_path)
+    check_by_name = {check.gate_name: check for check in report.checks}
+    assert report.passed is True
+    assert check_by_name["final_video_audio_sync"].verdict == QAVerdict.PASS
+
+
 def _build_fixture_clip(
     *,
     output_path: Path,
@@ -170,6 +245,66 @@ def _build_fixture_clip(
         command.extend(["-c:a", "aac", "-ac", "2", "-ar", "48000"])
 
     command.append(str(output_path))
+    _run_command(command)
+
+
+def _build_fixture_av_mismatch(
+    *,
+    output_path: Path,
+    width: int,
+    height: int,
+    video_duration_seconds: float,
+    audio_duration_seconds: float,
+) -> None:
+    video_only_path = output_path.with_name(f"{output_path.stem}-video-only.mp4")
+    audio_only_path = output_path.with_name(f"{output_path.stem}-audio-only.m4a")
+    _build_fixture_clip(
+        output_path=video_only_path,
+        width=width,
+        height=height,
+        include_audio=False,
+        duration_seconds=video_duration_seconds,
+    )
+    _run_command(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=48000",
+            "-t",
+            f"{audio_duration_seconds:.3f}",
+            "-c:a",
+            "aac",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            str(audio_only_path),
+        ]
+    )
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_only_path),
+        "-i",
+        str(audio_only_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-ac",
+        "2",
+        "-ar",
+        "48000",
+        str(output_path),
+    ]
     _run_command(command)
 
 

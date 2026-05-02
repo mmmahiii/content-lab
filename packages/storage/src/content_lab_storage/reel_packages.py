@@ -19,6 +19,8 @@ from content_lab_storage.paths import (
     PACKAGE_MANIFEST_FILENAME,
     POSTING_PLAN_FILENAME,
     PROVENANCE_FILENAME,
+    TIMELINE_FILENAME,
+    TIMELINE_RENDER_TRACE_FILENAME,
     CanonicalStorageLayout,
     ReelPackageRefs,
 )
@@ -31,6 +33,8 @@ REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES = frozenset(
         "caption_variants",
         "posting_plan",
         "provenance",
+        "timeline",
+        "timeline_render_trace",
     }
 )
 
@@ -114,6 +118,8 @@ def expected_reel_package_filenames(*, include_manifest: bool = True) -> tuple[s
         CAPTION_VARIANTS_FILENAME,
         POSTING_PLAN_FILENAME,
         PROVENANCE_FILENAME,
+        TIMELINE_FILENAME,
+        TIMELINE_RENDER_TRACE_FILENAME,
     )
     if include_manifest:
         return (*filenames, PACKAGE_MANIFEST_FILENAME)
@@ -123,7 +129,7 @@ def expected_reel_package_filenames(*, include_manifest: bool = True) -> tuple[s
 def optional_reel_package_filenames() -> tuple[str, ...]:
     """Return canonical optional filenames in a ready-to-post package directory."""
 
-    return (CREATIVE_TRACE_FILENAME,)
+    return (CREATIVE_TRACE_FILENAME, OVERLAY_RENDER_TRACE_FILENAME)
 
 
 def resolve_reel_package_directory(
@@ -260,6 +266,20 @@ def _artifact_specs(
             name="provenance",
             filename=PROVENANCE_FILENAME,
             ref=package_refs.provenance,
+            kind="json",
+            content_type="application/json",
+        ),
+        _ArtifactSpec(
+            name="timeline",
+            filename=TIMELINE_FILENAME,
+            ref=package_refs.timeline,
+            kind="json",
+            content_type="application/json",
+        ),
+        _ArtifactSpec(
+            name="timeline_render_trace",
+            filename=TIMELINE_RENDER_TRACE_FILENAME,
+            ref=package_refs.timeline_render_trace,
             kind="json",
             content_type="application/json",
         ),
