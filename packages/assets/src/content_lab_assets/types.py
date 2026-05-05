@@ -4,11 +4,326 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
+from math import gcd
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PHASE1_GENERATION_TASK_TYPE = "asset.generate"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+class AssetKind(StrEnum):
+    """Component-aware asset roles managed by the Asset Registry."""
+
+    BACKGROUND_IMAGE = "background_image"
+    BACKGROUND_VIDEO = "background_video"
+    OBJECT_IMAGE = "object_image"
+    OBJECT_VIDEO = "object_video"
+    SUBJECT_IMAGE = "subject_image"
+    SUBJECT_VIDEO = "subject_video"
+    PROP_IMAGE = "prop_image"
+    PROP_VIDEO = "prop_video"
+    FOREGROUND_LAYER_IMAGE = "foreground_layer_image"
+    FOREGROUND_LAYER_VIDEO = "foreground_layer_video"
+    TRANSPARENT_CUTOUT_PNG = "transparent_cutout_png"
+    MASKED_IMAGE = "masked_image"
+    EFFECT_IMAGE = "effect_image"
+    EFFECT_VIDEO = "effect_video"
+    TRANSITION_LAYER = "transition_layer"
+    GENERATED_CLIP = "generated_clip"
+    SOURCE_CLIP = "source_clip"
+    FINAL_RENDER = "final_render"
+    COVER_IMAGE = "cover_image"
+    HOOK_TEXT = "hook_text"
+    OVERLAY_PLAN = "overlay_plan"
+    SUBTITLE_PLAN = "subtitle_plan"
+    CAPTION_TEXT = "caption_text"
+    DESIGN_TEMPLATE = "design_template"
+    AUDIO_TRACK = "audio_track"
+    SOUND_EFFECT = "sound_effect"
+    VOICEOVER = "voiceover"
+    TRIMMED_AUDIO = "trimmed_audio"
+    PACKAGE_ARTIFACT = "package_artifact"
+    PROVENANCE_ARTIFACT = "provenance_artifact"
+    POSTING_PLAN_ARTIFACT = "posting_plan_artifact"
+
+
+class MediaType(StrEnum):
+    """File/data format category for an asset."""
+
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    TEXT = "text"
+    JSON = "json"
+    PACKAGE = "package"
+    UNKNOWN = "unknown"
+
+
+class AssetSource(StrEnum):
+    """Origin category for an asset."""
+
+    UPLOADED = "uploaded"
+    GENERATED = "generated"
+    IMPORTED = "imported"
+    OBSERVED_REFERENCE = "observed_reference"
+    DERIVED = "derived"
+    MANUAL_TEMPLATE = "manual_template"
+    PACKAGE_OUTPUT = "package_output"
+
+
+class AlphaMode(StrEnum):
+    """How transparency or masking should be interpreted for layerable assets."""
+
+    NONE = "none"
+    ALPHA = "alpha"
+    MASK = "mask"
+    CHROMA_KEY = "chroma_key"
+    UNKNOWN = "unknown"
+
+
+class AssetRegion(BaseModel):
+    """Normalized rectangle metadata for subject bounds and safe crop areas."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+
+class AssetTransparencyMetadata(BaseModel):
+    """Transparency metadata for PNG cut-outs, masks, and future chroma-key flows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    alpha_mode: AlphaMode = AlphaMode.UNKNOWN
+    has_transparency: bool = False
+    mask_uri: str | None = None
+    subject_bbox: AssetRegion | None = None
+    safe_crop: AssetRegion | None = None
+
+    @model_validator(mode="after")
+    def _validate_transparency_state(self) -> AssetTransparencyMetadata:
+        if self.alpha_mode is AlphaMode.NONE and self.has_transparency:
+            raise ValueError("alpha_mode='none' cannot have transparency")
+        if self.alpha_mode is AlphaMode.MASK and self.mask_uri is None:
+            raise ValueError("mask_uri is required when alpha_mode='mask'")
+        return self
+
+
+class AssetVisualMetadata(BaseModel):
+    """Visual metadata used to filter and combine assets for realistic compositions."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+    duration_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("duration_seconds", "duration"),
+    )
+    fps: float | None = Field(default=None, gt=0)
+    aspect_ratio: str | None = None
+    shot_type: str | None = Field(default=None, max_length=64)
+    camera_angle: str | None = Field(default=None, max_length=64)
+    perspective: str | None = Field(default=None, max_length=64)
+    lighting: str | None = Field(default=None, max_length=128)
+    colour_temperature: str | None = Field(default=None, max_length=64)
+    visual_style: str | None = Field(default=None, max_length=128)
+    motion_type: str | None = Field(default=None, max_length=64)
+    loopable: bool | None = None
+    foreground_safe: bool | None = None
+    background_safe: bool | None = None
+
+    @field_validator(
+        "aspect_ratio",
+        "shot_type",
+        "camera_angle",
+        "perspective",
+        "lighting",
+        "colour_temperature",
+        "visual_style",
+        "motion_type",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(str(value).strip().split())
+        return normalized or None
+
+    @field_validator("aspect_ratio")
+    @classmethod
+    def _normalize_aspect_ratio(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.lower().replace(" ", "").replace("x", ":").replace("/", ":")
+
+    @model_validator(mode="after")
+    def _fill_derived_visual_metadata(self) -> AssetVisualMetadata:
+        if self.aspect_ratio is None and self.width is not None and self.height is not None:
+            self.aspect_ratio = aspect_ratio_from_dimensions(self.width, self.height)
+        return self
+
+
+_ASSET_KIND_MEDIA_TYPES: dict[AssetKind, frozenset[MediaType]] = {
+    AssetKind.BACKGROUND_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.BACKGROUND_VIDEO: frozenset({MediaType.VIDEO}),
+    AssetKind.OBJECT_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.OBJECT_VIDEO: frozenset({MediaType.VIDEO}),
+    AssetKind.SUBJECT_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.SUBJECT_VIDEO: frozenset({MediaType.VIDEO}),
+    AssetKind.PROP_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.PROP_VIDEO: frozenset({MediaType.VIDEO}),
+    AssetKind.FOREGROUND_LAYER_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.FOREGROUND_LAYER_VIDEO: frozenset({MediaType.VIDEO}),
+    AssetKind.TRANSPARENT_CUTOUT_PNG: frozenset({MediaType.IMAGE}),
+    AssetKind.MASKED_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.EFFECT_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.EFFECT_VIDEO: frozenset({MediaType.VIDEO}),
+    AssetKind.TRANSITION_LAYER: frozenset({MediaType.VIDEO}),
+    AssetKind.GENERATED_CLIP: frozenset({MediaType.VIDEO}),
+    AssetKind.SOURCE_CLIP: frozenset({MediaType.VIDEO}),
+    AssetKind.FINAL_RENDER: frozenset({MediaType.VIDEO}),
+    AssetKind.COVER_IMAGE: frozenset({MediaType.IMAGE}),
+    AssetKind.HOOK_TEXT: frozenset({MediaType.TEXT}),
+    AssetKind.OVERLAY_PLAN: frozenset({MediaType.JSON, MediaType.TEXT}),
+    AssetKind.SUBTITLE_PLAN: frozenset({MediaType.JSON, MediaType.TEXT}),
+    AssetKind.CAPTION_TEXT: frozenset({MediaType.TEXT}),
+    AssetKind.DESIGN_TEMPLATE: frozenset({MediaType.JSON, MediaType.PACKAGE}),
+    AssetKind.AUDIO_TRACK: frozenset({MediaType.AUDIO}),
+    AssetKind.SOUND_EFFECT: frozenset({MediaType.AUDIO}),
+    AssetKind.VOICEOVER: frozenset({MediaType.AUDIO}),
+    AssetKind.TRIMMED_AUDIO: frozenset({MediaType.AUDIO}),
+    AssetKind.PACKAGE_ARTIFACT: frozenset({MediaType.PACKAGE, MediaType.JSON}),
+    AssetKind.PROVENANCE_ARTIFACT: frozenset({MediaType.JSON}),
+    AssetKind.POSTING_PLAN_ARTIFACT: frozenset({MediaType.JSON}),
+}
+
+
+def compatible_media_types_for_asset_kind(
+    asset_kind: AssetKind | str,
+) -> frozenset[MediaType]:
+    """Return explicit media types compatible with an asset role."""
+
+    return _ASSET_KIND_MEDIA_TYPES[AssetKind(asset_kind)]
+
+
+def infer_media_type_for_asset_kind(asset_kind: AssetKind | str) -> MediaType:
+    """Return the default media type for an asset role."""
+
+    compatible = compatible_media_types_for_asset_kind(asset_kind)
+    if len(compatible) == 1:
+        return next(iter(compatible))
+    if MediaType.JSON in compatible:
+        return MediaType.JSON
+    return next(iter(compatible))
+
+
+def validate_asset_kind_media_type(
+    *,
+    asset_kind: AssetKind | str,
+    media_type: MediaType | str,
+) -> MediaType:
+    """Validate and normalize a media type for an asset role."""
+
+    normalized_media_type = MediaType(media_type)
+    if normalized_media_type is MediaType.UNKNOWN:
+        return normalized_media_type
+    compatible = compatible_media_types_for_asset_kind(asset_kind)
+    if normalized_media_type not in compatible:
+        expected = ", ".join(sorted(media.value for media in compatible))
+        raise ValueError(
+            f"media_type='{normalized_media_type.value}' is not compatible with "
+            f"asset_kind='{AssetKind(asset_kind).value}'; expected one of: {expected}"
+        )
+    return normalized_media_type
+
+
+def aspect_ratio_from_dimensions(width: int, height: int) -> str:
+    """Return a reduced width:height aspect-ratio string."""
+
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive")
+    divisor = gcd(width, height)
+    return f"{width // divisor}:{height // divisor}"
+
+
+def _read_png_header(data: bytes) -> tuple[int, int, int] | None:
+    if not data.startswith(_PNG_SIGNATURE):
+        return None
+    offset = len(_PNG_SIGNATURE)
+    while offset + 8 <= len(data):
+        chunk_length = int.from_bytes(data[offset : offset + 4], byteorder="big")
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_data_start = offset + 8
+        chunk_data_end = chunk_data_start + chunk_length
+        if chunk_data_end > len(data):
+            return None
+        chunk_data = data[chunk_data_start:chunk_data_end]
+        if chunk_type == b"IHDR" and len(chunk_data) >= 10:
+            width = int.from_bytes(chunk_data[0:4], byteorder="big")
+            height = int.from_bytes(chunk_data[4:8], byteorder="big")
+            color_type = chunk_data[9]
+            if width <= 0 or height <= 0:
+                return None
+            return width, height, color_type
+        if chunk_type == b"IEND":
+            return None
+        offset = chunk_data_end + 4
+    return None
+
+
+def detect_png_transparency(data: bytes) -> AssetTransparencyMetadata:
+    """Inspect PNG bytes for alpha-channel or tRNS transparency metadata.
+
+    This intentionally avoids heavyweight image dependencies; it only reads PNG
+    chunk headers and enough IHDR/tRNS data to classify transparency.
+    """
+
+    header = _read_png_header(data)
+    if header is None:
+        return AssetTransparencyMetadata(alpha_mode=AlphaMode.UNKNOWN, has_transparency=False)
+
+    offset = len(_PNG_SIGNATURE)
+    _, _, color_type = header
+    has_transparency = False
+    while offset + 8 <= len(data):
+        chunk_length = int.from_bytes(data[offset : offset + 4], byteorder="big")
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_data_start = offset + 8
+        chunk_data_end = chunk_data_start + chunk_length
+        if chunk_data_end > len(data):
+            break
+
+        if chunk_type == b"IHDR":
+            has_transparency = color_type in {4, 6}
+        elif chunk_type == b"tRNS":
+            has_transparency = True
+        elif chunk_type == b"IEND":
+            break
+
+        offset = chunk_data_end + 4
+
+    if has_transparency:
+        return AssetTransparencyMetadata(alpha_mode=AlphaMode.ALPHA, has_transparency=True)
+    return AssetTransparencyMetadata(alpha_mode=AlphaMode.NONE, has_transparency=False)
+
+
+def detect_png_visual_metadata(data: bytes) -> AssetVisualMetadata | None:
+    """Return dimensions/aspect ratio for PNG bytes when the header can be parsed."""
+
+    header = _read_png_header(data)
+    if header is None:
+        return None
+    width, height, _ = header
+    return AssetVisualMetadata(width=width, height=height)
 
 
 class GenerationIntent(BaseModel):
@@ -24,6 +339,9 @@ class GenerationIntent(BaseModel):
     task_status: str | None = None
     idempotency_key: str
     asset_class: str
+    asset_kind: AssetKind = AssetKind.GENERATED_CLIP
+    media_type: MediaType = MediaType.VIDEO
+    asset_source: AssetSource = AssetSource.GENERATED
     provider: str
     model: str
     asset_key: str
@@ -68,6 +386,9 @@ class AssetResolutionDecisionBase(BaseModel):
     asset_key: str
     asset_key_hash: str
     asset_class: str
+    asset_kind: AssetKind = AssetKind.GENERATED_CLIP
+    media_type: MediaType = MediaType.VIDEO
+    asset_source: AssetSource = AssetSource.GENERATED
     provider: str
     model: str
     canonical_params: dict[str, Any] = Field(default_factory=dict)
@@ -116,14 +437,27 @@ AssetResolutionDecision = (
 
 
 __all__ = [
+    "AlphaMode",
+    "AssetKind",
+    "AssetRegion",
     "AssetResolutionDecision",
     "AssetResolutionDecisionBase",
     "AssetPromptTrace",
+    "AssetSource",
+    "AssetTransparencyMetadata",
+    "AssetVisualMetadata",
     "BlockedDecision",
     "DecisionPolicyMetadata",
     "GenerateDecision",
     "GenerationIntent",
+    "MediaType",
     "PHASE1_GENERATION_TASK_TYPE",
     "ReuseExactDecision",
     "ReuseWithTransformDecision",
+    "aspect_ratio_from_dimensions",
+    "compatible_media_types_for_asset_kind",
+    "detect_png_transparency",
+    "detect_png_visual_metadata",
+    "infer_media_type_for_asset_kind",
+    "validate_asset_kind_media_type",
 ]

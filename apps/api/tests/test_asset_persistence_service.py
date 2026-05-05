@@ -6,7 +6,7 @@ from collections.abc import Generator
 import pytest
 from sqlalchemy.orm import Session
 
-from content_lab_api.models import Asset, Org
+from content_lab_api.models import Asset, AssetPack, AssetPackItem, Org, PlannedAssetSpec
 from content_lab_api.services.asset_persistence import persist_asset_content
 from content_lab_storage import StoredObject
 from content_lab_storage.refs import StorageRef
@@ -105,6 +105,58 @@ def test_persist_asset_content_marks_asset_ready_after_storage_and_metadata_writ
     assert len(storage_client.calls) == 1
     call = storage_client.calls[0]
     assert call["checksum_sha256"] == asset.content_hash
+
+
+def test_persist_asset_content_marks_generated_pack_item_ready(
+    db_session: Session,
+    persisted_org: uuid.UUID,
+) -> None:
+    asset = _staged_asset(db_session, org_id=persisted_org)
+    pack = AssetPack(
+        org_id=persisted_org,
+        name="Generated pack",
+        niche="luxury mindset",
+        requested_asset_count=1,
+        status="generating",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    spec = PlannedAssetSpec(
+        asset_pack_id=pack.id,
+        asset_kind="background_video",
+        media_type="video",
+        working_title="Luxury scene setter",
+        purpose="Reusable scene setter",
+        prompt_or_description="Create a scene setter",
+        status="generating",
+    )
+    db_session.add(spec)
+    db_session.flush()
+    item = AssetPackItem(
+        asset_pack_id=pack.id,
+        planned_asset_spec_id=spec.id,
+        asset_id=asset.id,
+        asset_kind="background_video",
+        pack_role="scene_setter",
+        status="generating",
+    )
+    db_session.add(item)
+    db_session.flush()
+
+    persist_asset_content(
+        db_session,
+        asset_id=asset.id,
+        data=b"video-bytes",
+        content_type="video/mp4",
+        storage_client=RecordingStorageClient(),
+    )
+
+    db_session.refresh(pack)
+    db_session.refresh(spec)
+    db_session.refresh(item)
+    assert item.status == "generated"
+    assert spec.status == "registered"
+    assert pack.status == "ready"
 
 
 def test_persist_asset_content_handles_duplicate_content_hashes_predictably(

@@ -7,8 +7,13 @@ from typing import Any, TypedDict
 from content_lab_assets.providers.runway.jobs import build_runway_job_external_ref
 from content_lab_assets.registry import (
     AssetKey,
+    AssetKind,
     AssetRecord,
     AssetRegistry,
+    AssetSource,
+    AssetTransparencyMetadata,
+    AssetVisualMetadata,
+    MediaType,
     RegistryAsset,
     RegistryAssetGenParams,
     RegistryGenerationIntentRecord,
@@ -17,7 +22,6 @@ from content_lab_assets.registry import (
     build_generation_payload,
     resolve_phase1_asset,
 )
-from content_lab_core.types import AssetKind
 
 
 class ResolveRequest(TypedDict):
@@ -40,21 +44,29 @@ class TestAssetRecord:
     def test_creation(self) -> None:
         rec = AssetRecord(
             name="hero.png",
-            kind=AssetKind.IMAGE,
+            kind=AssetKind.OBJECT_IMAGE,
+            media_type=MediaType.IMAGE,
+            asset_source=AssetSource.UPLOADED,
+            transparency=AssetTransparencyMetadata(has_transparency=False),
+            visual=AssetVisualMetadata(width=1080, height=1920, foreground_safe=True),
             content_hash="sha256:abc123",
             storage_uri="s3://content-lab/assets/hero.png",
             size_bytes=2048,
             tags=["hero", "banner"],
         )
         assert rec.name == "hero.png"
-        assert rec.kind == AssetKind.IMAGE
+        assert rec.kind == AssetKind.OBJECT_IMAGE
+        assert rec.media_type is MediaType.IMAGE
+        assert rec.asset_source is AssetSource.UPLOADED
+        assert rec.visual is not None
+        assert rec.visual.aspect_ratio == "9:16"
         assert rec.size_bytes == 2048
         assert "hero" in rec.tags
 
     def test_default_tags(self) -> None:
         rec = AssetRecord(
             name="clip.mp4",
-            kind=AssetKind.VIDEO,
+            kind=AssetKind.GENERATED_CLIP,
             content_hash="sha256:def456",
             storage_uri="s3://content-lab/assets/clip.mp4",
         )
@@ -83,7 +95,7 @@ class TestAssetRegistryProtocol:
         registry = InMemoryRegistry()
         rec = AssetRecord(
             name="test.png",
-            kind=AssetKind.IMAGE,
+            kind=AssetKind.OBJECT_IMAGE,
             content_hash="sha256:xyz",
             storage_uri="s3://b/k",
         )
@@ -310,12 +322,78 @@ def test_build_generation_payload_stays_provider_submission_ready() -> None:
     )
     payload = build_generation_payload(asset_key=asset_key, request_payload=request)
     assert payload["asset_key_hash"] == asset_key.asset_key_hash
+    assert payload["asset_kind"] == "generated_clip"
+    assert payload["media_type"] == "video"
+    assert payload["asset_source"] == "generated"
     assert payload["canonical_params"]["provider"] == "runway"
     assert payload["provider_submission"] == {
         "provider": "runway",
         "model": "gen4.5",
         "asset_class": "clip",
+        "asset_kind": "generated_clip",
+        "media_type": "video",
+        "asset_source": "generated",
         "external_ref": build_runway_job_external_ref(asset_key_hash=asset_key.asset_key_hash),
         "status": "submitted",
     }
     assert payload["provenance"]["source"] == "asset_registry.resolve"
+
+
+def test_build_generation_payload_preserves_component_asset_kind() -> None:
+    asset_key = build_asset_key(
+        asset_class="background",
+        provider="runway",
+        model="gen4.5",
+        prompt="Luxury office skyline",
+    )
+
+    payload = build_generation_payload(
+        asset_key=asset_key,
+        asset_kind=AssetKind.BACKGROUND_VIDEO,
+        media_type=MediaType.VIDEO,
+        asset_source=AssetSource.GENERATED,
+        request_payload={"asset_kind": "background_video", "asset_source": "generated"},
+    )
+
+    assert payload["asset_kind"] == "background_video"
+    assert payload["media_type"] == "video"
+    assert payload["asset_source"] == "generated"
+    assert payload["provider_submission"]["asset_kind"] == "background_video"
+    assert payload["provider_submission"]["media_type"] == "video"
+    assert payload["provider_submission"]["asset_source"] == "generated"
+
+
+def test_asset_record_distinguishes_derived_outputs_from_source_assets() -> None:
+    source = AssetRecord(
+        name="uploaded-object.png",
+        kind=AssetKind.OBJECT_IMAGE,
+        media_type=MediaType.IMAGE,
+        asset_source=AssetSource.UPLOADED,
+        content_hash="sha256:source",
+        storage_uri="s3://content-lab/assets/source/uploaded-object.png",
+    )
+    derived = AssetRecord(
+        name="final_video.mp4",
+        kind=AssetKind.FINAL_RENDER,
+        media_type=MediaType.VIDEO,
+        asset_source=AssetSource.DERIVED,
+        content_hash="sha256:derived",
+        storage_uri="s3://content-lab/reels/packages/reel-1/final_video.mp4",
+    )
+    package_artifact = AssetRecord(
+        name="package_manifest.json",
+        kind=AssetKind.PACKAGE_ARTIFACT,
+        media_type=MediaType.JSON,
+        asset_source=AssetSource.PACKAGE_OUTPUT,
+        content_hash="sha256:package",
+        storage_uri="s3://content-lab/reels/packages/reel-1/package_manifest.json",
+    )
+
+    assert source.asset_source is AssetSource.UPLOADED
+    assert derived.asset_source is AssetSource.DERIVED
+    assert package_artifact.asset_source is AssetSource.PACKAGE_OUTPUT
+    assert {source.asset_source, derived.asset_source, package_artifact.asset_source} == {
+        AssetSource.UPLOADED,
+        AssetSource.DERIVED,
+        AssetSource.PACKAGE_OUTPUT,
+    }

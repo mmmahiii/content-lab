@@ -26,16 +26,26 @@ from content_lab_assets.providers.runway.jobs import (
 )
 from content_lab_assets.types import (
     PHASE1_GENERATION_TASK_TYPE,
+    AlphaMode,
+    AssetKind,
     AssetResolutionDecision,
+    AssetSource,
+    AssetTransparencyMetadata,
+    AssetVisualMetadata,
     BlockedDecision,
     DecisionPolicyMetadata,
     GenerateDecision,
     GenerationIntent,
+    MediaType,
     ReuseExactDecision,
     ReuseWithTransformDecision,
+    aspect_ratio_from_dimensions,
+    detect_png_transparency,
+    detect_png_visual_metadata,
+    infer_media_type_for_asset_kind,
+    validate_asset_kind_media_type,
 )
 from content_lab_core.models import DomainModel
-from content_lab_core.types import AssetKind
 
 PHASE1_READY_ASSET_STATUSES = frozenset({"active", "ready"})
 
@@ -45,6 +55,10 @@ class AssetRecord(DomainModel):
 
     name: str
     kind: AssetKind
+    media_type: MediaType = MediaType.UNKNOWN
+    asset_source: AssetSource = AssetSource.GENERATED
+    transparency: AssetTransparencyMetadata | None = None
+    visual: AssetVisualMetadata | None = None
     content_hash: str
     storage_uri: str
     size_bytes: int = 0
@@ -68,6 +82,9 @@ class RegistryAsset(BaseModel):
     asset_id: uuid.UUID
     org_id: uuid.UUID
     asset_class: str
+    asset_kind: AssetKind = AssetKind.GENERATED_CLIP
+    media_type: MediaType = MediaType.VIDEO
+    asset_source: AssetSource = AssetSource.GENERATED
     status: str
     source: str
     storage_uri: str
@@ -95,6 +112,9 @@ class RegistryGenerationIntentRecord(BaseModel):
     asset_id: uuid.UUID
     org_id: uuid.UUID
     asset_class: str
+    asset_kind: AssetKind = AssetKind.GENERATED_CLIP
+    media_type: MediaType = MediaType.VIDEO
+    asset_source: AssetSource = AssetSource.GENERATED
     status: str
     source: str
     storage_uri: str
@@ -154,21 +174,40 @@ def is_ready_asset_status(status: str) -> bool:
 def build_generation_payload(
     *,
     asset_key: AssetKey,
+    asset_kind: AssetKind | str = AssetKind.GENERATED_CLIP,
+    media_type: MediaType | str | None = None,
+    asset_source: AssetSource | str = AssetSource.GENERATED,
     request_payload: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a stable generation payload for later provider submission."""
 
     canonical_params = dict(asset_key.canonical_params)
+    normalized_asset_kind = AssetKind(asset_kind)
+    normalized_asset_source = AssetSource(asset_source)
+    normalized_media_type = (
+        infer_media_type_for_asset_kind(normalized_asset_kind)
+        if media_type is None
+        else validate_asset_kind_media_type(
+            asset_kind=normalized_asset_kind,
+            media_type=media_type,
+        )
+    )
     return {
         "resolution": "generate",
         "request": dict(request_payload or {}),
         "asset_key": asset_key.asset_key,
         "asset_key_hash": asset_key.asset_key_hash,
+        "asset_kind": normalized_asset_kind.value,
+        "media_type": normalized_media_type.value,
+        "asset_source": normalized_asset_source.value,
         "canonical_params": canonical_params,
         "provider_submission": {
             "provider": canonical_params["provider"],
             "model": canonical_params["model"],
             "asset_class": canonical_params["asset_class"],
+            "asset_kind": normalized_asset_kind.value,
+            "media_type": normalized_media_type.value,
+            "asset_source": normalized_asset_source.value,
             "external_ref": build_runway_job_external_ref(asset_key_hash=asset_key.asset_key_hash),
             "status": RunwayJobStatus.SUBMITTED.value,
         },
@@ -186,6 +225,9 @@ def resolve_phase1_asset(
     *,
     org_id: uuid.UUID,
     asset_class: str,
+    asset_kind: AssetKind | str = AssetKind.GENERATED_CLIP,
+    media_type: MediaType | str | None = None,
+    asset_source: AssetSource | str = AssetSource.GENERATED,
     provider: str,
     model: str,
     prompt: str,
@@ -217,6 +259,16 @@ def resolve_phase1_asset(
         init_image_hash=init_image_hash,
         reference_asset_ids=reference_asset_ids,
     )
+    normalized_asset_kind = AssetKind(asset_kind)
+    normalized_asset_source = AssetSource(asset_source)
+    normalized_media_type = (
+        infer_media_type_for_asset_kind(normalized_asset_kind)
+        if media_type is None
+        else validate_asset_kind_media_type(
+            asset_kind=normalized_asset_kind,
+            media_type=media_type,
+        )
+    )
     existing_asset = store.get_asset_by_key_hash(
         org_id=org_id,
         asset_key_hash=asset_key.asset_key_hash,
@@ -229,6 +281,9 @@ def resolve_phase1_asset(
         exact_decision = _reuse_exact_decision(
             existing_asset,
             asset_key=asset_key,
+            asset_kind=normalized_asset_kind,
+            media_type=normalized_media_type,
+            asset_source=normalized_asset_source,
             gen_params=gen_params,
             policy=_policy_metadata(policy_context),
         )
@@ -238,7 +293,13 @@ def resolve_phase1_asset(
             policy_hooks=policy_hooks,
         )
 
-    payload = build_generation_payload(asset_key=asset_key, request_payload=request_payload)
+    payload = build_generation_payload(
+        asset_key=asset_key,
+        asset_kind=normalized_asset_kind,
+        media_type=normalized_media_type,
+        asset_source=normalized_asset_source,
+        request_payload=request_payload,
+    )
     intent = store.ensure_generation_intent(
         org_id=org_id,
         asset_key=asset_key,
@@ -247,6 +308,9 @@ def resolve_phase1_asset(
     generate_decision = _generate_decision(
         intent,
         asset_key=asset_key,
+        asset_kind=normalized_asset_kind,
+        media_type=normalized_media_type,
+        asset_source=normalized_asset_source,
         policy=_policy_metadata(policy_context),
     )
     return _apply_generate_policy(
@@ -260,12 +324,18 @@ def _reuse_exact_decision(
     asset: RegistryAsset,
     *,
     asset_key: AssetKey,
+    asset_kind: AssetKind,
+    media_type: MediaType,
+    asset_source: AssetSource,
     gen_params: RegistryAssetGenParams | None,
     policy: DecisionPolicyMetadata,
 ) -> ReuseExactDecision:
     return ReuseExactDecision(
         asset_id=asset.asset_id,
         asset_class=asset.asset_class,
+        asset_kind=asset.asset_kind or asset_kind,
+        media_type=asset.media_type or media_type,
+        asset_source=asset.asset_source or asset_source,
         storage_uri=asset.storage_uri,
         asset_key=asset_key.asset_key,
         asset_key_hash=asset_key.asset_key_hash,
@@ -289,6 +359,9 @@ def _generate_decision(
     intent: RegistryGenerationIntentRecord,
     *,
     asset_key: AssetKey,
+    asset_kind: AssetKind,
+    media_type: MediaType,
+    asset_source: AssetSource,
     policy: DecisionPolicyMetadata,
 ) -> GenerateDecision:
     generation_intent = GenerationIntent(
@@ -297,6 +370,9 @@ def _generate_decision(
         storage_uri=intent.storage_uri,
         idempotency_key=intent.idempotency_key,
         asset_class=intent.asset_class,
+        asset_kind=intent.asset_kind or asset_kind,
+        media_type=intent.media_type or media_type,
+        asset_source=intent.asset_source or asset_source,
         provider=asset_key.canonical_params["provider"],
         model=asset_key.canonical_params["model"],
         asset_key=asset_key.asset_key,
@@ -305,6 +381,9 @@ def _generate_decision(
     )
     return GenerateDecision(
         asset_class=asset_key.canonical_params["asset_class"],
+        asset_kind=intent.asset_kind or asset_kind,
+        media_type=intent.media_type or media_type,
+        asset_source=intent.asset_source or asset_source,
         asset_key=asset_key.asset_key,
         asset_key_hash=asset_key.asset_key_hash,
         provider=asset_key.canonical_params["provider"],
@@ -380,15 +459,21 @@ def _normalize_required_text(value: str, *, field_name: str) -> str:
 
 
 __all__ = [
+    "AlphaMode",
     "AssetKey",
+    "AssetKind",
     "AssetRecord",
     "AssetRegistry",
     "AssetResolutionDecision",
     "AssetReusePolicyHooks",
+    "AssetSource",
+    "AssetTransparencyMetadata",
+    "AssetVisualMetadata",
     "BlockedDecision",
     "DecisionPolicyMetadata",
     "GenerateDecision",
     "GenerationIntent",
+    "MediaType",
     "PHASE1_GENERATION_TASK_TYPE",
     "PHASE1_READY_ASSET_STATUSES",
     "NoopAssetReusePolicyHooks",
@@ -400,11 +485,16 @@ __all__ = [
     "ReusePolicyContext",
     "ReuseExactDecision",
     "ReuseWithTransformDecision",
+    "aspect_ratio_from_dimensions",
     "build_asset_key",
     "build_decision_policy_metadata",
     "build_generation_idempotency_key",
     "build_generation_payload",
+    "detect_png_transparency",
+    "detect_png_visual_metadata",
+    "infer_media_type_for_asset_kind",
     "is_ready_asset_status",
     "resolve_phase1_asset",
+    "validate_asset_kind_media_type",
     "validate_phase1_provider_model",
 ]

@@ -39,14 +39,12 @@ class StoredAssetBytes:
         return self.stored_object.ref.uri
 
 
-def canonical_asset_filename(
+def _asset_filename(
     asset_class: str,
     *,
     content_type: str | None = None,
     filename: str | None = None,
 ) -> str:
-    """Build a stable filename for a ready asset object."""
-
     if filename is not None:
         normalized_filename = Path(filename).name.strip()
         if not normalized_filename:
@@ -63,6 +61,17 @@ def canonical_asset_filename(
 
     stem = normalized_asset_class if normalized_asset_class in _DEFAULT_FILENAMES else "asset"
     return f"{stem}{extension}"
+
+
+def canonical_asset_filename(
+    asset_class: str,
+    *,
+    content_type: str | None = None,
+    filename: str | None = None,
+) -> str:
+    """Build a stable filename for a ready asset object."""
+
+    return _asset_filename(asset_class, content_type=content_type, filename=filename)
 
 
 def persist_asset_bytes(
@@ -86,6 +95,31 @@ def persist_asset_bytes(
     checksums = checksum_bytes(data)
     stored = client.put_object(
         ref=layout.derived_asset_object(asset_id, asset_filename),
+        data=data,
+        content_type=content_type,
+        metadata=metadata,
+        checksum_sha256=checksums.content_hash,
+    )
+    return StoredAssetBytes(stored_object=stored, checksums=checksums, filename=asset_filename)
+
+
+def persist_source_asset_bytes(
+    *,
+    client: S3StorageClient,
+    layout: CanonicalStorageLayout,
+    asset_id: UUID | str,
+    asset_class: str,
+    data: bytes,
+    content_type: str | None = None,
+    metadata: dict[str, str] | None = None,
+    filename: str | None = None,
+) -> StoredAssetBytes:
+    """Upload user/source asset bytes to the canonical raw-asset location."""
+
+    asset_filename = _asset_filename(asset_class, content_type=content_type, filename=filename)
+    checksums = checksum_bytes(data)
+    stored = client.put_object(
+        ref=layout.raw_asset_object(asset_id, asset_filename),
         data=data,
         content_type=content_type,
         metadata=metadata,

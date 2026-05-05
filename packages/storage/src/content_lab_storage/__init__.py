@@ -4,6 +4,7 @@ from content_lab_storage.assets import (
     StoredAssetBytes,
     canonical_asset_filename,
     persist_asset_bytes,
+    persist_source_asset_bytes,
 )
 from content_lab_storage.checksums import (
     ObjectChecksums,
@@ -75,6 +76,7 @@ __all__ = [
     "expected_reel_package_filenames",
     "normalize_sha256",
     "persist_asset_bytes",
+    "persist_source_asset_bytes",
     "persist_reel_package_directory",
     "resolve_reel_package_directory",
 ]

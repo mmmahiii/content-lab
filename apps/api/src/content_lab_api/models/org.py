@@ -14,6 +14,7 @@ from content_lab_api.db import Base
 
 if TYPE_CHECKING:
     from content_lab_api.models.api_key import ApiKey
+    from content_lab_api.models.asset_pack import AssetPack
     from content_lab_api.models.audit_log import AuditLog
     from content_lab_api.models.experiment import Experiment
     from content_lab_api.models.org_membership import OrgMembership
@@ -58,4 +59,7 @@ class Org(Base):
     )
     storage_integrity_checks: Mapped[list[StorageIntegrityCheck]] = relationship(
         "StorageIntegrityCheck", back_populates="org", init=False, default_factory=list
+    )
+    asset_packs: Mapped[list[AssetPack]] = relationship(
+        "AssetPack", back_populates="org", init=False, default_factory=list
     )

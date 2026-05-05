@@ -100,6 +100,8 @@ def persist_asset_content(
         )
         raise
 
+    _mark_pack_items_ready(db, asset=asset)
+    db.commit()
     db.refresh(asset)
     return asset
 
@@ -141,7 +143,20 @@ def _mark_asset_failed(
         content_type=None if record is None else record.content_type,
         failure=failure,
     )
+    _mark_pack_items_failed(db, asset=asset)
     db.commit()
+
+
+def _mark_pack_items_ready(db: Session, *, asset: Asset) -> None:
+    from content_lab_api.services.asset_packs import mark_asset_pack_asset_ready
+
+    mark_asset_pack_asset_ready(db, asset=asset)
+
+
+def _mark_pack_items_failed(db: Session, *, asset: Asset) -> None:
+    from content_lab_api.services.asset_packs import mark_asset_pack_asset_failed
+
+    mark_asset_pack_asset_failed(db, asset=asset)
 
 
 def _ready_record(

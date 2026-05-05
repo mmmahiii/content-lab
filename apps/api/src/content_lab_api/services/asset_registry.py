@@ -14,11 +14,15 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.models import Asset, AssetGenParam, AuditLog, Org, Task
 from content_lab_api.schemas.assets import AssetResolveDecision, AssetResolveRequest
+from content_lab_api.services.asset_packs import ensure_asset_pack_generation_is_planned
 from content_lab_api.services.provider_jobs import record_provider_job_submission
 from content_lab_api.services.run_tasks import ensure_task_row
 from content_lab_assets.registry import (
     AssetKey,
+    AssetKind,
+    AssetSource,
     GenerateDecision,
+    MediaType,
     Phase1ProviderLockError,
     RegistryAsset,
     RegistryAssetGenParams,
@@ -212,6 +216,9 @@ class SQLAlchemyPhase1AssetRegistryStore:
             asset_id=asset.id,
             org_id=asset.org_id,
             asset_class=asset.asset_class,
+            asset_kind=self._payload_asset_kind(stored_payload),
+            media_type=self._payload_media_type(stored_payload),
+            asset_source=self._payload_asset_source(stored_payload),
             status=asset.status,
             source=asset.source,
             storage_uri=asset.storage_uri,
@@ -273,17 +280,69 @@ class SQLAlchemyPhase1AssetRegistryStore:
         return dict(intent)
 
     @staticmethod
+    def _payload_asset_kind(payload: Mapping[str, Any] | None) -> AssetKind:
+        if payload is None:
+            return AssetKind.GENERATED_CLIP
+        candidate = payload.get("asset_kind")
+        if candidate is None:
+            request = payload.get("request")
+            if isinstance(request, Mapping):
+                candidate = request.get("asset_kind")
+        try:
+            return AssetKind(str(candidate))
+        except (TypeError, ValueError):
+            return AssetKind.GENERATED_CLIP
+
+    @staticmethod
+    def _payload_media_type(payload: Mapping[str, Any] | None) -> MediaType:
+        if payload is None:
+            return MediaType.VIDEO
+        candidate = payload.get("media_type")
+        if candidate is None:
+            request = payload.get("request")
+            if isinstance(request, Mapping):
+                candidate = request.get("media_type")
+        try:
+            return MediaType(str(candidate))
+        except (TypeError, ValueError):
+            return MediaType.VIDEO
+
+    @staticmethod
+    def _payload_asset_source(payload: Mapping[str, Any] | None) -> AssetSource:
+        if payload is None:
+            return AssetSource.GENERATED
+        candidate = payload.get("asset_source")
+        if candidate is None:
+            request = payload.get("request")
+            if isinstance(request, Mapping):
+                candidate = request.get("asset_source")
+        try:
+            return AssetSource(str(candidate))
+        except (TypeError, ValueError):
+            return AssetSource.GENERATED
+
+    @staticmethod
     def _to_registry_asset(asset: Asset) -> RegistryAsset:
+        metadata = dict(asset.metadata_ or {})
         return RegistryAsset(
             asset_id=asset.id,
             org_id=asset.org_id,
             asset_class=asset.asset_class,
+            asset_kind=SQLAlchemyPhase1AssetRegistryStore._payload_asset_kind(
+                metadata.get("intent") if isinstance(metadata.get("intent"), Mapping) else None
+            ),
+            media_type=SQLAlchemyPhase1AssetRegistryStore._payload_media_type(
+                metadata.get("intent") if isinstance(metadata.get("intent"), Mapping) else None
+            ),
+            asset_source=SQLAlchemyPhase1AssetRegistryStore._payload_asset_source(
+                metadata.get("intent") if isinstance(metadata.get("intent"), Mapping) else None
+            ),
             status=asset.status,
             source=asset.source,
             storage_uri=asset.storage_uri,
             asset_key=asset.asset_key,
             asset_key_hash=asset.asset_key_hash,
-            metadata=dict(asset.metadata_ or {}),
+            metadata=metadata,
         )
 
     @staticmethod
@@ -306,12 +365,20 @@ def resolve_asset_request(
     """Resolve an asset request through the shared phase-1 registry path."""
 
     _get_org_or_404(db, org_id)
+    ensure_asset_pack_generation_is_planned(
+        db,
+        org_id=org_id,
+        metadata=body.metadata,
+    )
     store = SQLAlchemyPhase1AssetRegistryStore(db)
     try:
         decision = resolve_phase1_asset(
             store,
             org_id=org_id,
             asset_class=body.asset_class,
+            asset_kind=body.asset_kind,
+            media_type=body.media_type,
+            asset_source=body.asset_source,
             provider=body.provider,
             model=body.model,
             prompt=body.prompt,

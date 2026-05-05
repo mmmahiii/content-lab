@@ -13,11 +13,15 @@ from content_lab_api.models import (
     Asset,
     AssetFamily,
     AssetGenParam,
+    AssetPack,
+    AssetPackItem,
     AssetUsage,
     Org,
     Page,
+    PlannedAssetSpec,
     Reel,
     ReelFamily,
+    validate_planned_asset_spec_status_transition,
 )
 
 
@@ -378,3 +382,289 @@ def test_asset_family_fk_on_asset(db_session: Session, org_id: uuid.UUID) -> Non
         ),
     )
     db_session.flush()
+
+
+def test_asset_pack_tracks_operator_defined_size_and_mix(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    pack_id = uuid.uuid4()
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_id,
+            org_id=org_id,
+            name="Pilates reusable kit",
+            niche="pilates",
+            purpose="Short-form reel backgrounds",
+            target_audience="Busy beginners",
+            requested_asset_count=8,
+            asset_mix_requested_json={"generated_clip": 5, "image": 3},
+            status="planned",
+            strategy_summary="Focus on calm form demonstrations.",
+        ),
+    )
+    db_session.flush()
+    pack = db_session.scalars(select(AssetPack).where(AssetPack.id == pack_id)).one()
+    assert pack.org_id == org_id
+    assert pack.requested_asset_count == 8
+    assert pack.asset_mix_requested_json == {"generated_clip": 5, "image": 3}
+    assert pack.status == "planned"
+
+
+def test_asset_pack_rejects_invalid_status(db_session: Session, org_id: uuid.UUID) -> None:
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            insert(AssetPack).values(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                name="Bad pack",
+                niche="fitness",
+                status="unknown",
+            ),
+        )
+
+
+def test_asset_pack_items_allow_asset_in_multiple_packs(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    aid = uuid.uuid4()
+    pack_one_id = uuid.uuid4()
+    pack_two_id = uuid.uuid4()
+    db_session.execute(
+        insert(Asset).values(
+            id=aid,
+            org_id=org_id,
+            asset_class="clip",
+            storage_uri="s3://b/reusable",
+        ),
+    )
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_one_id,
+            org_id=org_id,
+            name="Starter kit",
+            niche="pilates",
+        ),
+    )
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_two_id,
+            org_id=org_id,
+            name="Advanced kit",
+            niche="pilates",
+        ),
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(AssetPackItem).values(
+            id=uuid.uuid4(),
+            asset_pack_id=pack_one_id,
+            asset_id=aid,
+            asset_kind="generated_clip",
+            pack_role="opener",
+            reuse_purpose="Hook visual",
+            priority=1,
+            status="selected",
+            metadata_json={"selected_from": "library"},
+        ),
+    )
+    db_session.execute(
+        insert(AssetPackItem).values(
+            id=uuid.uuid4(),
+            asset_pack_id=pack_two_id,
+            asset_id=aid,
+            asset_kind="generated_clip",
+            pack_role="transition",
+            reuse_purpose="Mid-reel reset",
+            priority=2,
+            status="selected",
+        ),
+    )
+    db_session.flush()
+    rows = db_session.scalars(select(AssetPackItem).where(AssetPackItem.asset_id == aid)).all()
+    assert len(rows) == 2
+    assert {row.asset_pack_id for row in rows} == {pack_one_id, pack_two_id}
+
+
+def test_asset_pack_item_can_be_planned_before_asset_exists(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    pack_id = uuid.uuid4()
+    planned_spec_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_id,
+            org_id=org_id,
+            name="Upload queue",
+            niche="travel",
+        ),
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(PlannedAssetSpec).values(
+            id=planned_spec_id,
+            asset_pack_id=pack_id,
+            asset_kind="voiceover",
+            media_type="audio",
+            working_title="Narration bed",
+            purpose="Reusable voiceover placeholder",
+            prompt_or_description="Warm narration for travel reels",
+            status="planned",
+        ),
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(AssetPackItem).values(
+            id=item_id,
+            asset_pack_id=pack_id,
+            planned_asset_spec_id=planned_spec_id,
+            asset_kind="voiceover",
+            pack_role="narration",
+            status="planned",
+        ),
+    )
+    db_session.flush()
+    item = db_session.scalars(select(AssetPackItem).where(AssetPackItem.id == item_id)).one()
+    assert item.asset_id is None
+    assert item.planned_asset_spec_id == planned_spec_id
+    assert item.status == "planned"
+
+
+def test_planned_asset_spec_holds_pack_plan_before_asset_exists(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    pack_id = uuid.uuid4()
+    spec_id = uuid.uuid4()
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_id,
+            org_id=org_id,
+            name="Intentional travel kit",
+            niche="travel",
+            requested_asset_count=3,
+            status="planned",
+        ),
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(PlannedAssetSpec).values(
+            id=spec_id,
+            asset_pack_id=pack_id,
+            asset_kind="generated_clip",
+            media_type="video",
+            working_title="Cafe reveal",
+            purpose="Reusable scene-setter",
+            prompt_or_description="Slow handheld reveal of a quiet cafe exterior",
+            required_traits={"camera": "handheld", "mood": "warm"},
+            compatible_with={"niches": ["travel", "lifestyle"]},
+            intended_reel_formats=["hook", "transition"],
+            priority=2,
+            estimated_reuse_count=6,
+            status="planned",
+        ),
+    )
+    db_session.flush()
+    spec = db_session.scalars(select(PlannedAssetSpec).where(PlannedAssetSpec.id == spec_id)).one()
+    assert spec.asset_pack_id == pack_id
+    assert spec.required_traits == {"camera": "handheld", "mood": "warm"}
+    assert spec.compatible_with == {"niches": ["travel", "lifestyle"]}
+    assert spec.intended_reel_formats == ["hook", "transition"]
+    assert spec.estimated_reuse_count == 6
+    assert spec.status == "planned"
+
+
+def test_planned_asset_spec_rejects_invalid_status(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    pack_id = uuid.uuid4()
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_id,
+            org_id=org_id,
+            name="Bad spec pack",
+            niche="travel",
+        ),
+    )
+    db_session.flush()
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            insert(PlannedAssetSpec).values(
+                id=uuid.uuid4(),
+                asset_pack_id=pack_id,
+                asset_kind="generated_clip",
+                media_type="video",
+                working_title="Bad status",
+                purpose="Exercise the status check",
+                prompt_or_description="Bad status",
+                status="ready",
+            ),
+        )
+
+
+def test_planned_asset_spec_status_transition_guard() -> None:
+    validate_planned_asset_spec_status_transition("draft", "planned")
+    validate_planned_asset_spec_status_transition("planned", "generating")
+    validate_planned_asset_spec_status_transition("generating", "generated")
+    validate_planned_asset_spec_status_transition("generated", "registered")
+    validate_planned_asset_spec_status_transition("failed", "planned")
+    with pytest.raises(ValueError):
+        validate_planned_asset_spec_status_transition("draft", "registered")
+    with pytest.raises(ValueError):
+        validate_planned_asset_spec_status_transition("archived", "planned")
+
+
+def test_asset_pack_item_traces_asset_back_to_planned_spec(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    aid = uuid.uuid4()
+    pack_id = uuid.uuid4()
+    spec_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    db_session.execute(
+        insert(Asset).values(
+            id=aid,
+            org_id=org_id,
+            asset_class="clip",
+            storage_uri="s3://b/generated-from-spec",
+        ),
+    )
+    db_session.execute(
+        insert(AssetPack).values(
+            id=pack_id,
+            org_id=org_id,
+            name="Traceable kit",
+            niche="pilates",
+        ),
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(PlannedAssetSpec).values(
+            id=spec_id,
+            asset_pack_id=pack_id,
+            asset_kind="generated_clip",
+            media_type="video",
+            working_title="Form detail",
+            purpose="Reusable close-up for technique reels",
+            prompt_or_description="Close-up of controlled pilates form",
+            status="registered",
+        ),
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(AssetPackItem).values(
+            id=item_id,
+            asset_pack_id=pack_id,
+            planned_asset_spec_id=spec_id,
+            asset_id=aid,
+            asset_kind="generated_clip",
+            pack_role="technique_closeup",
+            reuse_purpose="Show intentional form detail",
+            status="generated",
+        ),
+    )
+    db_session.flush()
+    item = db_session.scalars(select(AssetPackItem).where(AssetPackItem.id == item_id)).one()
+    assert item.asset_id == aid
+    assert item.planned_asset_spec_id == spec_id
+    assert item.planned_asset_spec is not None
+    assert item.planned_asset_spec.purpose == "Reusable close-up for technique reels"

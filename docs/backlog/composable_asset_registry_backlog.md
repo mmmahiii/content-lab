@@ -305,6 +305,38 @@ apps/orchestrator/
 - Missing prerequisites are identified.
 - No later task assumes missing schema exists.
 
+**Audit result (2026-05-05):**
+
+Implemented state:
+
+- `assets` exists and has the current columns `org_id`, `asset_class`, `storage_uri`, `source`, `asset_key`, `content_hash`, `phash`, `status`, `metadata`, `embedding`, `family_id`, and `asset_key_hash`.
+- The initial `kind` column was renamed to `asset_class` in migration `0002`; there is no current `kind` column and no `media_type` column.
+- `asset_families` exists via migration `0007` and model `AssetFamily`.
+- `asset_gen_params` exists via migration `0007` and model `AssetGenParam`; the phase-1 resolver writes canonical generation params with `seq` and `asset_key_hash`.
+- `asset_usage` exists via migration `0007` and model `AssetUsage`; `run_assets` is explicitly marked legacy/operational lineage, not the preferred creative lineage table.
+- `run_assets` still exists with `asset_role`, but it is not the only lineage table.
+- Phase-1 registry resolution is implemented for exact reuse/generation intents using `asset_key_hash`, staged assets, `tasks`, and `provider_jobs`.
+- Asset storage helpers support canonical derived asset objects and filename/content-type handling for `image/png`, `image/jpeg`, `video/mp4`, and common audio types.
+- Package artifacts are represented in package payloads and object storage paths, with package routes exposing artifacts and signed downloads.
+
+Target-state gaps:
+
+- Component-aware `AssetKind` is not implemented. The current `asset_class` is a free string and does not distinguish background/object/subject/prop/final_render/package_artifact roles.
+- `MediaType` is not implemented as schema or DB state. Media type may appear in storage/package artifact payloads, but not on `assets`.
+- Transparent PNG/cut-out metadata is not first-class. It can only be placed ad hoc in `assets.metadata`; there are no typed fields such as `alpha_mode`, `has_transparency`, `mask_uri`, or `subject_bbox`.
+- Image assets are partially supported by storage and generic registry records, but the phase-1 generator path is still primarily Runway video-generation oriented and does not provide image-specific generation/registration workflows.
+- `asset_usage` exists but no production write path was found in the inspected process-reel/package flow. Later component-lineage tasks must not assume populated `asset_usage` rows.
+- Final renders and package artifacts are distinct at the storage/package layer (`reels/packages/.../final_video.mp4`, `cover.png`, manifests, traces), but they are not represented as `assets` with final/package artifact kinds.
+- Package artifacts are not first-class Asset Registry records; they live in run output/package metadata and object storage.
+- No asset-pack, planned asset spec, component compatibility, reverse-idea, composition manifest, or asset-level performance schema exists yet.
+
+Prerequisites for later tasks:
+
+- Add explicit `AssetKind` and `MediaType` vocabulary before component registry decisions.
+- Add typed image/transparency/visual metadata before relying on cut-out or layered composition filters.
+- Add or populate component-level `asset_usage` write paths before provenance/performance tasks rely on creative lineage.
+- Decide whether final renders/package artifacts should become `assets`, separate artifact records, or both before implementing package-level provenance.
+
 ---
 
 # EPIC 2 — Component-aware asset taxonomy
@@ -855,6 +887,542 @@ Generate an asset pack for "luxury mindset" with 60 assets.
 
 - Intentionality is enforced operationally.
 - Operators can stop bad/random packs before generation spend.
+
+---
+## CAR-5A-001 — Add Asset Acquisition Ladder
+
+**Objective:**  
+Add a formal acquisition decision model that decides how each planned asset should be fulfilled before generation is attempted.
+
+The system should use this ladder:
+
+1. Reuse existing ready asset from Asset Registry
+2. Reuse existing asset with transform
+3. Use operator-uploaded asset
+4. Use approved/licensed external source asset
+5. Generate new image/video asset
+6. Block or replace asset if quality, licence, or realism risk is too high
+
+**Why:**  
+Asset packs should not blindly generate every asset. The system should minimise expensive generation by reusing or importing suitable assets where possible.
+
+**Likely files:**
+
+- `packages/assets/src/content_lab_assets/acquisition.py`
+- `packages/assets/src/content_lab_assets/types.py`
+- `packages/assets/tests/`
+- `apps/api/src/content_lab_api/schemas/assets.py`
+- `apps/api/src/content_lab_api/services/`
+
+**Implementation steps:**
+
+1. Add acquisition decision types:
+   - `reuse_existing_registry_asset`
+   - `reuse_with_transform`
+   - `use_operator_uploaded_asset`
+   - `use_approved_external_asset`
+   - `generate_new_asset`
+   - `block_or_replace_asset`
+
+2. Add an acquisition decision object containing:
+   - planned asset spec id
+   - recommended acquisition path
+   - reason/rationale
+   - confidence score if available
+   - quality risk
+   - licence/source risk
+   - realism risk
+   - expected cost impact
+   - fallback path
+
+3. Add logic that evaluates planned asset specs before generation.
+
+4. Ensure generation is not the default if a suitable existing/imported asset can satisfy the need.
+
+5. Add tests for the decision ladder.
+
+**Acceptance criteria:**
+
+- Each planned asset can receive an acquisition decision before generation.
+- The system can choose reuse/import/upload instead of generation.
+- Expensive generation is only selected when justified.
+- The decision output is deterministic and test-backed.
+- The model is compatible with later AssetKey and provenance work.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+
+---
+
+## CAR-5A-002 — Add external/source asset metadata model
+
+**Objective:**  
+Add metadata fields/types required to safely represent externally sourced or operator-uploaded assets.
+
+**Why:**  
+Using online or uploaded assets can be useful, but the system must track where they came from, whether usage is allowed, and how they were imported.
+
+**Metadata to support:**
+
+- `source_type`
+- `source_provider`
+- `external_source_url`
+- `source_reference_id`
+- `licence_type`
+- `licence_notes`
+- `usage_allowed`
+- `commercial_use_allowed`
+- `attribution_required`
+- `attribution_text`
+- `imported_by`
+- `imported_at`
+- `original_content_hash`
+- `stored_asset_id`
+- `source_quality_score`
+- `source_risk_notes`
+
+**Recommended source_type values:**
+
+- `generated`
+- `operator_uploaded`
+- `approved_external_source`
+- `existing_registry_asset`
+- `derived_from_existing`
+- `package_output`
+- `unknown`
+
+**Likely files:**
+
+- `packages/assets/src/content_lab_assets/types.py`
+- `apps/api/src/content_lab_api/models/assets.py`
+- `apps/api/src/content_lab_api/schemas/assets.py`
+- `apps/api/migrations/versions/`
+- `packages/assets/tests/`
+
+**Implementation steps:**
+
+1. Add `AssetSourceType` or equivalent enum.
+
+2. Add source/provenance metadata fields or JSON schema.
+
+3. Ensure existing generated assets remain supported.
+
+4. Ensure uploaded/imported assets can be distinguished from generated assets.
+
+5. Ensure unknown or unverified source assets can be flagged.
+
+6. Add tests for source metadata validation.
+
+**Acceptance criteria:**
+
+- Assets can be identified as generated, uploaded, externally sourced, derived, or package outputs.
+- The system can store external URL/source/provider metadata where available.
+- Licence and attribution metadata can be recorded.
+- Assets with unclear usage rights can be flagged.
+- This metadata can later feed provenance and QA.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+- `cd apps/api && poetry run pytest`
+
+---
+
+## CAR-5A-003 — Add operator-uploaded asset registration path
+
+**Objective:**  
+Allow operators to register their own PNGs, images, videos, audio, and other reusable assets into the Asset Registry and asset packs.
+
+**Why:**  
+The system should not rely only on generated assets. User-provided high-quality assets can become reusable capital for future videos.
+
+**Supported upload/register asset types:**
+
+- `background_image`
+- `background_video`
+- `object_image`
+- `object_video`
+- `subject_image`
+- `subject_video`
+- `prop_image`
+- `prop_video`
+- `transparent_cutout_png`
+- `effect_image`
+- `effect_video`
+- `audio_track`
+- `sound_effect`
+- `voiceover`
+- `design_template`
+
+**Likely files:**
+
+- `apps/api/src/content_lab_api/routes/assets.py`
+- `apps/api/src/content_lab_api/schemas/assets.py`
+- `apps/api/src/content_lab_api/services/`
+- `packages/storage/src/content_lab_storage/`
+- `packages/assets/src/content_lab_assets/store.py`
+- `packages/assets/tests/`
+- `apps/api/tests/`
+
+**Implementation steps:**
+
+1. Add a registration service for operator-provided assets.
+
+2. Accept asset metadata such as:
+   - asset kind
+   - media type
+   - niche
+   - tags
+   - intended use
+   - source/licence notes
+   - transparency/compositing metadata if known
+
+3. Upload the asset bytes to canonical object storage.
+
+4. Compute and store content hash.
+
+5. Store dimensions/duration/fps metadata where possible.
+
+6. Add the asset to an asset pack if requested.
+
+7. Mark the asset as ready only after storage and metadata persistence succeeds.
+
+**Acceptance criteria:**
+
+- Operators can add reusable assets without generation.
+- Uploaded assets are stored in MinIO/S3-compatible storage.
+- Uploaded assets have content hashes and source metadata.
+- Uploaded assets can be attached to asset packs.
+- Uploaded PNGs/images/videos are first-class registry assets.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+- `cd packages/storage && poetry run pytest`
+- `cd apps/api && poetry run pytest`
+
+---
+
+## CAR-5A-004 — Add approved external asset import path
+
+**Objective:**  
+Add a controlled path for importing externally sourced assets from approved/licensed sources.
+
+**Important boundary:**  
+This is not a general internet scraper. The system must not blindly download random unlicensed images or videos.
+
+The first implementation should support manually provided, operator-approved external asset references and metadata.
+
+**Approved import examples:**
+
+- operator provides URL + licence metadata
+- operator provides source provider + asset reference
+- operator confirms usage rights
+- system downloads/imports only after approval
+- system stores imported asset in canonical object storage
+
+**Likely files:**
+
+- `apps/api/src/content_lab_api/routes/assets.py`
+- `apps/api/src/content_lab_api/schemas/assets.py`
+- `apps/api/src/content_lab_api/services/`
+- `packages/assets/src/content_lab_assets/importer.py`
+- `packages/storage/src/content_lab_storage/`
+- `packages/assets/tests/`
+- `apps/api/tests/`
+
+**Implementation steps:**
+
+1. Add external asset import request schema.
+
+2. Require source metadata:
+   - external source URL or reference
+   - source provider
+   - licence type or usage confirmation
+   - attribution requirement if known
+   - intended asset kind
+   - intended media type
+   - intended asset pack if applicable
+
+3. Validate that usage metadata has been provided.
+
+4. Download/import only through approved service logic.
+
+5. Store bytes in canonical object storage.
+
+6. Compute content hash.
+
+7. Persist source/provenance metadata.
+
+8. Attach to asset pack if requested.
+
+9. Flag asset if licence/usage data is incomplete.
+
+**Acceptance criteria:**
+
+- Externally sourced assets can be imported safely and intentionally.
+- Random untracked online assets are not treated as safe by default.
+- Imported assets are copied into canonical object storage.
+- Original source and licence metadata are preserved.
+- Imported assets can be reused like any other registry asset.
+- Imported assets can be included in asset packs.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+- `cd apps/api && poetry run pytest`
+
+---
+
+## CAR-5A-005 — Add static-vs-motion suitability decision
+
+**Objective:**  
+Add a decision rule that determines whether a planned asset can be satisfied by a static image/PNG, needs a video asset, or needs generation.
+
+**Why:**  
+Using existing PNGs/images is useful, but not every visual need can be satisfied by a static asset. Some assets require true motion or physical interaction to look realistic.
+
+**Decision rule:**
+
+If the planned asset is a prop, object, background, texture, simple visual symbol, or compositable foreground element, allow high-quality static image/PNG if suitable.
+
+If the planned asset requires true motion, physical interaction, human action, liquid movement, complex camera movement, or dynamic realism, prefer source video, generated video, or layered video asset.
+
+If a static image can be animated convincingly with transforms, allow static image plus motion transform.
+
+If static animation would look fake or low-quality, require video/generation or replace the asset spec.
+
+**Examples where static assets may be suitable:**
+
+- watch PNG
+- phone PNG
+- frying pan PNG
+- money stack PNG
+- dumbbell PNG
+- car cut-out
+- city skyline background
+- luxury room background
+- product/prop image
+- texture/effect still
+
+**Examples where motion/video may be required:**
+
+- hand stirring food
+- person walking
+- car driving through street
+- steam rising realistically
+- gym lift movement
+- liquid pouring
+- facial expression changing
+- complex physical interaction
+
+**Likely files:**
+
+- `packages/assets/src/content_lab_assets/acquisition.py`
+- `packages/assets/src/content_lab_assets/types.py`
+- `packages/assets/tests/`
+
+**Implementation steps:**
+
+1. Add motion suitability fields to planned asset specs or acquisition decisions:
+   - `requires_true_motion`
+   - `static_asset_allowed`
+   - `static_with_motion_transform_allowed`
+   - `preferred_media_type`
+   - `motion_reason`
+
+2. Add simple rule-based evaluation for static/image/video/generation suitability.
+
+3. Connect this evaluation to the acquisition ladder.
+
+4. Add tests for common examples.
+
+**Acceptance criteria:**
+
+- The system does not use static PNGs where true motion is required.
+- The system can use static PNGs/images where they are appropriate.
+- The system can recommend video/generation for dynamic assets.
+- The decision is recorded and explainable.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+
+---
+
+## CAR-5A-006 — Connect source-first acquisition to Asset Pack creation
+
+**Objective:**  
+Modify Asset Pack creation so planned assets are fulfilled through the acquisition ladder before new generation is requested.
+
+**Why:**  
+Asset packs should be intentional and cost-efficient. If an asset can be reused, uploaded, or imported, the system should not generate it unnecessarily.
+
+**Flow:**
+
+asset_pack_plan  
+→ planned_asset_specs  
+→ acquisition decision per planned asset  
+→ reuse/import/upload/generate/block  
+→ registered pack assets
+
+**Implementation steps:**
+
+1. For each planned asset spec, run source-first acquisition.
+
+2. Search existing Asset Registry first.
+
+3. Check user-provided/uploaded assets if available.
+
+4. Allow approved external source import where provided.
+
+5. Generate only if reuse/import/upload is not suitable.
+
+6. Record the decision and rationale.
+
+7. Add selected/generated/imported asset to the asset pack.
+
+8. Keep pack creation observable through runs/tasks where applicable.
+
+**Acceptance criteria:**
+
+- Asset Pack creation no longer assumes all assets need generation.
+- Reuse/import/upload decisions are visible and explainable.
+- New generation is reduced where suitable existing/source assets exist.
+- Pack assets still end up as normal ready assets in the registry.
+- The system remains compatible with later component-aware AssetKey work.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+- `cd apps/api && poetry run pytest`
+
+---
+
+## CAR-5A-007 — Add source-first provenance requirements
+
+**Objective:**  
+Ensure all reused, uploaded, imported, and generated assets can be explained in provenance.
+
+**Why:**  
+If the system uses external or uploaded assets, the final package must still be traceable and trustworthy.
+
+**Provenance must record:**
+
+- `asset_id`
+- `asset_kind`
+- `media_type`
+- `source_type`
+- `source_provider`
+- `external_source_url` or reference if available
+- `licence_type`
+- `usage_allowed`
+- `attribution_required`
+- `attribution_text`
+- `original_content_hash`
+- `stored_content_hash`
+- `derived_from_asset_id` if applicable
+- `imported_at`
+- generation/provider params if generated
+- transform recipe if transformed
+- `used_in_reel_id`
+- `used_as_component_role`
+
+**Implementation steps:**
+
+1. Extend asset provenance payloads to include source-first metadata.
+
+2. Ensure uploaded/imported assets are included in final package provenance.
+
+3. Ensure externally sourced assets include attribution data where required.
+
+4. Ensure missing/unclear licence metadata can be surfaced as QA warning/failure later.
+
+5. Add tests for provenance payloads across generated, uploaded, imported, and derived assets.
+
+**Acceptance criteria:**
+
+- Provenance works for generated assets.
+- Provenance works for uploaded assets.
+- Provenance works for approved external source assets.
+- Provenance works for derived/transformed assets.
+- Final package provenance can explain where every component came from.
+
+**Tests:**
+
+- `cd packages/assets && poetry run pytest`
+- `cd packages/qa && poetry run pytest`
+
+---
+
+## CAR-5A-008 — Add licence/source QA gate placeholder
+
+**Objective:**  
+Add a basic QA gate or placeholder decision surface for checking whether sourced/imported assets have sufficient usage metadata before packaging.
+
+**Why:**  
+The system should not package outputs using unverified external assets without at least warning or blocking depending on policy.
+
+**Phase-1 behaviour:**
+
+- generated asset → pass
+- operator uploaded with usage confirmation → pass or warn
+- approved external asset with licence metadata → pass
+- external asset missing usage metadata → warn or fail depending on policy
+- unknown source → warn or fail depending on policy
+
+**Likely files:**
+
+- `packages/qa/src/content_lab_qa/source_rights.py`
+- `packages/qa/tests/`
+- `packages/assets/src/content_lab_assets/types.py`
+
+**Implementation steps:**
+
+1. Add a source-rights QA result type.
+
+2. Check source_type and licence metadata.
+
+3. Return pass/warn/fail.
+
+4. Keep the first implementation simple and policy-driven.
+
+5. Do not attempt full legal interpretation.
+
+6. Add tests for generated, uploaded, approved external, and unknown source assets.
+
+**Acceptance criteria:**
+
+- Unknown/unverified external assets do not silently pass.
+- Source/licence metadata can be surfaced before package readiness.
+- QA remains simple and extensible.
+- The system does not pretend to provide legal clearance.
+
+**Tests:**
+
+- `cd packages/qa && poetry run pytest`
+
+---
+
+## Final outcome of EPIC 5A
+
+After this epic, the system has a source-first acquisition layer.
+
+Asset Pack creation can now fulfil planned assets through:
+
+- reuse existing asset
+- reuse with transform
+- operator upload
+- approved external source import
+- new generation
+- block/replace
+
+This means the system no longer wastes generation budget on assets that can be safely reused, uploaded, or imported.
+
+The system can now support high-quality existing PNGs/images/videos as reusable assets while still choosing generated video when motion, specificity, style consistency, or realism requires it.
+
+This epic must be completed before finalising component-level AssetKey and registry resolution in EPIC 6, because AssetKey, provenance, and lineage need to understand whether an asset is generated, uploaded, imported, reused, or derived.
 
 ---
 

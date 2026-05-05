@@ -12,17 +12,24 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import Table
 
-from content_lab_api.models import Asset, OutboxEvent, Run
+from content_lab_api.models import (
+    Asset,
+    AssetPack,
+    AssetPackItem,
+    OutboxEvent,
+    PlannedAssetSpec,
+    Run,
+)
 
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_alembic_single_head_is_0009() -> None:
-    """Migration smoke: revision graph loads and head is 0009."""
+def test_alembic_single_head_is_0012() -> None:
+    """Migration smoke: revision graph loads and head is 0012."""
     cfg = Config(str(API_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["0009"]
+    assert heads == ["0012"]
 
 
 def test_alembic_down_revision_chain() -> None:
@@ -34,6 +41,15 @@ def test_alembic_down_revision_chain() -> None:
     rev3 = script.get_revision("0003")
     assert rev3 is not None
     assert rev3.down_revision == "0002"
+    rev10 = script.get_revision("0010")
+    assert rev10 is not None
+    assert rev10.down_revision == "0009"
+    rev11 = script.get_revision("0011")
+    assert rev11 is not None
+    assert rev11.down_revision == "0010"
+    rev12 = script.get_revision("0012")
+    assert rev12 is not None
+    assert rev12.down_revision == "0011"
 
 
 def _partial_unique_index_names(table: Table) -> set[str]:
@@ -75,6 +91,51 @@ def test_asset_default_field_values() -> None:
     assert asset.phash is None
 
 
+def test_asset_pack_default_field_values() -> None:
+    org_id = uuid.uuid4()
+    pack = AssetPack(org_id=org_id, name="Fitness hooks", niche="fitness")
+    assert pack.status == "draft"
+    assert pack.requested_asset_count == 0
+    assert pack.purpose is None
+    assert pack.target_audience is None
+    assert pack.asset_mix_requested_json is None
+    assert pack.asset_mix_final_json is None
+    assert pack.strategy_summary is None
+
+
+def test_asset_pack_item_default_field_values() -> None:
+    pack_id = uuid.uuid4()
+    item = AssetPackItem(
+        asset_pack_id=pack_id,
+        asset_kind="generated_clip",
+        pack_role="background_b_roll",
+    )
+    assert item.asset_id is None
+    assert item.planned_asset_spec_id is None
+    assert item.reuse_purpose is None
+    assert item.priority == 0
+    assert item.status == "planned"
+    assert item.metadata_json == {}
+
+
+def test_planned_asset_spec_default_field_values() -> None:
+    pack_id = uuid.uuid4()
+    spec = PlannedAssetSpec(
+        asset_pack_id=pack_id,
+        asset_kind="generated_clip",
+        media_type="video",
+        working_title="Mat opener",
+        purpose="Reusable opening shot",
+        prompt_or_description="A calm mat pilates opening shot",
+    )
+    assert spec.required_traits == {}
+    assert spec.compatible_with == {}
+    assert spec.intended_reel_formats == []
+    assert spec.priority == 0
+    assert spec.estimated_reuse_count == 0
+    assert spec.status == "draft"
+
+
 def test_asset_key_column_uses_text_storage() -> None:
     asset_key_column = cast(Table, Asset.__table__).c.asset_key
     assert asset_key_column.type.__class__.__name__ == "Text"
@@ -109,6 +170,8 @@ def test_outbox_default_field_values() -> None:
     "module_path",
     [
         "migrations.versions.0004_expand_operational_tables",
+        "migrations.versions.0010_asset_packs",
+        "migrations.versions.0011_planned_asset_specs",
     ],
 )
 def test_migration_module_defines_expected_revisions(module_path: str) -> None:
@@ -123,5 +186,10 @@ def test_migration_module_defines_expected_revisions(module_path: str) -> None:
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.revision == "0004"
-    assert module.down_revision == "0003"
+    expected = {
+        "0004_expand_operational_tables": ("0004", "0003"),
+        "0010_asset_packs": ("0010", "0009"),
+        "0011_planned_asset_specs": ("0011", "0010"),
+    }
+    assert module.revision == expected[mod_name][0]
+    assert module.down_revision == expected[mod_name][1]

@@ -5,13 +5,18 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from content_lab_assets.registry import (
+    AssetKind,
+    AssetSource,
     BlockedDecision,
     GenerateDecision,
+    MediaType,
     ReuseExactDecision,
     ReuseWithTransformDecision,
+    infer_media_type_for_asset_kind,
+    validate_asset_kind_media_type,
 )
 
 
@@ -30,6 +35,9 @@ class AssetResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     asset_class: str = Field(min_length=1, max_length=64)
+    asset_kind: AssetKind = AssetKind.GENERATED_CLIP
+    media_type: MediaType | None = None
+    asset_source: AssetSource = AssetSource.GENERATED
     provider: str = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=64)
     prompt: str = Field(min_length=1, max_length=4000)
@@ -42,6 +50,17 @@ class AssetResolveRequest(BaseModel):
     init_image_hash: str | None = Field(default=None, max_length=128)
     reference_asset_ids: list[uuid.UUID] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_media_type(self) -> AssetResolveRequest:
+        if self.media_type is None:
+            self.media_type = infer_media_type_for_asset_kind(self.asset_kind)
+            return self
+        self.media_type = validate_asset_kind_media_type(
+            asset_kind=self.asset_kind,
+            media_type=self.media_type,
+        )
+        return self
 
     @field_validator("asset_class", mode="before")
     @classmethod
