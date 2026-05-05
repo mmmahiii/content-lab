@@ -602,6 +602,87 @@ dd {
   overflow-wrap: anywhere;
 }
 
+.artifact-readable {
+  display: grid;
+  gap: 12px;
+  min-height: 320px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+}
+
+.artifact-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.artifact-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.artifact-field-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.artifact-field-heading h4 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.artifact-field-heading span,
+.artifact-muted {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.artifact-list > li {
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.artifact-value,
+.artifact-prose {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.artifact-prose {
+  display: grid;
+  gap: 8px;
+}
+
+.artifact-prose p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .empty-state {
   display: grid;
   place-items: center;

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 
 const ORG_ID = '7d3d7599-820e-4c8d-9c74-3d3b6d6f2785';
 
@@ -292,6 +292,53 @@ function formatDate(value: string | null | undefined): string {
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function parseArtifactText(value: string): unknown {
+  if (!value.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function humanizeKey(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function scalarText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'Not recorded';
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : 'Not recorded';
+  }
+  return String(value);
+}
+
+function artifactSummary(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return 'Not recorded';
+  }
+  if (Array.isArray(value)) {
+    return `${value.length} item${value.length === 1 ? '' : 's'}`;
+  }
+  if (typeof value === 'object') {
+    const count = Object.keys(value).length;
+    return `${count} field${count === 1 ? '' : 's'}`;
+  }
+  return null;
 }
 
 function stepOutput(run: RunRecord | null, step: string): Record<string, unknown> | null {
@@ -1415,6 +1462,11 @@ function ArtifactViewer({
   artifactTextStatus: string;
   copyArtifactText: () => void;
 }) {
+  const structuredContent =
+    activeTab !== 'raw' && activeTab !== 'video' && activeTab !== 'cover'
+      ? parseArtifactText(artifactText || artifactTextStatus)
+      : null;
+
   return (
     <div className="artifact-viewer">
       <div className="tabs" role="tablist" aria-label="Package artifacts">
@@ -1462,12 +1514,82 @@ function ArtifactViewer({
       ) : null}
 
       {activeTab !== 'video' && activeTab !== 'cover' ? (
-        <pre className="artifact-code">
-          {artifactText || artifactTextStatus || formatJson(packageDetail ?? run?.output_payload ?? run)}
-        </pre>
+        activeTab === 'raw' ? (
+          <pre className="artifact-code">
+            {artifactText || artifactTextStatus || formatJson(packageDetail ?? run?.output_payload ?? run)}
+          </pre>
+        ) : (
+          <StructuredArtifactContent value={structuredContent} />
+        )
       ) : null}
     </div>
   );
+}
+
+function StructuredArtifactContent({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === '') {
+    return <div className="empty-state">No content recorded for this view.</div>;
+  }
+
+  return <div className="artifact-readable">{renderArtifactValue(value, 'artifact-root')}</div>;
+}
+
+function renderArtifactValue(value: unknown, keyPrefix: string): ReactNode {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="artifact-muted">No items recorded</span>;
+    }
+
+    return (
+      <ol className="artifact-list">
+        {value.map((item, index) => (
+          <li key={`${keyPrefix}-${index}`}>{renderArtifactValue(item, `${keyPrefix}-${index}`)}</li>
+        ))}
+      </ol>
+    );
+  }
+
+  const record = asRecord(value);
+  if (record) {
+    const entries = Object.entries(record);
+    if (entries.length === 0) {
+      return <span className="artifact-muted">No fields recorded</span>;
+    }
+
+    return (
+      <div className="artifact-fields">
+        {entries.map(([key, item]) => {
+          const summary = artifactSummary(item);
+          return (
+            <section className="artifact-field" key={`${keyPrefix}-${key}`}>
+              <div className="artifact-field-heading">
+                <h4>{humanizeKey(key)}</h4>
+                {summary ? <span>{summary}</span> : null}
+              </div>
+              {renderArtifactValue(item, `${keyPrefix}-${key}`)}
+            </section>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const text = scalarText(value);
+  if (text.includes('\n')) {
+    return (
+      <div className="artifact-prose">
+        {text
+          .split(/\n{2,}/)
+          .map((paragraph) => paragraph.trim())
+          .filter(Boolean)
+          .map((paragraph, index) => (
+            <p key={`${keyPrefix}-${index}`}>{paragraph}</p>
+          ))}
+      </div>
+    );
+  }
+
+  return <span className="artifact-value">{text}</span>;
 }
 
 function PolicyEditor({
