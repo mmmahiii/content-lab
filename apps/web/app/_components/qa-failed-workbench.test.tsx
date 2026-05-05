@@ -19,7 +19,7 @@ describe('QaFailedWorkbench', () => {
           {
             id: 'reel-1',
             pageId: 'page-1',
-            pageName: 'Demo page',
+            pageName: 'QA page',
             variantLabel: 'Variant A',
             qaFailureClass: 'semantic',
             qaFailureGates: ['Semantic script'],
@@ -33,7 +33,7 @@ describe('QaFailedWorkbench', () => {
     expect(markup).toContain('/queue?qaFailure=semantic');
     expect(markup).toContain('/queue?qaFailure=technical');
     expect(markup).toContain('Variant A');
-    expect(markup).toContain('Demo page');
+    expect(markup).toContain('QA page');
     expect(markup).toContain('Failing gates');
   });
 });

@@ -18,6 +18,11 @@ These rules exist to keep the codebase coherent, secure, and testable when using
 - Every new endpoint: request validation + at least one unit test.
 - Every new workflow step: idempotency + retries + at least one unit test.
 - Any bug fix: add a regression test.
+- If the bug matches a previously fixed failure class, add that test to
+  `scripts/verify-regressions.ps1` and `scripts/verify-regressions.sh` or document
+  the required heavier E2E check in `docs/REGRESSION_GUARDRAILS.md`.
+- Before marking a historical bug fixed, run the relevant regression gate and report
+  the exact command in the verification notes.
 
 ## Determinism + idempotency
 - All expensive external calls must have idempotency keys.

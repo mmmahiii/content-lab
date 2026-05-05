@@ -2,7 +2,7 @@ import Link from 'next/link';
 import React from 'react';
 
 import { LinkAction } from './detail-ui';
-import { demoIds, packagePath, reelPath } from '../_lib/content-lab-data';
+import { packagePath, reelPath } from '../_lib/operator-routes';
 import type { QaFailureClass, QaFailureFilter } from '../_lib/qa-failure-triage';
 import { QaFailureClassBadge, QaFailureGatesSummary } from './qa-failure-badge';
 
@@ -57,7 +57,6 @@ export function QaFailedWorkbench({
   activeFilter: QaFailureFilter;
   rows: QaWorkbenchRow[];
 }): React.ReactElement {
-  const scopedOrgId = orgId ?? demoIds.orgId;
   const summaryCounts = rows.reduce(
     (acc, row) => {
       acc[row.qaFailureClass] += 1;
@@ -132,9 +131,11 @@ export function QaFailedWorkbench({
                 </td>
                 <td>
                   <div className="cl-button-row">
-                    <LinkAction href={reelPath(scopedOrgId, row.pageId, row.id)} label="Reel detail" />
-                    {row.lastRunId ? (
-                      <LinkAction href={packagePath(scopedOrgId, row.lastRunId)} label="Package" tone="secondary" />
+                    {orgId ? (
+                      <LinkAction href={reelPath(orgId, row.pageId, row.id)} label="Reel detail" />
+                    ) : null}
+                    {orgId && row.lastRunId ? (
+                      <LinkAction href={packagePath(orgId, row.lastRunId)} label="Package" tone="secondary" />
                     ) : null}
                   </div>
                 </td>

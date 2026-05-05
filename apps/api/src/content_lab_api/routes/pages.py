@@ -6,14 +6,18 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import insert
+from sqlalchemy import func, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.models.audit_log import AuditLog
 from content_lab_api.models.org import Org
+from content_lab_api.models.outbox import OutboxEvent
 from content_lab_api.models.page import Page, PageKind
+from content_lab_api.models.policy_state import PolicyState
+from content_lab_api.models.run import Run
+from content_lab_api.models.task import Task
 from content_lab_api.schemas.pages import (
     PageCreate,
     PageOut,
@@ -204,6 +208,28 @@ def delete_page(
             "handle": page.handle,
         },
     )
+    page_id_value = str(page_id)
+    page_run_ids = [
+        row.id
+        for row in db.query(Run.id)
+        .filter(
+            Run.org_id == org_id,
+            func.jsonb_extract_path_text(Run.input_params, "page_id") == page_id_value,
+        )
+        .all()
+    ]
+    if page_run_ids:
+        db.query(Task).filter(Task.run_id.in_(page_run_ids)).delete(synchronize_session=False)
+        db.query(OutboxEvent).filter(
+            OutboxEvent.org_id == org_id,
+            OutboxEvent.aggregate_type == "run",
+            OutboxEvent.aggregate_id.in_([str(run_id) for run_id in page_run_ids]),
+        ).delete(synchronize_session=False)
+        db.query(Run).filter(Run.id.in_(page_run_ids)).delete(synchronize_session=False)
+    db.query(PolicyState).filter(
+        PolicyState.org_id == org_id,
+        PolicyState.policy_key == f"page:{page_id}",
+    ).delete(synchronize_session=False)
     db.delete(page)
     db.commit()
     return {"deleted": True}

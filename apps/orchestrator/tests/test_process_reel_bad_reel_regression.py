@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from content_lab_editing import build_timeline_render_trace
 
 from content_lab_api.services import ProcessReelExecution, ProcessReelQAResult
 from content_lab_core.types import QAVerdict
@@ -81,7 +82,7 @@ def _execution_for_bundle(*, case_id: str) -> ProcessReelExecution:
     editing["cover_frame_timestamp_seconds"] = float(
         editing.get("cover_frame_timestamp_seconds") or 0.0
     )
-    editing["timeline"] = {
+    timeline = {
         "version": "med-001.v1",
         "timeline_id": f"timeline-{case_id}",
         "duration_seconds": duration,
@@ -125,6 +126,25 @@ def _execution_for_bundle(*, case_id: str) -> ProcessReelExecution:
             }
         ],
     }
+    editing["timeline"] = timeline
+    editing["timeline_render_trace"] = build_timeline_render_trace(
+        canonical_timeline=timeline,
+        final_video_duration_seconds=duration,
+        final_video_width=1080,
+        final_video_height=1920,
+        final_video_fps=24.0,
+        final_video_path_or_uri="memory://final_video.mp4",
+        final_video_has_video_stream=True,
+        final_video_has_audio_stream=True,
+        final_audio_duration_seconds=duration,
+        final_video_codec="h264",
+        final_audio_codec="aac",
+        source_asset_duration_seconds=duration,
+        source_path_or_uri="memory://source.mp4",
+        creative_duration_seconds=duration,
+        editing_duration_seconds=duration,
+        cover_timestamp_seconds=float(editing["cover_frame_timestamp_seconds"]),
+    )
     return ProcessReelExecution(
         reel_id="00000000-0000-4000-8000-000000000001",
         org_id="00000000-0000-4000-8000-000000000002",
@@ -140,10 +160,10 @@ def _execution_for_bundle(*, case_id: str) -> ProcessReelExecution:
     )
 
 
-def test_process_reel_qa_fails_on_semantic_drift_with_technical_format_patched(
+def test_process_reel_qa_warns_on_semantic_drift_with_technical_format_patched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With format/repetition treated as technical passes, bad-output drift must still fail QA."""
+    """Semantic drift must remain visible without killing an otherwise usable package."""
 
     monkeypatch.setattr(
         _process_reel_module,
@@ -161,9 +181,11 @@ def test_process_reel_qa_fails_on_semantic_drift_with_technical_format_patched(
     executor._repetition_history_store = None
     result = PhaseOneProcessReelExecutor.run_qa(executor, ex)
     assert isinstance(result, ProcessReelQAResult)
-    assert result.passed is False
+    assert result.passed is True
     details = result.as_payload()
-    assert details.get("verdict") == "fail"
+    assert details.get("verdict") == "warn"
+    assert details.get("blocking_failures") == []
+    assert details.get("advisory_failures")
     align = details.get("alignment", {})
     assert align.get("verdict") == "fail"
 

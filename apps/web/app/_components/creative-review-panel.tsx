@@ -10,7 +10,7 @@ import type {
 } from '@shared/types';
 
 import { ExternalAction, JsonPanel, LinkAction, MetaGrid, SectionCard } from './detail-ui';
-import { packagePath, reelPath, runPath } from '../_lib/content-lab-data';
+import { packagePath, reelPath, runPath } from '../_lib/operator-routes';
 
 type TabId = 'overview' | 'brief' | 'scene' | 'prompt' | 'qa' | 'package';
 

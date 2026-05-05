@@ -319,6 +319,50 @@ def build_canonical_timeline(
     return timeline
 
 
+def resolve_stable_cover_timestamp(
+    *,
+    duration_seconds: float,
+    scenes: Sequence[Mapping[str, Any]] | None = None,
+    preferred_timestamp_seconds: float = 0.5,
+    min_hold_seconds: float = 0.25,
+) -> float:
+    """Choose a cover timestamp inside a valid, visually stable scene window."""
+
+    duration = max(float(duration_seconds), 0.0)
+    if duration == 0.0:
+        return 0.0
+    preferred = min(max(float(preferred_timestamp_seconds), 0.0), max(duration - 0.001, 0.0))
+    for scene in scenes or ():
+        start = _read_float(scene, "start_seconds")
+        end = _read_float(scene, "end_seconds")
+        if start is None or end is None or end <= start:
+            continue
+        safe_start = start + min_hold_seconds
+        safe_end = end - min_hold_seconds
+        if safe_start <= preferred <= safe_end:
+            return round(preferred, 3)
+    if scenes:
+        first_stable = scenes[0]
+        for scene in scenes:
+            start = _read_float(scene, "start_seconds") or 0.0
+            end = _read_float(scene, "end_seconds") or duration
+            if end - start >= min_hold_seconds * 2:
+                first_stable = scene
+                break
+        start = _read_float(first_stable, "start_seconds") or 0.0
+        end = _read_float(first_stable, "end_seconds") or duration
+        midpoint = start + max((end - start) / 2.0, 0.0)
+        return round(min(max(midpoint, 0.0), max(duration - 0.001, 0.0)), 3)
+    return round(preferred, 3)
+
+
+def infer_edit_mode(scene_plan: Mapping[str, Any]) -> Literal["single_clip", "scene_composed"]:
+    scenes = scene_plan.get("scenes")
+    if isinstance(scenes, list) and len(scenes) > 1:
+        return "scene_composed"
+    return "single_clip"
+
+
 def _read_float(payload: Mapping[str, Any], *keys: str) -> float | None:
     for key in keys:
         value: object = payload.get(key)
@@ -383,4 +427,6 @@ __all__ = [
     "DEFAULT_AUDIO_FADE_IN_SECONDS",
     "DEFAULT_AUDIO_FADE_OUT_SECONDS",
     "build_canonical_timeline",
+    "infer_edit_mode",
+    "resolve_stable_cover_timestamp",
 ]

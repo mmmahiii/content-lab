@@ -43,5 +43,5 @@ class Page(Base):
     )
 
     reel_families: Mapped[list[ReelFamily]] = relationship(
-        "ReelFamily", back_populates="page", init=False, default_factory=list
+        "ReelFamily", back_populates="page", init=False, default_factory=list, passive_deletes=True
     )

@@ -31,6 +31,7 @@ from content_lab_assets.providers.runway import (
 )
 from content_lab_creative import (
     DirectorPlanInput,
+    GeneratedScriptOutput,
     PageMetadata,
     PolicyStateDocument,
     PostingPlanFamilyContext,
@@ -45,10 +46,18 @@ from content_lab_creative import (
     plan_creative_brief,
 )
 from content_lab_creative.script_generator import ScriptGenerator, ScriptGeneratorPathLike
+from content_lab_creative.types import (
+    CaptionVariant,
+    CaptionVariantName,
+    OverlayCue,
+    ScriptBeat,
+    ScriptOverlayEmphasis,
+)
 from content_lab_editing import (
     build_canonical_timeline,
     build_overlay_render_manifest_for_qa,
     build_ready_to_post_package,
+    build_timeline_render_trace,
     render_basic_vertical_edit,
 )
 from content_lab_outbox import (
@@ -88,6 +97,7 @@ from content_lab_qa import (
     evaluate_repetition,
     evaluate_semantic_script,
     evaluate_timeline_timing_qa,
+    qa_result_blocks_readiness,
     validate_caption_meta_language,
 )
 from content_lab_runs import TaskRowSpec, TaskStatus
@@ -227,6 +237,7 @@ class PhaseOnePlanningContext:
     locale: str
     policy: PolicyStateDocument
     duration_seconds: int = _DEFAULT_REEL_DURATION_SECONDS
+    source_plan: dict[str, Any] | None = None
 
 
 class SQLProcessReelPlanningContextLoader:
@@ -256,7 +267,12 @@ class SQLProcessReelPlanningContextLoader:
             effective_policy = PolicyStateDocument.model_validate(
                 bundle.effective_policy.model_dump(mode="json")
             )
-            family_mode = _optional_text(family.metadata_.get("mode")) or "explore"
+            family_metadata = cast(dict[str, Any], family.metadata_ or {})
+            reel_metadata = cast(dict[str, Any], reel.metadata_ or {})
+            source_plan = _mapping(reel_metadata.get("idea_plan")) or _mapping(
+                family_metadata.get("idea_plan")
+            )
+            family_mode = _optional_text(family_metadata.get("mode")) or "explore"
             policy = _policy_with_family_mode(effective_policy, family_mode=family_mode)
             page_metadata = parse_page_metadata(cast(dict[str, Any], page.metadata_ or {}))
 
@@ -274,9 +290,10 @@ class SQLProcessReelPlanningContextLoader:
                 or "en",
                 policy=policy,
                 duration_seconds=_coerce_positive_int(
-                    cast(dict[str, Any], reel.metadata_ or {}).get("duration_seconds"),
+                    reel_metadata.get("duration_seconds"),
                     default=_DEFAULT_REEL_DURATION_SECONDS,
                 ),
+                source_plan=source_plan or None,
             )
 
 
@@ -485,6 +502,358 @@ class SQLProcessReelEventSink:
             }
 
 
+def _brief_payload_from_source_plan(
+    *,
+    brief_payload: dict[str, Any],
+    source_plan: Mapping[str, Any],
+    context: PhaseOnePlanningContext,
+    max_duration_seconds: int,
+) -> dict[str, Any]:
+    title = _fit_text(
+        _optional_text(source_plan.get("title")) or context.family_name,
+        max_chars=200,
+    )
+    angle = _fit_text(
+        _optional_text(source_plan.get("angle"))
+        or _optional_text(brief_payload.get("narrative_goal"))
+        or f"Create a practical short-form package for {context.page_name}.",
+        max_chars=280,
+    )
+    content_pillar = _fit_text(
+        _optional_text(source_plan.get("content_pillar")) or title,
+        max_chars=160,
+    )
+    next_payload = dict(brief_payload)
+    next_payload.update(
+        {
+            "title": title,
+            "description": angle,
+            "content_pillar": content_pillar,
+            "narrative_goal": _viewer_facing_copy(angle),
+            "primary_call_to_action": _plan_primary_cta(source_plan),
+            "duration_seconds": _source_plan_duration_seconds(
+                source_plan,
+                default=context.duration_seconds,
+                max_duration_seconds=max_duration_seconds,
+            ),
+            "source_plan": dict(source_plan),
+        }
+    )
+    tags = [str(tag) for tag in next_payload.get("tags", []) if str(tag).strip()]
+    next_payload["tags"] = tags
+    return next_payload
+
+
+def _script_from_source_plan(
+    *,
+    source_plan: Mapping[str, Any],
+    brief_payload: Mapping[str, Any],
+    context: PhaseOnePlanningContext,
+) -> GeneratedScriptOutput:
+    duration_seconds = int(brief_payload["duration_seconds"])
+    hook_text = _fit_text(
+        _optional_text(source_plan.get("hook"))
+        or f"What makes {context.page_name} worth following this week?",
+        max_chars=200,
+    )
+    spoken_lines = _source_plan_spoken_lines(source_plan, hook_text=hook_text)
+    spoken_script = _source_plan_spoken_script(
+        source_plan=source_plan,
+        lines=spoken_lines,
+        duration_seconds=duration_seconds,
+    )
+    overlay_timeline = _source_plan_overlays(
+        source_plan=source_plan,
+        hook_text=hook_text,
+        spoken_script=spoken_script,
+    )
+    hashtags = _source_plan_hashtags(
+        page_name=context.page_name,
+        title=_required_text(brief_payload.get("title"), field_name="brief.title"),
+    )
+    return GeneratedScriptOutput(
+        provider_name="source_plan",
+        generator_path="idea_plan",
+        generation_metadata={
+            "generator_path": "idea_plan",
+            "fallback": False,
+            "strategy": "saved_idea_plan_v1",
+            "plan_title": brief_payload.get("title"),
+        },
+        brief_title=_required_text(brief_payload.get("title"), field_name="brief.title"),
+        duration_seconds=duration_seconds,
+        hook_text=hook_text,
+        spoken_script=spoken_script,
+        overlay_timeline=overlay_timeline,
+        caption_variants=_source_plan_caption_variants(
+            source_plan=source_plan,
+            hook_text=hook_text,
+            title=_required_text(brief_payload.get("title"), field_name="brief.title"),
+            angle=_required_text(
+                brief_payload.get("narrative_goal"),
+                field_name="brief.narrative_goal",
+            ),
+            hashtags=hashtags,
+            page_name=context.page_name,
+        ),
+        hashtags=hashtags,
+        pinned_comments=[],
+    )
+
+
+def _source_plan_spoken_lines(source_plan: Mapping[str, Any], *, hook_text: str) -> list[str]:
+    beats = _source_plan_beats(source_plan)
+    if not beats:
+        return [
+            _viewer_facing_copy(hook_text),
+            "Try one useful shift today.",
+            _viewer_facing_copy(_plan_primary_cta(source_plan) or "Try the next step today."),
+        ]
+
+    lines: list[str] = []
+    for index, beat in enumerate(beats):
+        beat_text = _required_text(beat.get("text"), field_name=f"source_plan.beats[{index}].text")
+        line = hook_text if index == 0 else beat_text
+        lines.append(_fit_text(_viewer_facing_copy(line), max_chars=280))
+    return lines
+
+
+def _source_plan_spoken_script(
+    *,
+    source_plan: Mapping[str, Any],
+    lines: list[str],
+    duration_seconds: int,
+) -> list[ScriptBeat]:
+    durations = _source_plan_beat_durations(source_plan, count=len(lines), total=duration_seconds)
+    beats: list[ScriptBeat] = []
+    cursor = 0
+    for index, line in enumerate(lines):
+        next_cursor = duration_seconds if index == len(lines) - 1 else cursor + durations[index]
+        beats.append(
+            ScriptBeat(
+                start_seconds=cursor,
+                end_seconds=next_cursor,
+                narration=line,
+                shot_direction=_source_plan_shot_direction(index, len(lines)),
+            )
+        )
+        cursor = next_cursor
+    return beats
+
+
+def _source_plan_overlays(
+    *,
+    source_plan: Mapping[str, Any],
+    hook_text: str,
+    spoken_script: list[ScriptBeat],
+) -> list[OverlayCue]:
+    hook_overlay = _viewer_facing_copy(hook_text)
+    value_overlay = _source_plan_value_overlay(source_plan)
+    cta_overlay = _source_plan_cta_overlay(source_plan)
+    overlays: list[OverlayCue] = []
+    for index, beat in enumerate(spoken_script):
+        if index == 0:
+            emphasis = ScriptOverlayEmphasis.HOOK
+            text = hook_overlay
+        elif index == len(spoken_script) - 1:
+            emphasis = ScriptOverlayEmphasis.CTA
+            text = cta_overlay
+        else:
+            emphasis = ScriptOverlayEmphasis.VALUE
+            text = value_overlay
+        overlays.append(
+            OverlayCue(
+                start_seconds=beat.start_seconds,
+                end_seconds=beat.end_seconds,
+                text=text,
+                emphasis=emphasis,
+            )
+        )
+    return overlays
+
+
+def _source_plan_value_overlay(source_plan: Mapping[str, Any]) -> str:
+    beats = _source_plan_beats(source_plan)
+    for beat in beats[1:-1] or beats[1:]:
+        label = (_optional_text(beat.get("label")) or "").lower()
+        if label in {"proof", "value", "shift"}:
+            return "Useful shift"
+        if label in {"example", "principle"}:
+            return "Practical example"
+    return "Useful shift"
+
+
+def _source_plan_cta_overlay(source_plan: Mapping[str, Any]) -> str:
+    beats = _source_plan_beats(source_plan)
+    if beats:
+        label = (_optional_text(beats[-1].get("label")) or "").lower()
+        if label in {"action", "cta", "close"}:
+            return "One concrete next step"
+    return "Try one next step"
+
+
+def _source_plan_caption_variants(
+    *,
+    source_plan: Mapping[str, Any],
+    hook_text: str,
+    title: str,
+    angle: str,
+    hashtags: list[str],
+    page_name: str,
+) -> list[CaptionVariant]:
+    raw_caption_angles = source_plan.get("caption_angles")
+    caption_angles = (
+        [str(item).strip() for item in raw_caption_angles if str(item).strip()]
+        if isinstance(raw_caption_angles, list)
+        else []
+    )
+    short = _viewer_facing_copy(caption_angles[0] if caption_angles else hook_text)
+    standard_tail = _viewer_facing_copy(caption_angles[1] if len(caption_angles) > 1 else angle)
+    engagement = _viewer_facing_copy(caption_angles[2] if len(caption_angles) > 2 else hook_text)
+    return [
+        CaptionVariant(
+            variant=CaptionVariantName.SHORT,
+            text=_fit_text(short, max_chars=2_200),
+        ),
+        CaptionVariant(
+            variant=CaptionVariantName.STANDARD,
+            text=_fit_text(
+                f"{page_name}: {_viewer_facing_copy(angle)} {standard_tail} {' '.join(hashtags)}",
+                max_chars=2_200,
+            ),
+        ),
+        CaptionVariant(
+            variant=CaptionVariantName.ENGAGEMENT,
+            text=_fit_text(f"{engagement} {hook_text}", max_chars=2_200),
+        ),
+    ]
+
+
+def _source_plan_beats(source_plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw_beats = source_plan.get("beats")
+    if not isinstance(raw_beats, list):
+        return []
+    return [
+        dict(beat)
+        for beat in raw_beats
+        if isinstance(beat, Mapping) and _optional_text(beat.get("text")) is not None
+    ]
+
+
+def _source_plan_beat_durations(
+    source_plan: Mapping[str, Any],
+    *,
+    count: int,
+    total: int,
+) -> list[int]:
+    beats = _source_plan_beats(source_plan)
+    durations: list[int] = []
+    for beat in beats[:count]:
+        try:
+            seconds = int(beat.get("seconds") or 0)
+        except (TypeError, ValueError):
+            seconds = 0
+        if seconds > 0:
+            durations.append(seconds)
+    if len(durations) != count or sum(durations) <= 0:
+        return _even_durations(total=total, count=count)
+    delta = total - sum(durations)
+    durations[-1] = max(1, durations[-1] + delta)
+    return durations
+
+
+def _source_plan_duration_seconds(
+    source_plan: Mapping[str, Any],
+    *,
+    default: int,
+    max_duration_seconds: int,
+) -> int:
+    beats = _source_plan_beats(source_plan)
+    total = 0
+    for beat in beats:
+        try:
+            seconds = int(beat.get("seconds") or 0)
+        except (TypeError, ValueError):
+            seconds = 0
+        if seconds > 0:
+            total += seconds
+    resolved = total if total >= 5 else default
+    return min(max(resolved, 5), max_duration_seconds, 180)
+
+
+def _even_durations(*, total: int, count: int) -> list[int]:
+    if count <= 0:
+        return []
+    base, remainder = divmod(total, count)
+    return [base + (1 if index < remainder else 0) for index in range(count)]
+
+
+def _source_plan_shot_direction(index: int, count: int) -> str:
+    if index == 0:
+        return "Open on the clearest visual proof and make the saved plan hook legible immediately."
+    if index == count - 1:
+        return "Resolve on a clean final frame that supports the planned next step."
+    return "Show the planned shift or example with a simple, readable visual demonstration."
+
+
+def _plan_primary_cta(source_plan: Mapping[str, Any]) -> str | None:
+    caption_angles = source_plan.get("caption_angles")
+    if isinstance(caption_angles, list) and caption_angles:
+        for item in reversed(caption_angles):
+            text = _optional_text(item)
+            if text is not None:
+                return _fit_text(text, max_chars=200)
+    beats = _source_plan_beats(source_plan)
+    if beats:
+        return _fit_text(
+            _required_text(beats[-1].get("text"), field_name="source_plan.beats[-1].text"),
+            max_chars=200,
+        )
+    return None
+
+
+def _source_plan_hashtags(*, page_name: str, title: str) -> list[str]:
+    _ = title
+    hashtags = [_hashtag(page_name), "#usefultips"]
+    seen: set[str] = set()
+    unique: list[str] = []
+    for hashtag in hashtags:
+        lowered = hashtag.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        unique.append(hashtag)
+    return unique
+
+
+def _hashtag(value: str) -> str:
+    cleaned = "".join(char for char in value if char.isalnum())
+    return f"#{cleaned.lower()}" if cleaned else "#content"
+
+
+def _viewer_facing_copy(value: str) -> str:
+    replacements = (
+        ("short-form reel", "useful update"),
+        ("short form reel", "useful update"),
+        ("page strategy", "page approach"),
+        ("strategy into a reel", "approach into a useful update"),
+        ("into a reel", "into a useful update"),
+        ("reel", "update"),
+        ("content planning block", "planning block"),
+    )
+    normalized = str(value)
+    for old, new in replacements:
+        normalized = normalized.replace(old, new).replace(old.title(), new)
+    return " ".join(normalized.split())
+
+
+def _fit_text(value: str, *, max_chars: int) -> str:
+    normalized = " ".join(str(value).split())
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 1].rstrip() + "."
+
+
 class PhaseOneProcessReelExecutor:
     """Concrete phase-1 executor that keeps orchestration boundaries narrow."""
 
@@ -532,15 +901,29 @@ class PhaseOneProcessReelExecutor:
                 duration_seconds=duration_seconds,
             )
         )
-        script = generate_script_output(
-            brief,
-            generator=self._script_generator,
-            generator_path=self._script_generator_path,
-        )
+        if context.source_plan is None:
+            brief_payload = brief.model_dump(mode="json")
+            script = generate_script_output(
+                brief,
+                generator=self._script_generator,
+                generator_path=self._script_generator_path,
+            )
+        else:
+            brief_payload = _brief_payload_from_source_plan(
+                brief_payload=brief.model_dump(mode="json"),
+                source_plan=context.source_plan,
+                context=context,
+                max_duration_seconds=duration_seconds,
+            )
+            script = _script_from_source_plan(
+                source_plan=context.source_plan,
+                brief_payload=brief_payload,
+                context=context,
+            )
         script_payload = script.model_dump(mode="json")
         script_generation = _script_generation_metadata(script_payload)
         script_lint = _script_lint_result(script_payload)
-        scene_plan = compile_scene_plan(brief=brief, script=script)
+        scene_plan = compile_scene_plan(brief=brief_payload, script=script)
         scene_plan_payload = scene_plan.model_dump(mode="json")
         canonical_timeline_payload = build_canonical_timeline(
             timeline_id=f"timeline-{execution.reel_id}",
@@ -563,7 +946,10 @@ class PhaseOneProcessReelExecutor:
             family=PostingPlanFamilyContext(
                 family_id=execution.reel_family_id,
                 family_name=context.family_name,
-                content_pillar=brief.content_pillar,
+                content_pillar=_required_text(
+                    brief_payload.get("content_pillar"),
+                    field_name="brief.content_pillar",
+                ),
                 metadata={"mode": context.family_mode},
             ),
             mode=brief.selected_mode,
@@ -571,12 +957,18 @@ class PhaseOneProcessReelExecutor:
                 variant_id=execution.reel_id,
                 variant_label=context.variant_label,
                 variant_index=context.brief_index,
-                duration_seconds=brief.duration_seconds,
+                duration_seconds=int(brief_payload["duration_seconds"]),
             ),
+            available_caption_variants=[
+                str(caption.get("variant"))
+                for caption in cast(
+                    list[dict[str, Any]], script_payload.get("caption_variants", [])
+                )
+            ],
         )
         if _script_lint_failed(script_lint):
             return {
-                "brief": brief.model_dump(mode="json"),
+                "brief": brief_payload,
                 "script": script_payload,
                 "script_generation": script_generation,
                 "script_lint": script_lint,
@@ -586,13 +978,13 @@ class PhaseOneProcessReelExecutor:
                 "creative_blocked": True,
             }
         compiled_prompt = _build_primary_asset_prompt(
-            brief_payload=brief.model_dump(mode="json"),
+            brief_payload=brief_payload,
             scene_plan=scene_plan,
         )
         compiled_prompt_payload = compiled_prompt.model_dump(mode="json")
-        duration_seconds = _primary_asset_duration_seconds(brief.duration_seconds)
+        duration_seconds = _primary_asset_duration_seconds(int(brief_payload["duration_seconds"]))
         return {
-            "brief": brief.model_dump(mode="json"),
+            "brief": brief_payload,
             "script": script_payload,
             "script_generation": script_generation,
             "script_lint": script_lint,
@@ -706,12 +1098,26 @@ class PhaseOneProcessReelExecutor:
             final_rendered_duration_seconds=float(artifact.duration_seconds),
             tolerance_seconds=_DURATION_MISMATCH_TOLERANCE_SECONDS,
         )
-        timeline_render_trace_payload = _build_timeline_render_trace(
+        timeline_render_trace_payload = build_timeline_render_trace(
             canonical_timeline=canonical_timeline_payload,
-            final_rendered_duration_seconds=float(artifact.duration_seconds),
+            final_video_duration_seconds=float(artifact.duration_seconds),
+            final_video_width=int(artifact.width),
+            final_video_height=int(artifact.height),
+            final_video_fps=artifact.fps,
+            final_video_path_or_uri=artifact.final_video_path.as_uri(),
+            final_video_has_video_stream=True,
+            final_video_has_audio_stream=bool(artifact.has_audio_track),
+            final_audio_duration_seconds=artifact.audio_duration_seconds,
+            final_video_codec=artifact.video_codec,
+            final_audio_codec=artifact.audio_codec,
             source_asset_duration_seconds=float(artifact.source_duration_seconds),
-            duration_contract=duration_contract,
-            cover_frame_timestamp_seconds=float(artifact.cover_frame_timestamp_seconds),
+            source_path_or_uri=artifact.source_uri,
+            creative_duration_seconds=expected_timeline_duration_seconds,
+            editing_duration_seconds=float(artifact.duration_seconds),
+            cover_timestamp_seconds=float(artifact.cover_frame_timestamp_seconds),
+            audio_padded=not artifact.source_had_audio_track,
+            audio_trimmed=True,
+            source_trimmed=False,
         )
         timeline_render_trace_path = workdir / "timeline_render_trace.json"
         timeline_render_trace_path.write_text(
@@ -746,6 +1152,7 @@ class PhaseOneProcessReelExecutor:
             "overlay_render_manifest": overlay_rows,
             "overlay_render_report": artifact.overlay_render_report,
             "rendered_overlay_manifest": artifact.rendered_overlay_manifest.as_json_dict(),
+            "overlay_render_trace": artifact.overlay_render_trace,
             "overlay_render_trace_path": str(artifact.overlay_render_trace_path),
             "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
         }
@@ -807,49 +1214,41 @@ class PhaseOneProcessReelExecutor:
             {"creative_trace": {"script": script_payload}},
         )
         alignment_gate = alignment_report.as_qa_result()
-        repetition_failed = repetition_result.verdict.value == "fail"
-        semantic_failed = not semantic_report.passed and semantic_report.verdict.value == "fail"
-        alignment_failed = alignment_report.blocks_readiness
-        overlay_fidelity_failed = overlay_fidelity_report.blocks_readiness
-        timeline_timing_failed = timeline_timing_report.verdict == QAVerdict.FAIL
-        media_sync_failed = media_sync_report.verdict == QAVerdict.FAIL
-        caption_meta_failed = not caption_meta_result.passed
-        passed = (
-            format_report.passed
-            and not repetition_failed
-            and not semantic_failed
-            and not alignment_failed
-            and not overlay_fidelity_failed
-            and not timeline_timing_failed
-            and not media_sync_failed
-            and not caption_meta_failed
+        qa_checks = [
+            *[check for check in format_report.checks],
+            repetition_result,
+            semantic_report.as_qa_result(),
+            alignment_gate,
+            overlay_fidelity_report.as_qa_result(),
+            timeline_timing_report,
+            media_sync_report,
+            caption_meta_result,
+        ]
+        blocking_failures = [
+            check.as_payload() for check in qa_checks if qa_result_blocks_readiness(check)
+        ]
+        advisory_failures = [
+            check.as_payload()
+            for check in qa_checks
+            if check.verdict == QAVerdict.FAIL and not qa_result_blocks_readiness(check)
+        ]
+        passed = not blocking_failures
+        has_advisory_issue = bool(advisory_failures) or any(
+            check.verdict == QAVerdict.WARN for check in qa_checks
         )
         verdict = "pass"
         if not passed:
             verdict = "fail"
-        elif (
-            repetition_result.verdict.value == "warn"
-            or semantic_report.verdict.value == "warn"
-            or alignment_report.verdict == QAVerdict.WARN
-            or overlay_fidelity_report.verdict == QAVerdict.WARN
-            or caption_meta_result.verdict == QAVerdict.WARN
-        ):
+        elif has_advisory_issue:
             verdict = "warn"
 
         return ProcessReelQAResult(
             passed=passed,
             details={
                 "verdict": verdict,
-                "checks": [
-                    *[check.as_payload() for check in format_report.checks],
-                    repetition_result.as_payload(),
-                    semantic_report.as_qa_result().as_payload(),
-                    alignment_gate.as_payload(),
-                    overlay_fidelity_report.as_qa_result().as_payload(),
-                    timeline_timing_report.as_payload(),
-                    media_sync_report.as_payload(),
-                    caption_meta_result.as_payload(),
-                ],
+                "checks": [check.as_payload() for check in qa_checks],
+                "blocking_failures": blocking_failures,
+                "advisory_failures": advisory_failures,
                 "format": {
                     "verdict": format_report.verdict.value,
                     "message": format_report.message,
@@ -899,6 +1298,9 @@ class PhaseOneProcessReelExecutor:
         timeline_render_trace_payload = _mapping(editing_output.get("timeline_render_trace"))
         if not timeline_render_trace_payload:
             raise ValueError("editing.timeline_render_trace is required for package assembly")
+        overlay_render_trace_payload = _mapping(editing_output.get("overlay_render_trace"))
+        if not overlay_render_trace_payload:
+            raise ValueError("editing.overlay_render_trace is required for package assembly")
         workdir = self._run_workdir(execution, "package")
         workdir.mkdir(parents=True, exist_ok=True)
         creative_trace = None
@@ -929,6 +1331,7 @@ class PhaseOneProcessReelExecutor:
                 editing_output=editing_output,
             ),
             creative_trace=creative_trace,
+            overlay_render_trace=overlay_render_trace_payload,
             timeline=timeline_payload,
             timeline_render_trace=timeline_render_trace_payload,
             temp_root=workdir,

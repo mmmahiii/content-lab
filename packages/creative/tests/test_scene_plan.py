@@ -38,6 +38,13 @@ def _planned_brief() -> DirectorPlanInput:
     )
 
 
+def _operations_brief() -> DirectorPlanInput:
+    request = _planned_brief()
+    data = request.model_dump()
+    data["page_metadata"]["persona"]["content_pillars"] = ["operations"]
+    return DirectorPlanInput.model_validate(data)
+
+
 def test_scene_plan_schema_accepts_valid_timeline() -> None:
     plan = ScenePlanOutput(
         brief_title="Mobility reset",
@@ -132,3 +139,31 @@ def test_compile_scene_prompt_uses_scene_level_guidance() -> None:
     assert "setup:" in prompt
     assert "payoff:" in prompt
     assert "Shot:" in prompt
+
+
+def test_operations_scene_plan_expands_to_concrete_visual_fields() -> None:
+    brief = PhaseOneDirector().plan(_operations_brief())
+    script = generate_script_output(brief)
+    plan = compile_scene_plan(brief=brief, script=script)
+
+    value_scene = next(scene for scene in plan.scenes if scene.purpose is ScenePurpose.VALUE)
+
+    assert value_scene.subject == "busy founder"
+    assert value_scene.setting == "modern desk workspace"
+    assert "dragging overdue tasks" in str(value_scene.action)
+    assert "non-readable interface blocks" in str(value_scene.key_visual_object)
+    assert value_scene.camera_framing == "close-up over-the-shoulder"
+    assert "legible UI text" in value_scene.forbidden_visual_elements
+
+
+def test_visual_style_lock_applied_to_all_scenes() -> None:
+    brief = PhaseOneDirector().plan(_operations_brief())
+    script = generate_script_output(brief)
+    plan = compile_scene_plan(brief=brief, script=script)
+
+    assert plan.visual_style_lock["subject"] == "busy founder"
+    assert plan.metadata["visual_style_lock"] == plan.visual_style_lock
+    assert all(scene.lighting == plan.visual_style_lock["lighting"] for scene in plan.scenes)
+    assert all(
+        scene.continuity_anchor == plan.visual_style_lock["continuity"] for scene in plan.scenes
+    )

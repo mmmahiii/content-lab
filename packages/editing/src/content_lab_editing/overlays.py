@@ -1645,12 +1645,16 @@ def build_rendered_overlay_manifest(
         for overlay in overlays_norm
     ]
     collision_labels = _collision_group_ids(effective_windows)
+    collision_label_counts = {
+        label: collision_labels.count(label) for label in set(collision_labels)
+    }
 
     entries: list[RenderedOverlayManifestEntry] = []
     for idx, (diag, overlay, effective, collision_group) in enumerate(
         zip(diagnostics, overlays_norm, effective_windows, collision_labels, strict=True)
     ):
-        wrap_lines = _manifest_wrap_lines(diag.final_render_text)
+        rendered_text = _logical_rendered_text(diag, overlay)
+        wrap_lines = _manifest_wrap_lines(overlay.text)
         style = _manifest_style_snapshot(overlay)
         safe_area = _manifest_safe_area(
             overlay=overlay,
@@ -1658,21 +1662,38 @@ def build_rendered_overlay_manifest(
             frame_width_px=frame_width_px,
             frame_height_px=frame_height_px,
         )
+        clipped = bool(safe_area.get("clipped", False))
+        safe_area_passed = bool(safe_area.get("safe_area_passed", False))
         entries.append(
             RenderedOverlayManifestEntry(
                 overlay_id=f"overlay-{idx:03d}",
                 timeline_source_path=diag.source_path,
-                source_text=diag.payload_text_raw,
-                final_render_text=diag.final_render_text,
+                source_text=rendered_text,
+                rendered_text=rendered_text,
+                final_render_text=rendered_text,
+                drawtext_text=overlay.text,
                 start_seconds=diag.start_seconds,
                 end_seconds=diag.end_seconds,
                 effective_visible_start_seconds=effective[0],
                 effective_visible_end_seconds=effective[1],
+                visible_start_seconds=effective[0],
+                visible_end_seconds=effective[1],
                 role=diag.role,
                 style=style,
                 wrap_lines=wrap_lines,
                 safe_area=safe_area,
                 collision_group=collision_group,
+                font_size=overlay.font_size,
+                line_count=len(wrap_lines),
+                x_position=diag.x_expression,
+                y_position=diag.y_expression,
+                box_width_px=cast(int | None, safe_area.get("box_width_px")),
+                box_height_px=cast(int | None, safe_area.get("box_height_px")),
+                clipped=clipped,
+                safe_area_passed=safe_area_passed,
+                collision_check=(
+                    "failed" if collision_label_counts.get(collision_group, 0) > 1 else "passed"
+                ),
             )
         )
 
@@ -1746,6 +1767,21 @@ def _manifest_wrap_lines(text: str) -> tuple[str, ...]:
     return lines if lines else ("",)
 
 
+def _logical_rendered_text(
+    diagnostic: OverlayRenderDiagnostic,
+    overlay: TextOverlay,
+) -> str:
+    """Text fidelity value: source copy after parser normalization, before drawtext wrapping."""
+
+    if diagnostic.payload_text_raw is not None:
+        return normalize_overlay_source_text(diagnostic.payload_text_raw)
+    if overlay.hook_autofit is not None:
+        lines = overlay.hook_autofit.get("lines")
+        if isinstance(lines, list) and all(isinstance(line, str) for line in lines):
+            return " ".join(lines)
+    return overlay.text
+
+
 def _manifest_style_snapshot(overlay: TextOverlay) -> dict[str, Any]:
     base = _overlay_style_snapshot(overlay)
     merged = dict(base)
@@ -1766,6 +1802,11 @@ def _manifest_safe_area(
     frame_width_px: int,
     frame_height_px: int,
 ) -> dict[str, Any]:
+    metrics = _manifest_layout_metrics(
+        overlay=overlay,
+        frame_width_px=frame_width_px,
+        frame_height_px=frame_height_px,
+    )
     return {
         "frame_width_px": frame_width_px,
         "frame_height_px": frame_height_px,
@@ -1776,10 +1817,71 @@ def _manifest_safe_area(
         "x_expression": diagnostic.x_expression,
         "y_expression": diagnostic.y_expression,
         "placement_model": "ffmpeg_drawtext",
+        **metrics,
         "note": (
             "Bounding box is not rasterized; FFmpeg positions glyphs using expressions "
             "that reference w, h, text_w, and text_h after scaling/padding to the frame."
         ),
+    }
+
+
+def _manifest_layout_metrics(
+    *,
+    overlay: TextOverlay,
+    frame_width_px: int,
+    frame_height_px: int,
+) -> dict[str, Any]:
+    if overlay.x is not None or overlay.y is not None:
+        return {
+            "layout_verified": False,
+            "clipped": False,
+            "safe_area_passed": False,
+            "layout_skip_reason": "custom_x_or_y",
+        }
+    est = estimate_text_block(
+        overlay.text,
+        font_size=overlay.font_size,
+        line_spacing=overlay.line_spacing,
+        glyph_width_factor=ESTIMATED_GLYPH_WIDTH_FACTOR,
+    )
+    outer = compute_overlay_outer_rect(
+        est,
+        frame_width=frame_width_px,
+        frame_height=frame_height_px,
+        horizontal_align=overlay.horizontal_align,
+        vertical_align=overlay.vertical_align,
+        margin_x=overlay.margin_x,
+        margin_y=overlay.margin_y,
+        has_box=overlay.box,
+        box_border_width=overlay.box_border_width,
+        border_width=overlay.border_width,
+    )
+    fits_frame = rect_fits_frame(outer, frame_width_px, frame_height_px)
+    fits_safe = rect_fits_safe_insets(
+        outer,
+        DEFAULT_SAFE_AREA_9_16,
+        frame_width_px,
+        frame_height_px,
+    )
+    return {
+        "layout_verified": True,
+        "box_left_px": outer.left,
+        "box_top_px": outer.top,
+        "box_right_px": outer.right,
+        "box_bottom_px": outer.bottom,
+        "box_width_px": outer.width,
+        "box_height_px": outer.height,
+        "text_width_px": est.max_line_text_width,
+        "text_height_px": est.text_block_height,
+        "clipped": not fits_frame or not fits_safe,
+        "safe_area_passed": fits_safe,
+        "fits_frame": fits_frame,
+        "safe_insets_px": {
+            "left": DEFAULT_SAFE_AREA_9_16.left,
+            "right": DEFAULT_SAFE_AREA_9_16.right,
+            "top": DEFAULT_SAFE_AREA_9_16.top,
+            "bottom": DEFAULT_SAFE_AREA_9_16.bottom,
+        },
     }
 
 

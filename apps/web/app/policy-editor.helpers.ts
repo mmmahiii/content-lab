@@ -4,7 +4,7 @@ import type {
   FieldErrors,
   SubmissionDefinition,
   ValidationResult,
-} from './operator-console.helpers';
+} from './request-submit';
 
 const POLICY_SECTIONS: PolicySectionKey[] = ['mode_ratios', 'budget', 'thresholds'];
 

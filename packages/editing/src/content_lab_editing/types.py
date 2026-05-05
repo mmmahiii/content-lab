@@ -13,16 +13,29 @@ class RenderedOverlayManifestEntry:
     overlay_id: str
     timeline_source_path: str
     source_text: str | None
+    rendered_text: str
     final_render_text: str
+    drawtext_text: str
     start_seconds: float
     end_seconds: float | None
     effective_visible_start_seconds: float
     effective_visible_end_seconds: float
+    visible_start_seconds: float
+    visible_end_seconds: float
     role: str | None
     style: dict[str, Any]
     wrap_lines: tuple[str, ...]
     safe_area: dict[str, Any]
     collision_group: int
+    font_size: int
+    line_count: int
+    x_position: str
+    y_position: str
+    box_width_px: int | None = None
+    box_height_px: int | None = None
+    clipped: bool = False
+    safe_area_passed: bool = True
+    collision_check: Literal["passed", "failed"] = "passed"
 
 
 @dataclass(frozen=True, slots=True)

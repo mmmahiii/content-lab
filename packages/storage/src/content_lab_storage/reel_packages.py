@@ -35,6 +35,7 @@ REQUIRED_REEL_PACKAGE_ARTIFACT_NAMES = frozenset(
         "provenance",
         "timeline",
         "timeline_render_trace",
+        "overlay_render_trace",
     }
 )
 
@@ -120,6 +121,7 @@ def expected_reel_package_filenames(*, include_manifest: bool = True) -> tuple[s
         PROVENANCE_FILENAME,
         TIMELINE_FILENAME,
         TIMELINE_RENDER_TRACE_FILENAME,
+        OVERLAY_RENDER_TRACE_FILENAME,
     )
     if include_manifest:
         return (*filenames, PACKAGE_MANIFEST_FILENAME)
@@ -129,7 +131,7 @@ def expected_reel_package_filenames(*, include_manifest: bool = True) -> tuple[s
 def optional_reel_package_filenames() -> tuple[str, ...]:
     """Return canonical optional filenames in a ready-to-post package directory."""
 
-    return (CREATIVE_TRACE_FILENAME, OVERLAY_RENDER_TRACE_FILENAME)
+    return (CREATIVE_TRACE_FILENAME,)
 
 
 def resolve_reel_package_directory(
@@ -283,19 +285,19 @@ def _artifact_specs(
             kind="json",
             content_type="application/json",
         ),
+        _ArtifactSpec(
+            name="overlay_render_trace",
+            filename=OVERLAY_RENDER_TRACE_FILENAME,
+            ref=package_refs.overlay_render_trace,
+            kind="json",
+            content_type="application/json",
+        ),
     )
     optional_specs = (
         _ArtifactSpec(
             name="creative_trace",
             filename=CREATIVE_TRACE_FILENAME,
             ref=package_refs.creative_trace,
-            kind="json",
-            content_type="application/json",
-        ),
-        _ArtifactSpec(
-            name="overlay_render_trace",
-            filename=OVERLAY_RENDER_TRACE_FILENAME,
-            ref=package_refs.overlay_render_trace,
             kind="json",
             content_type="application/json",
         ),

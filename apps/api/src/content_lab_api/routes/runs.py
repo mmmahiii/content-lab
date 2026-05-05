@@ -3,11 +3,18 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, insert, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -16,7 +23,7 @@ from content_lab_api.models.audit_log import AuditLog
 from content_lab_api.models.org import Org
 from content_lab_api.models.outbox import OutboxEvent
 from content_lab_api.models.page import Page
-from content_lab_api.models.reel import Reel
+from content_lab_api.models.reel import GeneratedReelStatus, Reel, ReelOrigin
 from content_lab_api.models.reel_family import ReelFamily
 from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
@@ -118,6 +125,14 @@ def get_orchestration_backend() -> OrchestrationBackend:
     """Dependency hook for the orchestration adapter."""
 
     return OutboxOrchestrationBackend()
+
+
+class PackageGenerationCreate(BaseModel):
+    """No-input package generation choice from an approved/selected idea plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    generation_mode: Literal["runway", "smoke_test"]
 
 
 def _get_org_or_404(db: Session, org_id: uuid.UUID) -> Org:
@@ -230,6 +245,162 @@ def _raise_conflict(exc: DuplicateIdempotencyKeyError) -> None:
             detail="A matching trigger task already exists for the org",
         ) from exc
     raise exc
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[5]
+
+
+def _orchestrator_log_paths(*, run_id: uuid.UUID) -> tuple[Path, Path]:
+    log_dir = _repo_root() / ".dev-stack" / "orchestrator-runs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"{run_id}.out.log", log_dir / f"{run_id}.err.log"
+
+
+def _launch_process_reel_flow(
+    *,
+    reel_id: uuid.UUID,
+    run_id: uuid.UUID,
+    generation_mode: Literal["runway", "smoke_test"],
+) -> dict[str, Any]:
+    """Launch the real orchestrator process-reel flow in the background."""
+
+    poetry = shutil.which("poetry")
+    if poetry is None:
+        raise RuntimeError("Poetry is required to launch the process_reel orchestrator flow")
+
+    repo_root = _repo_root()
+    orchestrator_dir = repo_root / "apps" / "orchestrator"
+    if not orchestrator_dir.exists():
+        raise RuntimeError(f"Orchestrator app was not found at {orchestrator_dir}")
+
+    out_log, err_log = _orchestrator_log_paths(run_id=run_id)
+    env = os.environ.copy()
+    env["POETRY_IGNORE_ACTIVE_VIRTUALENVS"] = "1"
+    env.pop("VIRTUAL_ENV", None)
+    if generation_mode == "smoke_test":
+        env["RUNWAY_API_MODE"] = "mock"
+
+    command = [
+        poetry,
+        "run",
+        "python",
+        "-m",
+        "content_lab_orchestrator.cli",
+        "run",
+        "--flow",
+        "process_reel",
+        "--reel-id",
+        str(reel_id),
+        "--run-id",
+        str(run_id),
+    ]
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with out_log.open("ab") as stdout, err_log.open("ab") as stderr:
+        process = subprocess.Popen(
+            command,
+            cwd=orchestrator_dir,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout,
+            stderr=stderr,
+            creationflags=creationflags,
+        )
+
+    return {
+        "pid": process.pid,
+        "command": " ".join(command),
+        "stdout_log": str(out_log),
+        "stderr_log": str(err_log),
+        "runway_api_mode": "mock" if generation_mode == "smoke_test" else "live",
+    }
+
+
+def _idea_plan_payload(*, page: Page, run_id: uuid.UUID, plan_number: int) -> dict[str, Any]:
+    handle = page.handle or page.display_name
+    title = f"{page.display_name} plan {plan_number}"
+    return {
+        "plan": {
+            "title": title,
+            "hook": f"What would make {handle} worth following this week?",
+            "angle": "Turn one practical page insight into a clear short-form reel.",
+            "beats": [
+                {
+                    "label": "Hook",
+                    "text": "Open with the exact problem the audience already feels.",
+                    "seconds": 3,
+                },
+                {
+                    "label": "Proof",
+                    "text": "Show the useful shift, example, or operating principle.",
+                    "seconds": 6,
+                },
+                {
+                    "label": "Action",
+                    "text": "Close with one concrete next step the viewer can try.",
+                    "seconds": 3,
+                },
+            ],
+            "caption_angles": [
+                "Save this before your next content planning block.",
+                "A simple way to turn page strategy into a reel.",
+                "Use this as the spine for the next post.",
+            ],
+            "package_intent": {
+                "expected_outputs": [
+                    "final_video",
+                    "cover",
+                    "caption_variants",
+                    "posting_plan",
+                    "timeline",
+                    "creative_trace",
+                    "provenance",
+                    "package_manifest",
+                ],
+            },
+        },
+        "plans": [
+            {
+                "id": str(run_id),
+                "label": f"Plan {plan_number}",
+                "title": title,
+                "status": "ready_for_generation",
+            }
+        ],
+    }
+
+
+def _plan_duration_seconds(plan: Mapping[str, Any], *, default: int = 12) -> int:
+    beats = plan.get("beats")
+    if not isinstance(beats, list):
+        return default
+    total = 0
+    for beat in beats:
+        if not isinstance(beat, Mapping):
+            continue
+        try:
+            seconds = int(beat.get("seconds") or 0)
+        except (TypeError, ValueError):
+            seconds = 0
+        if seconds > 0:
+            total += seconds
+    return total if total >= 5 else default
+
+
+def _workflow_stage(run: Run) -> str | None:
+    metadata = dict(run.run_metadata or {})
+    client = metadata.get("client")
+    if isinstance(client, dict):
+        client_stage = client.get("workflow_stage")
+        if isinstance(client_stage, str):
+            return client_stage
+    input_params = dict(run.input_params or {})
+    stage = input_params.get("workflow_stage")
+    return stage if isinstance(stage, str) else None
 
 
 def _build_run_metadata(
@@ -451,6 +622,287 @@ def list_page_runs(
         .all()
     )
     return [run_to_out(run) for run in runs]
+
+
+@router.post(
+    "/orgs/{org_id}/pages/{page_id}/idea-plans",
+    response_model=RunOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_page_idea_plan(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RunOut:
+    _get_org_or_404(db, org_id)
+    page = _get_page_or_404(db, org_id, page_id)
+    plan_number = (
+        db.query(func.count(Run.id))
+        .filter(
+            Run.org_id == org_id,
+            func.jsonb_extract_path_text(Run.input_params, "page_id") == str(page_id),
+            func.jsonb_extract_path_text(Run.input_params, "workflow_stage") == "idea_plan",
+        )
+        .scalar()
+        or 0
+    ) + 1
+    run = Run(
+        org_id=org_id,
+        workflow_key=WorkflowKey.DAILY_REEL_FACTORY.value,
+        flow_trigger=FlowTrigger.MANUAL.value,
+        status=RunStatus.SUCCEEDED.value,
+        input_params={
+            "org_id": str(org_id),
+            "page_id": str(page_id),
+            "workflow_stage": "idea_plan",
+            "generation_scope": "ideas_only",
+        },
+        run_metadata=_build_run_metadata(
+            request,
+            flow_trigger=FlowTrigger.MANUAL,
+            client_metadata={
+                "workflow_stage": "idea_plan",
+                "ui_label": "Create plan",
+            },
+            target_metadata={"org_id": str(org_id), "page_id": str(page_id)},
+        ),
+        started_at=_now(),
+        finished_at=_now(),
+    )
+    db.add(run)
+    db.flush()
+    run.output_payload = _idea_plan_payload(page=page, run_id=run.id, plan_number=plan_number)
+    task = Task(
+        org_id=org_id,
+        task_type="idea_planning",
+        idempotency_key=f"idea-plan:{run.id}",
+        status=TaskStatus.SUCCEEDED.value,
+        run_id=run.id,
+        payload={"page_id": str(page_id)},
+        result=run.output_payload,
+    )
+    db.add(task)
+    _record_audit(
+        db,
+        request,
+        org_id=org_id,
+        action="idea_plan.created",
+        resource_type="run",
+        resource_id=str(run.id),
+        payload={"page_id": str(page_id), "status": run.status},
+    )
+    db.commit()
+    db.refresh(run)
+    return run_to_out(run)
+
+
+@router.post("/orgs/{org_id}/pages/{page_id}/idea-plans/{run_id}/discard", response_model=RunOut)
+def discard_page_idea_plan(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    run_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RunOut:
+    _get_org_or_404(db, org_id)
+    _get_page_or_404(db, org_id, page_id)
+    run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
+    if str(dict(run.input_params or {}).get("page_id")) != str(page_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    if _workflow_stage(run) != "idea_plan":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Run is not an idea plan")
+    payload = dict(run.output_payload or {})
+    payload["discarded"] = True
+    run.output_payload = payload
+    run.status = RunStatus.CANCELLED.value
+    run.finished_at = _now()
+    metadata = dict(run.run_metadata or {})
+    metadata["discarded_at"] = _now().isoformat()
+    run.run_metadata = metadata
+    _record_audit(
+        db,
+        request,
+        org_id=org_id,
+        action="idea_plan.discarded",
+        resource_type="run",
+        resource_id=str(run.id),
+        payload={"page_id": str(page_id)},
+    )
+    db.commit()
+    db.refresh(run)
+    return run_to_out(run)
+
+
+@router.post(
+    "/orgs/{org_id}/pages/{page_id}/idea-plans/{run_id}/generate-package",
+    response_model=RunOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_package_from_page_idea_plan(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    run_id: uuid.UUID,
+    body: PackageGenerationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RunOut:
+    _get_org_or_404(db, org_id)
+    page = _get_page_or_404(db, org_id, page_id)
+    plan_run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
+    if str(dict(plan_run.input_params or {}).get("page_id")) != str(page_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    if _workflow_stage(plan_run) != "idea_plan":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Run is not an idea plan")
+    if plan_run.status == RunStatus.CANCELLED.value:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Plan has been discarded")
+    plan_payload = dict(plan_run.output_payload or {})
+    if plan_payload.get("used_in_package_run_id") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Plan has already been used to generate a package",
+        )
+
+    plan = dict(plan_payload.get("plan") or {})
+    plan_duration_seconds = _plan_duration_seconds(plan)
+    package_metadata: dict[str, object] = {
+        "mode": "explore",
+        "plan_run_id": str(plan_run.id),
+        "generation_mode": body.generation_mode,
+        "idea_plan": plan,
+    }
+    family = ReelFamily(
+        org_id=org_id,
+        page_id=page_id,
+        name=str(plan.get("title") or f"{page.display_name} generated reel"),
+        metadata_=package_metadata,
+    )
+    db.add(family)
+    db.flush()
+    reel = Reel(
+        org_id=org_id,
+        reel_family_id=family.id,
+        origin=ReelOrigin.GENERATED.value,
+        status=GeneratedReelStatus.PLANNING.value,
+        variant_label="Runway" if body.generation_mode == "runway" else "Smoke test",
+        metadata_={
+            "plan_run_id": str(plan_run.id),
+            "generation_mode": body.generation_mode,
+            "duration_seconds": plan_duration_seconds,
+            "idea_plan": plan,
+        },
+    )
+    db.add(reel)
+    db.flush()
+    run = Run(
+        org_id=org_id,
+        workflow_key=WorkflowKey.PROCESS_REEL.value,
+        flow_trigger=FlowTrigger.MANUAL.value,
+        status=RunStatus.QUEUED.value,
+        input_params={
+            "org_id": str(org_id),
+            "page_id": str(page_id),
+            "workflow_stage": "package_generation",
+            "plan_run_id": str(plan_run.id),
+            "generation_mode": body.generation_mode,
+            "runway_api_mode": "live" if body.generation_mode == "runway" else "mock",
+            "reel_id": str(reel.id),
+            "reel_family_id": str(family.id),
+            "dry_run": False,
+        },
+        run_metadata=_build_run_metadata(
+            request,
+            flow_trigger=FlowTrigger.MANUAL,
+            client_metadata={
+                "workflow_stage": "package_generation",
+                "ui_label": (
+                    "Create video with Runway"
+                    if body.generation_mode == "runway"
+                    else "Create video without paid AI"
+                ),
+                "generation_mode": body.generation_mode,
+                "runway_api_mode": "live" if body.generation_mode == "runway" else "mock",
+                "plan_run_id": str(plan_run.id),
+            },
+            target_metadata={
+                "org_id": str(org_id),
+                "page_id": str(page_id),
+                "reel_id": str(reel.id),
+                "reel_family_id": str(family.id),
+            },
+        ),
+    )
+    db.add(run)
+    db.flush()
+    plan_payload["used_in_package_run_id"] = str(run.id)
+    plan_payload["used_generation_mode"] = body.generation_mode
+    plan_payload["used_at"] = _now().isoformat()
+    plan_run.output_payload = plan_payload
+    db.add(
+        Task(
+            org_id=org_id,
+            task_type="process_reel",
+            idempotency_key=f"process-reel:{run.id}",
+            status=TaskStatus.QUEUED.value,
+            run_id=run.id,
+            payload={
+                "page_id": str(page_id),
+                "plan_run_id": str(plan_run.id),
+                "reel_id": str(reel.id),
+                "generation_mode": body.generation_mode,
+            },
+        )
+    )
+    _record_audit(
+        db,
+        request,
+        org_id=org_id,
+        action="package.generated",
+        resource_type="run",
+        resource_id=str(run.id),
+        payload={
+            "page_id": str(page_id),
+            "plan_run_id": str(plan_run.id),
+            "reel_id": str(reel.id),
+            "generation_mode": body.generation_mode,
+        },
+    )
+    db.commit()
+    try:
+        launch = _launch_process_reel_flow(
+            reel_id=reel.id,
+            run_id=run.id,
+            generation_mode=body.generation_mode,
+        )
+    except Exception as exc:
+        db.rollback()
+        fresh_run = db.get(Run, run.id)
+        if fresh_run is not None:
+            fresh_run.status = RunStatus.FAILED.value
+            fresh_run.output_payload = {
+                "error": str(exc),
+                "phase": "orchestrator_launch",
+            }
+            fresh_run.finished_at = _now()
+            fresh_metadata = dict(fresh_run.run_metadata or {})
+            fresh_metadata["orchestrator_launch"] = {"error": str(exc)}
+            fresh_run.run_metadata = fresh_metadata
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not launch process_reel: {exc}",
+        ) from exc
+
+    fresh_run = db.get(Run, run.id)
+    if fresh_run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    metadata = dict(fresh_run.run_metadata or {})
+    metadata["orchestrator_launch"] = launch
+    fresh_run.run_metadata = metadata
+    fresh_run.external_ref = f"local-process:{launch['pid']}"
+    db.commit()
+    db.refresh(fresh_run)
+    return run_to_out(fresh_run)
 
 
 @router.post(

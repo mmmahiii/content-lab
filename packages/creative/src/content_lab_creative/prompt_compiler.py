@@ -10,10 +10,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from content_lab_creative.types import ScenePlanOutput, ScenePlanScene
+from content_lab_creative.visual_lint import lint_scene_visual_specificity
 
 DEFAULT_NEGATIVE_PROMPT = "text overlays, captions, watermarks"
 DEFAULT_MAX_PROMPT_CHARS = 1_800
 DEFAULT_MAX_SCENE_FRAGMENT_CHARS = 280
+PROMPT_COMPILER_VERSION = "scene_prompt_compiler_v2"
 
 _META_PATTERN = re.compile(
     r"\b("
@@ -70,6 +72,8 @@ class PromptSafetyPolicy(BaseModel):
         le=600,
     )
     removed_meta_language: bool = False
+    generic_filler_removed: bool = False
+    no_legible_text_instruction_applied: bool = False
 
 
 class PromptTrace(BaseModel):
@@ -77,10 +81,13 @@ class PromptTrace(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    compiler_name: str = Field(default="scene_prompt_compiler_v1", min_length=1, max_length=80)
+    compiler_name: str = Field(default=PROMPT_COMPILER_VERSION, min_length=1, max_length=80)
     source: PromptTraceSource
     fragments: list[CompiledScenePromptFragment] = Field(default_factory=list, min_length=1)
     safety: PromptSafetyPolicy
+    visual_style_lock: dict[str, Any] = Field(default_factory=dict)
+    enriched_scene_fields: list[dict[str, Any]] = Field(default_factory=list)
+    prompt_specificity_lint: dict[str, Any] = Field(default_factory=dict)
     prompt_hash: str = Field(min_length=64, max_length=64)
     final_prompt_chars: int = Field(ge=1)
 
@@ -125,6 +132,13 @@ def compile_provider_prompt(
         + (f", focused on {content_pillar}" if content_pillar else "")
     )
     prompt = _join_prompt(prefix=prefix, fragments=fragments, max_chars=max_prompt_chars)
+    lint_results = [
+        lint_scene_visual_specificity(
+            scene.model_dump(mode="json"),
+            prompt_text=fragment.prompt_text,
+        )
+        for scene, fragment in zip(scene_plan.scenes, fragments, strict=True)
+    ]
     source_hash = _hash_text(scene_plan.model_dump_json())
     trace = PromptTrace(
         source=PromptTraceSource(
@@ -140,7 +154,20 @@ def compile_provider_prompt(
             max_prompt_chars=max_prompt_chars,
             max_scene_fragment_chars=max_scene_fragment_chars,
             removed_meta_language=_contains_meta_language(scene_plan.model_dump_json()),
+            generic_filler_removed=all(item.generic_filler_removed for item in lint_results),
+            no_legible_text_instruction_applied=any(
+                item.no_legible_text_instruction_applied for item in lint_results
+            ),
         ),
+        visual_style_lock=dict(scene_plan.visual_style_lock),
+        enriched_scene_fields=[_scene_visual_fields(scene) for scene in scene_plan.scenes],
+        prompt_specificity_lint={
+            "passed": all(item.passed for item in lint_results),
+            "scenes": [
+                {"scene_id": scene.scene_id, **lint.as_dict()}
+                for scene, lint in zip(scene_plan.scenes, lint_results, strict=True)
+            ],
+        },
         prompt_hash=_hash_text(prompt),
         final_prompt_chars=len(prompt),
     )
@@ -164,9 +191,19 @@ def _compile_scene_fragment(
         for part in (
             f"{scene.purpose.value} scene",
             f"{scene.start_seconds}-{scene.end_seconds}s",
-            scene.visual_intent,
-            scene.shot_guidance,
-            f"visual focus {content_pillar}" if content_pillar else "",
+            f"{scene.camera_framing or scene.shot_guidance} view",
+            scene.camera_motion,
+            scene.subject,
+            f"at {scene.setting}" if scene.setting else None,
+            scene.action,
+            f"with {scene.key_visual_object}" if scene.key_visual_object else None,
+            _no_legible_text_instruction(scene),
+            scene.lighting,
+            scene.palette,
+            scene.continuity_anchor,
+            scene.visual_purpose,
+            scene.visual_intent if not scene.subject else None,
+            scene.shot_guidance if not scene.camera_framing else None,
         )
         if part
     )
@@ -177,8 +214,62 @@ def _compile_scene_fragment(
         start_seconds=scene.start_seconds,
         end_seconds=scene.end_seconds,
         prompt_text=prompt_text,
-        source_fields=["purpose", "duration", "visual_intent", "shot_guidance"],
+        source_fields=[
+            "purpose",
+            "duration",
+            "subject",
+            "setting",
+            "action",
+            "key_visual_object",
+            "camera_framing",
+            "camera_motion",
+            "lighting",
+            "palette",
+            "continuity_anchor",
+            "visual_purpose",
+            "forbidden_visual_elements",
+        ],
     )
+
+
+def _scene_visual_fields(scene: ScenePlanScene) -> dict[str, Any]:
+    return {
+        key: getattr(scene, key)
+        for key in (
+            "scene_id",
+            "subject",
+            "setting",
+            "action",
+            "key_visual_object",
+            "camera_framing",
+            "camera_motion",
+            "lighting",
+            "palette",
+            "continuity_anchor",
+            "visual_purpose",
+            "forbidden_visual_elements",
+        )
+    }
+
+
+def _no_legible_text_instruction(scene: ScenePlanScene) -> str:
+    haystack = " ".join(
+        str(part or "")
+        for part in (
+            scene.key_visual_object,
+            scene.action,
+            scene.setting,
+            scene.visual_intent,
+            scene.shot_guidance,
+        )
+    ).lower()
+    if any(
+        term in haystack
+        for term in ("screen", "dashboard", "laptop", "inbox", "kanban", "ui", "task board")
+    ):
+        return "no legible text on screens, no captions, no watermarks"
+    forbidden = ", ".join(scene.forbidden_visual_elements)
+    return forbidden
 
 
 def _join_prompt(
@@ -237,5 +328,6 @@ __all__ = [
     "PromptSafetyPolicy",
     "PromptTrace",
     "PromptTraceSource",
+    "PROMPT_COMPILER_VERSION",
     "compile_provider_prompt",
 ]

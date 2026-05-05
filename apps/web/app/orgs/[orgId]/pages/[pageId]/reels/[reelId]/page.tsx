@@ -19,7 +19,7 @@ import {
   pagePath,
   pageReelsPath,
   runPath,
-} from '../../../../../../_lib/content-lab-data';
+} from '../../../../../../_lib/operator-routes';
 import { loadOperatorReelDetail } from '../../../../../../_lib/operator-page-workspace';
 
 const generatedTimeline = [

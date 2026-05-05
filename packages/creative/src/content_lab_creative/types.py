@@ -289,6 +289,17 @@ class ScenePlanScene(BaseModel):
     end_seconds: int = Field(gt=0)
     visual_intent: str = Field(min_length=1, max_length=280)
     shot_guidance: str = Field(min_length=1, max_length=280)
+    subject: str | None = Field(default=None, max_length=160)
+    setting: str | None = Field(default=None, max_length=160)
+    action: str | None = Field(default=None, max_length=220)
+    key_visual_object: str | None = Field(default=None, max_length=220)
+    camera_framing: str | None = Field(default=None, max_length=160)
+    camera_motion: str | None = Field(default=None, max_length=160)
+    lighting: str | None = Field(default=None, max_length=160)
+    palette: str | None = Field(default=None, max_length=160)
+    continuity_anchor: str | None = Field(default=None, max_length=220)
+    visual_purpose: str | None = Field(default=None, max_length=280)
+    forbidden_visual_elements: list[str] = Field(default_factory=list, max_length=12)
     overlay_role: SceneOverlayRole
     overlay_text: str | None = Field(default=None, max_length=120)
     narration_refs: list[int] = Field(default_factory=list, max_length=8)
@@ -311,6 +322,7 @@ class ScenePlanOutput(BaseModel):
     duration_seconds: int = Field(ge=5, le=180)
     scenes: list[ScenePlanScene] = Field(default_factory=list, min_length=1, max_length=8)
     metadata: dict[str, object] = Field(default_factory=dict)
+    visual_style_lock: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_scene_timeline(self) -> ScenePlanOutput:

@@ -283,6 +283,7 @@ class StubProcessReelExecutor:
             "edit_id": f"edit-{execution.reel_id}",
             "timeline_uri": f"memory://edits/{execution.reel_id}.json",
             "timeline_render_trace_uri": f"memory://edits/{execution.reel_id}-render-trace.json",
+            "overlay_render_trace_uri": f"memory://edits/{execution.reel_id}-overlay-trace.json",
             "timeline": {
                 "version": "med-001.v1",
                 "timeline_id": f"timeline-{execution.reel_id}",
@@ -311,8 +312,49 @@ class StubProcessReelExecutor:
                 ],
             },
             "timeline_render_trace": {
-                "schema_version": "timeline_render_trace.v1",
+                "schema_version": "media_timeline_v1",
+                "legacy_schema_version": "timeline_render_trace.v1",
                 "timeline_id": f"timeline-{execution.reel_id}",
+                "creative": {"duration_seconds": 12.0},
+                "source_video": {"duration_seconds": 12.0, "path_or_uri": None},
+                "final_video": {
+                    "duration_seconds": 12.0,
+                    "width": 1080,
+                    "height": 1920,
+                    "fps": 24.0,
+                    "has_video_stream": True,
+                    "has_audio_stream": True,
+                },
+                "audio": {
+                    "present": True,
+                    "duration_seconds": 12.0,
+                    "padded": False,
+                    "trimmed": False,
+                    "fade_in_seconds": 0.12,
+                    "fade_out_seconds": 0.18,
+                },
+                "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
+                "overlays": [],
+                "cover": {"timestamp_seconds": 0.0},
+                "checks": {
+                    "video_stream": {"passed": True, "code": "final_video_missing_video"},
+                    "audio_stream": {"passed": True, "code": "final_video_missing_audio"},
+                    "audio_video_sync": {
+                        "passed": True,
+                        "code": "audio_video_duration_mismatch",
+                    },
+                    "duration_alignment": {"passed": True, "code": "editing_duration_mismatch"},
+                    "creative_duration": {"passed": True, "code": "creative_duration_mismatch"},
+                    "scene_bounds": {"passed": True, "code": "scene_exceeds_video_duration"},
+                    "overlay_bounds": {"passed": True, "code": "overlay_exceeds_video_duration"},
+                    "cover_timestamp": {
+                        "passed": True,
+                        "code": "cover_timestamp_out_of_bounds",
+                    },
+                    "source_asset_duration": {"passed": True, "code": "source_asset_too_short"},
+                },
+                "passed": True,
+                "failure_codes": [],
                 "scene_timings": [
                     {"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}
                 ],
@@ -332,6 +374,15 @@ class StubProcessReelExecutor:
                 "source_asset_duration_seconds": 12.0,
                 "duration_mismatch_checks": {"status": "pass", "mismatches": []},
                 "cover_timestamp_seconds": 0.0,
+            },
+            "overlay_render_trace": {
+                "artifact_type": "overlay_render_trace",
+                "schema_version": "rendered_overlay_manifest_v1",
+                "frame_width_px": 1080,
+                "frame_height_px": 1920,
+                "clip_duration_seconds": 12.0,
+                "overlay_count": 0,
+                "overlays": [],
             },
             "cover_uri": f"memory://covers/{execution.reel_id}.jpg",
         }
@@ -363,13 +414,14 @@ class StubProcessReelExecutor:
         manifest_checksum = "sha256:" + ("f" * 64)
         timeline_checksum = "sha256:" + ("0" * 64)
         timeline_render_trace_checksum = "sha256:" + ("1" * 64)
+        overlay_render_trace_checksum = "sha256:" + ("2" * 64)
         return {
             "package_root_uri": package_root_uri,
             "manifest_uri": package_refs.manifest.uri,
             "ready_for_publish": True,
             "manifest": {
                 "version": 1,
-                "artifact_count": 7,
+                "artifact_count": 8,
                 "complete": True,
                 "artifacts": [
                     {
@@ -407,6 +459,11 @@ class StubProcessReelExecutor:
                         "filename": "timeline_render_trace.json",
                         "checksum_sha256": timeline_render_trace_checksum,
                     },
+                    {
+                        "name": "overlay_render_trace",
+                        "filename": "overlay_render_trace.json",
+                        "checksum_sha256": overlay_render_trace_checksum,
+                    },
                 ],
             },
             "caption_variants": [
@@ -442,6 +499,10 @@ class StubProcessReelExecutor:
             "timeline_render_trace_uri": package_refs.timeline_render_trace.uri,
             "timeline_render_trace": execution.outputs[ProcessReelStep.EDITING.value].get(
                 "timeline_render_trace", {}
+            ),
+            "overlay_render_trace_uri": package_refs.overlay_render_trace.uri,
+            "overlay_render_trace": execution.outputs[ProcessReelStep.EDITING.value].get(
+                "overlay_render_trace", {}
             ),
             "artifacts": [
                 {
@@ -485,6 +546,12 @@ class StubProcessReelExecutor:
                     "filename": "timeline_render_trace.json",
                     "storage_uri": package_refs.timeline_render_trace.uri,
                     "checksum_sha256": timeline_render_trace_checksum,
+                },
+                {
+                    "name": "overlay_render_trace",
+                    "filename": "overlay_render_trace.json",
+                    "storage_uri": package_refs.overlay_render_trace.uri,
+                    "checksum_sha256": overlay_render_trace_checksum,
                 },
                 {
                     "name": "package_manifest",

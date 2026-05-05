@@ -16,6 +16,7 @@ _SHA256_D = "sha256:" + ("d" * 64)
 _SHA256_E = "sha256:" + ("e" * 64)
 _SHA256_T = "sha256:" + ("0" * 64)
 _SHA256_R = "sha256:" + ("1" * 64)
+_SHA256_O = "sha256:" + ("2" * 64)
 
 
 def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
@@ -25,7 +26,7 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
         "manifest_uri": f"s3://content-lab/reels/packages/{reel_id}/package_manifest.json",
         "manifest": {
             "version": 1,
-            "artifact_count": 7,
+            "artifact_count": 8,
             "complete": True,
             "artifacts": [
                 {
@@ -63,6 +64,11 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
                     "filename": "timeline_render_trace.json",
                     "checksum_sha256": _SHA256_R,
                 },
+                {
+                    "name": "overlay_render_trace",
+                    "filename": "overlay_render_trace.json",
+                    "checksum_sha256": _SHA256_O,
+                },
             ],
         },
         "caption_variants": [
@@ -73,8 +79,38 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
         "timeline_render_trace_uri": (
             f"s3://content-lab/reels/packages/{reel_id}/timeline_render_trace.json"
         ),
+        "overlay_render_trace_uri": (
+            f"s3://content-lab/reels/packages/{reel_id}/overlay_render_trace.json"
+        ),
         "timeline": {"version": "med-001.v1", "timeline_id": f"timeline-{reel_id}"},
-        "timeline_render_trace": {"schema_version": "timeline_render_trace.v1"},
+        "timeline_render_trace": {
+            "schema_version": "media_timeline_v1",
+            "checks": {
+                "video_stream": {"passed": True, "code": "final_video_missing_video"},
+                "audio_stream": {"passed": True, "code": "final_video_missing_audio"},
+                "audio_video_sync": {
+                    "passed": True,
+                    "code": "audio_video_duration_mismatch",
+                },
+                "duration_alignment": {"passed": True, "code": "editing_duration_mismatch"},
+                "creative_duration": {"passed": True, "code": "creative_duration_mismatch"},
+                "scene_bounds": {"passed": True, "code": "scene_exceeds_video_duration"},
+                "overlay_bounds": {"passed": True, "code": "overlay_exceeds_video_duration"},
+                "cover_timestamp": {"passed": True, "code": "cover_timestamp_out_of_bounds"},
+                "source_asset_duration": {"passed": True, "code": "source_asset_too_short"},
+            },
+            "passed": True,
+            "failure_codes": [],
+        },
+        "overlay_render_trace": {
+            "artifact_type": "overlay_render_trace",
+            "schema_version": "rendered_overlay_manifest_v1",
+            "frame_width_px": 1080,
+            "frame_height_px": 1920,
+            "clip_duration_seconds": 12.0,
+            "overlay_count": 0,
+            "overlays": [],
+        },
         "provenance": {
             "editor_version": "basic_vertical_v1",
             "assets": [
@@ -138,6 +174,12 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
                 "filename": "timeline_render_trace.json",
                 "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/timeline_render_trace.json",
                 "checksum_sha256": _SHA256_R,
+            },
+            {
+                "name": "overlay_render_trace",
+                "filename": "overlay_render_trace.json",
+                "storage_uri": f"s3://content-lab/reels/packages/{reel_id}/overlay_render_trace.json",
+                "checksum_sha256": _SHA256_O,
             },
             {
                 "name": "package_manifest",
@@ -273,6 +315,6 @@ def test_process_reel_service_fails_packaging_for_invalid_provenance() -> None:
 
     packaging_result = repository.tasks[(execution.run_id, "packaging")].result
     assert packaging_result is not None
-    assert packaging_result["package_qa"]["checks"][2]["message"] == (
+    assert packaging_result["package_qa"]["checks"][4]["message"] == (
         "Package provenance must include at least one provider lineage entry."
     )

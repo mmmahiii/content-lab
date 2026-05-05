@@ -19,7 +19,7 @@ import {
   pageRunsPath,
   reelPath,
   runPath,
-} from '../_lib/content-lab-data';
+} from '../_lib/operator-routes';
 import type { PolicyEditorRecord } from '../_lib/operator-policy';
 import type { PageWorkspaceSnapshot } from '../_lib/operator-page-workspace';
 

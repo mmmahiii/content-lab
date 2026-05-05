@@ -48,6 +48,34 @@ def test_build_creative_trace_preserves_debug_contract_without_secrets() -> None
     assert payload["compiled_prompt"]["trace"]["provider_token"] == "[redacted]"
 
 
+def test_creative_trace_includes_visual_style_lock() -> None:
+    creative_output = {
+        "brief": {"title": "Ops reset", "content_pillar": "operations"},
+        "script": {"provider_name": "rules", "generator_path": "deterministic"},
+        "scene_plan": {
+            "visual_style_lock": {"subject": "busy founder"},
+            "scenes": [{"scene_id": "scene_1", "subject": "busy founder"}],
+        },
+        "compiled_prompt": {
+            "prompt": "busy founder at modern desk",
+            "trace": {
+                "visual_style_lock": {"subject": "busy founder"},
+                "enriched_scene_fields": [{"scene_id": "scene_1", "subject": "busy founder"}],
+            },
+        },
+    }
+
+    trace = build_creative_trace(
+        reel_id="reel-1",
+        run_id="run-1",
+        creative_output=creative_output,
+    ).model_dump(mode="json")
+
+    assert trace["scene_plan"]["visual_style_lock"]["subject"] == "busy founder"
+    assert trace["prompt_trace"]["visual_style_lock"]["subject"] == "busy founder"
+    assert trace["prompt_trace"]["enriched_scene_fields"][0]["subject"] == "busy founder"
+
+
 def test_sanitize_trace_payload_recursively_redacts_secret_like_keys() -> None:
     sanitized = sanitize_trace_payload(
         {

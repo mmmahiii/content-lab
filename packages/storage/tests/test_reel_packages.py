@@ -25,6 +25,7 @@ def test_expected_reel_package_filenames_include_manifest_by_default() -> None:
         "provenance.json",
         "timeline.json",
         "timeline_render_trace.json",
+        "overlay_render_trace.json",
         "package_manifest.json",
     )
 
@@ -33,7 +34,7 @@ def test_resolve_reel_package_directory_requires_all_required_files(tmp_path: Pa
     for filename in expected_reel_package_filenames(include_manifest=False)[:-1]:
         (tmp_path / filename).write_text("placeholder", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="timeline_render_trace.json"):
+    with pytest.raises(ValueError, match="overlay_render_trace.json"):
         resolve_reel_package_directory(tmp_path, include_manifest=False)
 
 
@@ -89,7 +90,7 @@ def test_persist_reel_package_directory_uploads_canonical_objects(tmp_path: Path
     assert stored_package.artifact_uris["final_video"] == (
         f"s3://content-lab/reels/packages/{reel_id}/final_video.mp4"
     )
-    assert client.put_object.call_count == 8
+    assert client.put_object.call_count == 9
     first_call = client.put_object.call_args_list[0].kwargs
     assert first_call["metadata"]["source"] == "pytest"
     assert first_call["metadata"]["reel-id"] == str(reel_id)

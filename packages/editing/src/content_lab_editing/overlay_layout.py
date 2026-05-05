@@ -159,6 +159,7 @@ def build_overlay_render_manifest_for_qa(
 
     rows: list[dict[str, Any]] = []
     for overlay in overlays:
+        rendered_text = _logical_rendered_text(overlay)
         layout = compute_overlay_layout_payload(
             overlay,
             frame_width=frame_width,
@@ -167,13 +168,24 @@ def build_overlay_render_manifest_for_qa(
         )
         rows.append(
             {
-                "text": overlay.text,
+                "source_text": rendered_text,
+                "rendered_text": rendered_text,
+                "text": rendered_text,
+                "drawtext_text": overlay.text,
                 "start_seconds": overlay.start_seconds,
                 "end_seconds": overlay.end_seconds,
                 "layout": layout,
             }
         )
     return rows, area
+
+
+def _logical_rendered_text(overlay: TextOverlay) -> str:
+    if overlay.hook_autofit is not None:
+        lines = overlay.hook_autofit.get("lines")
+        if isinstance(lines, list) and all(isinstance(line, str) for line in lines):
+            return " ".join(lines)
+    return overlay.text
 
 
 def _usable_horizontal_width(overlay: TextOverlay, *, frame_width: int) -> float:

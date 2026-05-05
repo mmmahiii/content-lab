@@ -14,6 +14,7 @@ from content_lab_creative.types import (
     ScenePlanScene,
     ScenePurpose,
 )
+from content_lab_creative.visual_lint import lint_scene_visual_specificity
 
 
 def _planned_brief() -> DirectorPlanInput:
@@ -34,6 +35,13 @@ def _planned_brief() -> DirectorPlanInput:
         ),
         global_policy=PolicyStateDocument(),
     )
+
+
+def _operations_brief() -> DirectorPlanInput:
+    request = _planned_brief()
+    data = request.model_dump()
+    data["page_metadata"]["persona"]["content_pillars"] = ["operations"]
+    return DirectorPlanInput.model_validate(data)
 
 
 def _compiled_prompt() -> CompiledProviderPrompt:
@@ -60,7 +68,7 @@ def test_prompt_trace_shape_links_brief_scene_plan_and_final_prompt() -> None:
     compiled = _compiled_prompt()
 
     assert compiled.prompt_kind == "scene_plan_visual_prompt"
-    assert compiled.trace.compiler_name == "scene_prompt_compiler_v1"
+    assert compiled.trace.compiler_name == "scene_prompt_compiler_v2"
     assert compiled.trace.source.brief_title.startswith("Northwind Fitness")
     assert len(compiled.trace.source.scene_ids) == 5
     assert [fragment.scene_id for fragment in compiled.trace.fragments] == (
@@ -122,3 +130,71 @@ def test_prompt_compiler_preserves_provider_safe_limits_and_negative_prompt() ->
         for fragment in compiled.trace.fragments
     )
     assert compiled.negative_prompt == "text overlays, captions, watermarks"
+
+
+def test_prompt_compiler_uses_subject_setting_action_object_camera() -> None:
+    brief = PhaseOneDirector().plan(_operations_brief())
+    script = generate_script_output(brief)
+    scene_plan = compile_scene_plan(brief=brief, script=script)
+    compiled = compile_provider_prompt(
+        brief_payload=brief.model_dump(mode="json"),
+        scene_plan=scene_plan,
+        provider="runway",
+        model="gen4.5",
+    )
+
+    lowered = compiled.prompt.lower()
+    assert "busy founder" in lowered
+    assert "modern desk workspace" in lowered
+    assert "dragging overdue tasks" in lowered
+    assert "non-readable interface blocks" in lowered
+    assert "close-up over-the-shoulder" in lowered
+
+
+def test_prompt_compiler_blocks_visual_focus_filler() -> None:
+    brief = PhaseOneDirector().plan(_operations_brief())
+    script = generate_script_output(brief)
+    scene_plan = compile_scene_plan(brief=brief, script=script)
+    compiled = compile_provider_prompt(
+        brief_payload=brief.model_dump(mode="json"),
+        scene_plan=scene_plan,
+        provider="runway",
+        model="gen4.5",
+    )
+
+    assert "visual focus" not in compiled.prompt.lower()
+    assert compiled.trace.safety.generic_filler_removed is True
+
+
+def test_prompt_includes_no_legible_text_instruction_for_screen_ui() -> None:
+    brief = PhaseOneDirector().plan(_operations_brief())
+    script = generate_script_output(brief)
+    scene_plan = compile_scene_plan(brief=brief, script=script)
+    compiled = compile_provider_prompt(
+        brief_payload=brief.model_dump(mode="json"),
+        scene_plan=scene_plan,
+        provider="runway",
+        model="gen4.5",
+    )
+
+    assert "no legible text on screens" in compiled.prompt.lower()
+    assert compiled.trace.safety.no_legible_text_instruction_applied is True
+
+
+def test_visual_prompt_lint_flags_generic_scene_prompt() -> None:
+    result = lint_scene_visual_specificity(
+        {
+            "visual_intent": "visual focus operations",
+            "shot_guidance": "show value",
+            "subject": "",
+            "setting": "desk",
+            "action": "",
+            "key_visual_object": "",
+            "camera_framing": "",
+        },
+        prompt_text="visual focus operations useful step",
+    )
+
+    assert result.passed is False
+    assert "generic_phrase:visual focus" in result.findings
+    assert "missing_field:action" in result.findings

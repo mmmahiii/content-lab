@@ -94,8 +94,9 @@ def build_package_directory(
     _write_json(package_directory / PROVENANCE_FILENAME, provenance)
     if creative_trace is not None:
         _write_json(package_directory / CREATIVE_TRACE_FILENAME, creative_trace)
-    if overlay_render_trace is not None:
-        _write_json(package_directory / OVERLAY_RENDER_TRACE_FILENAME, overlay_render_trace)
+    if overlay_render_trace is None:
+        raise ValueError("overlay_render_trace is required for production-safe overlay QA")
+    _write_json(package_directory / OVERLAY_RENDER_TRACE_FILENAME, overlay_render_trace)
     if timeline is None:
         raise ValueError("timeline is required for MED-001 package output")
     if timeline_render_trace is None:
@@ -236,6 +237,13 @@ def _build_manifest(
             content_type="application/json",
             kind="json",
         ),
+        _manifest_artifact(
+            name="overlay_render_trace",
+            filename=OVERLAY_RENDER_TRACE_FILENAME,
+            package_directory=package_directory,
+            content_type="application/json",
+            kind="json",
+        ),
     ]
     creative_trace_path = package_directory / CREATIVE_TRACE_FILENAME
     if creative_trace_path.exists() and creative_trace_path.is_file():
@@ -243,17 +251,6 @@ def _build_manifest(
             _manifest_artifact(
                 name="creative_trace",
                 filename=CREATIVE_TRACE_FILENAME,
-                package_directory=package_directory,
-                content_type="application/json",
-                kind="json",
-            )
-        )
-    overlay_trace_path = package_directory / OVERLAY_RENDER_TRACE_FILENAME
-    if overlay_trace_path.exists() and overlay_trace_path.is_file():
-        artifacts.append(
-            _manifest_artifact(
-                name="overlay_render_trace",
-                filename=OVERLAY_RENDER_TRACE_FILENAME,
                 package_directory=package_directory,
                 content_type="application/json",
                 kind="json",

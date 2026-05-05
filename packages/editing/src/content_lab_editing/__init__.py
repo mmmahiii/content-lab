@@ -20,6 +20,10 @@ from content_lab_editing.editor_basic import (
     render_basic_vertical_edit,
 )
 from content_lab_editing.instructions import EditInstruction, EditOperation, EditPlan
+from content_lab_editing.media_timeline import (
+    build_timeline_render_trace,
+    validate_media_timeline,
+)
 from content_lab_editing.overlay_layout import (
     build_overlay_render_manifest_for_qa,
     default_overlay_safe_area,
@@ -79,8 +83,10 @@ __all__ = [
     "build_ready_to_post_package",
     "build_scene_aware_edit_plan",
     "build_single_clip_edit_plan",
+    "build_timeline_render_trace",
     "get_editorial_template",
     "render_basic_vertical_edit",
     "select_and_apply_editorial_template",
     "select_editorial_template",
+    "validate_media_timeline",
 ]

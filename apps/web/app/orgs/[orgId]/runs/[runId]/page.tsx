@@ -15,7 +15,7 @@ import {
   pagePath,
   pageRunsPath,
   reelPath,
-} from '../../../../_lib/content-lab-data';
+} from '../../../../_lib/operator-routes';
 import { loadOperatorRunDetail } from '../../../../_lib/operator-page-workspace';
 
 function buildActionPath(orgId: string, pageId: string | null, reelId: string | null): string {

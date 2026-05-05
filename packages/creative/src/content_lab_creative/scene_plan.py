@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from content_lab_creative.types import (
     GeneratedScriptOutput,
@@ -40,6 +40,7 @@ def compile_scene_plan(
     audience = _brief_value(brief, "audience", fallback="the viewer")
     cta = _brief_value(brief, "primary_call_to_action", fallback=None)
     boundaries = _segment_boundaries(script.duration_seconds, len(_SCENE_PURPOSES))
+    visual_style_lock = _visual_style_lock(content_pillar)
     scenes = [
         _build_scene(
             purpose=purpose,
@@ -51,6 +52,7 @@ def compile_scene_plan(
             audience=audience,
             cta=cta,
             script=script,
+            visual_style_lock=visual_style_lock,
         )
         for index, purpose in enumerate(_SCENE_PURPOSES)
     ]
@@ -58,11 +60,26 @@ def compile_scene_plan(
         brief_title=brief_title,
         duration_seconds=script.duration_seconds,
         scenes=scenes,
+        visual_style_lock=visual_style_lock,
         metadata={
             "source": "script_and_brief",
             "scene_count": len(scenes),
             "script_provider_name": script.provider_name,
             "script_generator_path": script.generator_path,
+            "visual_style_lock": visual_style_lock,
+            "enriched_scene_fields": [
+                "subject",
+                "setting",
+                "action",
+                "key_visual_object",
+                "camera_framing",
+                "camera_motion",
+                "lighting",
+                "palette",
+                "continuity_anchor",
+                "visual_purpose",
+                "forbidden_visual_elements",
+            ],
         },
     )
 
@@ -89,8 +106,10 @@ def _build_scene(
     audience: str,
     cta: str | None,
     script: GeneratedScriptOutput,
+    visual_style_lock: dict[str, object],
 ) -> ScenePlanScene:
     overlay = _overlay_for_scene(script.overlay_timeline, start_seconds, end_seconds, purpose)
+    motif = _visual_motif(purpose=purpose, content_pillar=content_pillar)
     return ScenePlanScene(
         scene_id=f"scene_{index + 1}_{purpose.value}",
         purpose=purpose,
@@ -104,10 +123,110 @@ def _build_scene(
             cta=cta,
         ),
         shot_guidance=_shot_guidance(purpose=purpose, script=script, scene_index=index),
+        subject=str(motif["subject"]),
+        setting=str(motif["setting"]),
+        action=str(motif["action"]),
+        key_visual_object=str(motif["key_visual_object"]),
+        camera_framing=str(motif["camera_framing"]),
+        camera_motion=str(motif["camera_motion"]),
+        lighting=str(visual_style_lock["lighting"]),
+        palette=str(visual_style_lock["palette"]),
+        continuity_anchor=str(visual_style_lock["continuity"]),
+        visual_purpose=str(motif["visual_purpose"]),
+        forbidden_visual_elements=list(cast(list[str], visual_style_lock["avoid"])),
         overlay_role=_overlay_role(purpose=purpose, overlay=overlay),
         overlay_text=overlay.text if overlay is not None else None,
         narration_refs=_narration_refs(script.spoken_script, start_seconds, end_seconds),
     )
+
+
+def _visual_style_lock(content_pillar: str) -> dict[str, object]:
+    if _is_operations(content_pillar):
+        return {
+            "setting": "modern desk workspace",
+            "subject": "busy founder",
+            "lighting": "soft natural daylight",
+            "palette": "neutral business tones",
+            "camera_language": "close-up and medium desk shots",
+            "continuity": "same founder, same laptop, same desk across scenes",
+            "avoid": [
+                "legible UI text",
+                "floating text",
+                "watermarks",
+                "captions baked into video",
+            ],
+        }
+    return {
+        "setting": "clean practical workspace",
+        "subject": "focused person",
+        "lighting": "soft natural daylight",
+        "palette": "natural realistic tones",
+        "camera_language": "vertical close-ups and medium action shots",
+        "continuity": "same person, same location, same main object across scenes",
+        "avoid": ["legible UI text", "floating text", "watermarks", "captions baked into video"],
+    }
+
+
+def _visual_motif(*, purpose: ScenePurpose, content_pillar: str) -> dict[str, str]:
+    if _is_operations(content_pillar):
+        base = {
+            "subject": "busy founder",
+            "setting": "modern desk workspace",
+            "camera_motion": "slow push-in",
+        }
+        by_purpose = {
+            ScenePurpose.HOOK: (
+                "sorting a messy backlog into clear groups",
+                "laptop task board with abstract task-board cards without legible text",
+                "close-up over-the-shoulder",
+                "show the operations reset beginning immediately",
+            ),
+            ScenePurpose.SETUP: (
+                "pausing over repeated notification blocks and a cluttered calendar",
+                "blurred dashboard shapes and inbox-style notification blocks",
+                "medium desk shot",
+                "make the operational friction visible without readable UI text",
+            ),
+            ScenePurpose.VALUE: (
+                "dragging overdue tasks into three priority columns",
+                "laptop task board with non-readable interface blocks",
+                "close-up over-the-shoulder",
+                "show the operations reset being performed",
+            ),
+            ScenePurpose.PAYOFF: (
+                "checking a simplified checklist beside an organized workflow board",
+                "clean kanban-style workflow with unlabeled cards",
+                "steady close-up",
+                "reveal the workflow becoming calmer and easier to scan",
+            ),
+            ScenePurpose.CLOSE: (
+                "closing the laptop beside neatly arranged sticky notes",
+                "desk with organized sticky notes and a calm laptop screen",
+                "stable medium shot",
+                "end on a clear calm final frame",
+            ),
+        }
+        action, obj, framing, visual_purpose = by_purpose[purpose]
+        return {
+            **base,
+            "action": action,
+            "key_visual_object": obj,
+            "camera_framing": framing,
+            "visual_purpose": visual_purpose,
+        }
+    return {
+        "subject": "focused person",
+        "setting": "clean practical workspace",
+        "action": "performing the main practical step",
+        "key_visual_object": "hands and primary object used in the demonstration",
+        "camera_framing": "vertical close-up",
+        "camera_motion": "subtle handheld move",
+        "visual_purpose": f"make the {content_pillar} idea concrete and easy to follow",
+    }
+
+
+def _is_operations(content_pillar: str) -> bool:
+    return "operation" in content_pillar.strip().lower()
 
 
 def _visual_intent(

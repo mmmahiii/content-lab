@@ -74,6 +74,9 @@ class MediaProbe:
     duration_seconds: float
     has_audio_track: bool
     audio_duration_seconds: float | None = None
+    fps: float | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,10 @@ class BasicEditorArtifact:
     source_had_audio_track: bool
     source_duration_seconds: float
     has_audio_track: bool
+    audio_duration_seconds: float | None
+    fps: float | None
+    video_codec: str | None
+    audio_codec: str | None
     rendered_overlay_manifest: RenderedOverlayManifest
     overlay_render_trace_path: Path
     overlay_render_trace: dict[str, Any] | None = None
@@ -102,6 +109,7 @@ class BasicEditorArtifact:
     overlay_render_report: dict[str, Any] | None = None
     overlay_safe_area: dict[str, object] | None = None
     overlay_manifest: tuple[TextOverlay, ...] = ()
+    edit_mode: str = "single_clip"
 
 
 def render_basic_vertical_edit(
@@ -218,7 +226,7 @@ def render_basic_vertical_edit(
         )
     _validate_audio_sync(probe=output_probe)
 
-    overlay_render_trace = _overlay_trace_payload(rendered_manifest)
+    overlay_render_trace = _overlay_trace_payload(rendered_manifest, edit_mode="single_clip")
     overlay_render_trace_path.write_text(
         json.dumps(overlay_render_trace, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -246,6 +254,10 @@ def render_basic_vertical_edit(
         source_had_audio_track=source_probe.has_audio_track,
         source_duration_seconds=source_probe.duration_seconds,
         has_audio_track=output_probe.has_audio_track,
+        audio_duration_seconds=output_probe.audio_duration_seconds,
+        fps=output_probe.fps,
+        video_codec=output_probe.video_codec,
+        audio_codec=output_probe.audio_codec,
         rendered_overlay_manifest=rendered_manifest,
         overlay_render_trace_path=overlay_render_trace_path,
         overlay_render_trace=overlay_render_trace,
@@ -255,6 +267,7 @@ def render_basic_vertical_edit(
         overlay_render_report=overlay_render_report,
         overlay_safe_area=overlay_safe_area,
         overlay_manifest=normalized_overlays,
+        edit_mode="single_clip",
     )
 
 
@@ -373,7 +386,7 @@ def _render_scene_aware_edit(
         )
     _validate_audio_sync(probe=output_probe)
 
-    overlay_render_trace = _overlay_trace_payload(rendered_manifest)
+    overlay_render_trace = _overlay_trace_payload(rendered_manifest, edit_mode="scene_composed")
     overlay_render_trace_path.write_text(
         json.dumps(overlay_render_trace, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -401,6 +414,10 @@ def _render_scene_aware_edit(
         source_had_audio_track=combined_probe.has_audio_track,
         source_duration_seconds=combined_probe.duration_seconds,
         has_audio_track=output_probe.has_audio_track,
+        audio_duration_seconds=output_probe.audio_duration_seconds,
+        fps=output_probe.fps,
+        video_codec=output_probe.video_codec,
+        audio_codec=output_probe.audio_codec,
         rendered_overlay_manifest=rendered_manifest,
         overlay_render_trace_path=overlay_render_trace_path,
         overlay_render_trace=overlay_render_trace,
@@ -414,13 +431,15 @@ def _render_scene_aware_edit(
         overlay_render_report=overlay_render_report,
         overlay_safe_area=overlay_safe_area,
         overlay_manifest=normalized_overlays,
+        edit_mode="scene_composed",
     )
 
 
-def _overlay_trace_payload(manifest: RenderedOverlayManifest) -> dict[str, Any]:
+def _overlay_trace_payload(manifest: RenderedOverlayManifest, *, edit_mode: str) -> dict[str, Any]:
     payload = manifest.as_json_dict()
     payload["artifact_type"] = "overlay_render_trace"
     payload["overlay_count"] = len(manifest.overlays)
+    payload["edit_mode"] = edit_mode
     return payload
 
 
@@ -540,6 +559,8 @@ def probe_media_file(path: str | Path, *, ffprobe_bin: str = "ffprobe") -> Media
 
     width = int(video_stream.get("width") or 0)
     height = int(video_stream.get("height") or 0)
+    fps = _parse_frame_rate(video_stream.get("avg_frame_rate"))
+    video_codec = _optional_text(video_stream.get("codec_name"))
     format_payload = payload.get("format", {})
     duration_raw = None
     if isinstance(video_stream, dict):
@@ -558,7 +579,9 @@ def probe_media_file(path: str | Path, *, ffprobe_bin: str = "ffprobe") -> Media
     )
     has_audio_track = audio_stream is not None
     audio_duration_seconds: float | None = None
+    audio_codec: str | None = None
     if isinstance(audio_stream, dict):
+        audio_codec = _optional_text(audio_stream.get("codec_name"))
         audio_duration_raw = audio_stream.get("duration")
         if audio_duration_raw in (None, "", "N/A"):
             audio_duration_raw = format_payload.get("duration")
@@ -569,7 +592,39 @@ def probe_media_file(path: str | Path, *, ffprobe_bin: str = "ffprobe") -> Media
         duration_seconds=duration_seconds,
         has_audio_track=has_audio_track,
         audio_duration_seconds=audio_duration_seconds,
+        fps=fps,
+        video_codec=video_codec,
+        audio_codec=audio_codec,
     )
+
+
+def _parse_frame_rate(value: object) -> float | None:
+    if value in (None, "", "0/0", "N/A"):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    if "/" in value:
+        numerator, denominator = value.split("/", maxsplit=1)
+        try:
+            denom = float(denominator)
+            if denom == 0:
+                return None
+            return float(numerator) / denom
+        except ValueError:
+            return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _render_timeline_segment(

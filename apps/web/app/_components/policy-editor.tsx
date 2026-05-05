@@ -10,10 +10,10 @@ import {
   type PolicyEditorField,
 } from '../policy-editor.helpers';
 import {
-  submitOperatorRequest,
+  submitApiRequest,
   type FieldErrors,
   type SubmissionFeedback,
-} from '../operator-console.helpers';
+} from '../request-submit';
 import type { PolicyEditorRecord } from '../_lib/operator-policy';
 
 function formatTimestamp(value: string | null): string {
@@ -152,7 +152,7 @@ export function PolicyEditor({
       route: submission.value.actionPath,
     });
 
-    const result = await submitOperatorRequest<PagePolicyStateOut>(apiBaseUrl, submission.value);
+    const result = await submitApiRequest<PagePolicyStateOut>(apiBaseUrl, submission.value);
     setFeedback(result);
     setPending(false);
 

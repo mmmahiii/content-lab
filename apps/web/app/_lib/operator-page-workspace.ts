@@ -13,14 +13,6 @@ import {
   DEFAULT_API_BASE_URL,
   resolveOperatorContext,
 } from './operator-dashboard';
-import {
-  demoIds,
-  getPackageDetail,
-  getPageDetail,
-  getReelDetail,
-  getRunDetail,
-  getWorkspaceSummary,
-} from './content-lab-data';
 import type { OperatorContextSource } from './operator-context';
 
 type WorkspaceContext = {
@@ -210,10 +202,6 @@ async function fetchOptionalJson<T>(apiBaseUrl: string, path: string): Promise<T
   return (await response.json()) as T;
 }
 
-function isDemoOrg(orgId: string): boolean {
-  return orgId === demoIds.orgId;
-}
-
 function buildPageWorkspaceRuns(runs: RunOut[], pageId: string): PageWorkspaceRun[] {
   return runs
     .map((run) => ({
@@ -261,38 +249,10 @@ function buildPageWorkspaceReels(
   });
 }
 
-async function loadDemoPageWorkspaceSnapshot(
-  orgId: string,
-  pageId: string,
-): Promise<PageWorkspaceSnapshot | null> {
-  const context = await loadWorkspaceContext(orgId);
-  const pageDetail = await getPageDetail(orgId, pageId);
-  const workspace = await getWorkspaceSummary(orgId);
-
-  if (pageDetail === null || workspace === null) {
-    return null;
-  }
-
-  const runs = buildPageWorkspaceRuns(workspace.runs, pageId);
-  const reels = buildPageWorkspaceReels(pageDetail.recentReels, runs);
-
-  return {
-    context,
-    page: pageDetail.page,
-    reels,
-    runs,
-    policy: pageDetail.policy,
-  };
-}
-
 export async function loadPageWorkspaceSnapshot(
   orgId: string,
   pageId: string,
 ): Promise<PageWorkspaceSnapshot | null> {
-  if (isDemoOrg(orgId)) {
-    return loadDemoPageWorkspaceSnapshot(orgId, pageId);
-  }
-
   const context = await loadWorkspaceContext(orgId);
   const page = await fetchOptionalJson<PageOut>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}`);
   if (page === null) {
@@ -320,22 +280,6 @@ export async function loadOperatorReelDetail(
   pageId: string,
   reelId: string,
 ): Promise<OperatorReelDetailSnapshot | null> {
-  if (isDemoOrg(orgId)) {
-    const context = await loadWorkspaceContext(orgId);
-    const detail = await getReelDetail(orgId, pageId, reelId);
-    if (detail === null) {
-      return null;
-    }
-
-    return {
-      context,
-      page: detail.page,
-      reel: detail.reel,
-      relatedRun: detail.relatedRun,
-      packageDetail: detail.packageDetail,
-    };
-  }
-
   const context = await loadWorkspaceContext(orgId);
   const [page, reel] = await Promise.all([
     fetchOptionalJson<PageOut>(context.apiBaseUrl, `/orgs/${orgId}/pages/${pageId}`),
@@ -388,22 +332,6 @@ export async function loadOperatorRunDetail(
   orgId: string,
   runId: string,
 ): Promise<OperatorRunDetailSnapshot | null> {
-  if (isDemoOrg(orgId)) {
-    const context = await loadWorkspaceContext(orgId);
-    const detail = await getRunDetail(orgId, runId);
-    if (detail === null) {
-      return null;
-    }
-
-    return {
-      context,
-      run: detail.run,
-      page: detail.page,
-      reel: detail.reel,
-      packageDetail: detail.packageDetail,
-    };
-  }
-
   const context = await loadWorkspaceContext(orgId);
   const run = await fetchOptionalJson<RunDetailOut>(
     context.apiBaseUrl,
@@ -444,22 +372,6 @@ export async function loadOperatorPackageDetail(
   orgId: string,
   runId: string,
 ): Promise<OperatorPackageDetailSnapshot | null> {
-  if (isDemoOrg(orgId)) {
-    const context = await loadWorkspaceContext(orgId);
-    const detail = await getPackageDetail(orgId, runId);
-    if (detail === null) {
-      return null;
-    }
-
-    return {
-      context,
-      packageDetail: detail.packageDetail,
-      run: detail.run,
-      page: detail.page,
-      reel: detail.reel,
-    };
-  }
-
   const context = await loadWorkspaceContext(orgId);
   const [packageDetail, run] = await Promise.all([
     fetchOptionalJson<PackageDetailOut>(

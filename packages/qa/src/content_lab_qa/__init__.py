@@ -12,7 +12,7 @@ from content_lab_qa.format import (
     evaluate_format_qa,
     evaluate_reel_package_format,
 )
-from content_lab_qa.gate import QAGate, QAResult
+from content_lab_qa.gate import QAGate, QAResult, qa_result_blocks_readiness
 from content_lab_qa.overlay import (
     OverlayTextFidelityFinding,
     OverlayTextFidelityReport,
@@ -67,6 +67,7 @@ __all__ = [
     "PackageQualityAssuranceError",
     "QAGate",
     "QAResult",
+    "qa_result_blocks_readiness",
     "FormatQAConstraints",
     "FormatQAReport",
     "RepetitionGate",

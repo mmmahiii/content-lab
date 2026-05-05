@@ -54,6 +54,19 @@ def test_evaluate_timeline_timing_qa_passes_aligned_payload() -> None:
     assert result.verdict == QAVerdict.PASS
 
 
+def test_evaluate_timeline_timing_qa_allows_probe_float_noise_at_frame_boundary() -> None:
+    result = evaluate_timeline_timing_qa(
+        script={"overlay_timeline": []},
+        scene_plan={"scenes": [{"scene_id": "s", "start_seconds": 0, "end_seconds": 10}]},
+        editing={
+            "duration_seconds": 10.041667,
+            "timeline": _timeline(10.0),
+            "cover_frame_timestamp_seconds": 0.0,
+        },
+    )
+    assert result.verdict == QAVerdict.PASS
+
+
 def test_evaluate_timeline_timing_qa_fails_missing_duration() -> None:
     result = evaluate_timeline_timing_qa(
         script={"overlay_timeline": []},

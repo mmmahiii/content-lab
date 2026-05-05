@@ -58,7 +58,7 @@ def test_g004_semantic_script_fails_on_exact_bad_standard_caption() -> None:
     assert any(f.code == "internal_qa_copy" for f in report.findings)
 
 
-def test_g004_package_script_semantics_fails_when_payload_embeds_bad_script() -> None:
+def test_g004_package_script_semantics_warns_when_payload_embeds_bad_script() -> None:
     from tests.test_package import _valid_package_payload
 
     payload = _valid_package_payload()
@@ -68,7 +68,8 @@ def test_g004_package_script_semantics_fails_when_payload_embeds_bad_script() ->
     assert gate.verdict == QAVerdict.FAIL
 
     agg = evaluate_package(payload)
-    assert not agg.passed
+    assert agg.passed
+    assert agg.errors == []
     assert any(c.gate_name == "package_script_semantics" and not c.passed for c in agg.checks)
 
 

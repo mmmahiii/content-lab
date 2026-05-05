@@ -25,6 +25,7 @@ from content_lab_creative import (
     PolicyStateDocument,
     ScriptGeneratorPath,
 )
+from content_lab_editing import build_timeline_render_trace
 from content_lab_storage.client import RetrievedObject, StoredObject
 from content_lab_storage.integrity import S3ObjectIntegrityVerifier
 from content_lab_storage.refs import StorageRef
@@ -75,6 +76,48 @@ _SHA256_B = "sha256:" + ("b" * 64)
 _SHA256_C = "sha256:" + ("c" * 64)
 _SHA256_D = "sha256:" + ("d" * 64)
 _SHA256_E = "sha256:" + ("e" * 64)
+_SHA256_O = "sha256:" + ("2" * 64)
+
+
+def _passing_timeline_render_trace(
+    *,
+    timeline: Mapping[str, Any],
+    duration_seconds: float,
+) -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        build_timeline_render_trace(
+            canonical_timeline=timeline,
+            final_video_duration_seconds=duration_seconds,
+            final_video_width=1080,
+            final_video_height=1920,
+            final_video_fps=24.0,
+            final_video_path_or_uri="memory://final_video.mp4",
+            final_video_has_video_stream=True,
+            final_video_has_audio_stream=True,
+            final_audio_duration_seconds=duration_seconds,
+            final_video_codec="h264",
+            final_audio_codec="aac",
+            source_asset_duration_seconds=duration_seconds,
+            source_path_or_uri="memory://source.mp4",
+            creative_duration_seconds=duration_seconds,
+            editing_duration_seconds=duration_seconds,
+            cover_timestamp_seconds=0.0,
+        ),
+    )
+
+
+def _passing_overlay_render_trace(*, duration_seconds: float = 12.0) -> dict[str, Any]:
+    return {
+        "artifact_type": "overlay_render_trace",
+        "schema_version": "rendered_overlay_manifest_v1",
+        "frame_width_px": 1080,
+        "frame_height_px": 1920,
+        "clip_duration_seconds": duration_seconds,
+        "overlay_count": 0,
+        "overlays": [],
+    }
+
 
 daily_reel_factory_module = importlib.import_module(
     "content_lab_orchestrator.flows.daily_reel_factory"
@@ -249,60 +292,45 @@ class RecordingProcessReelExecutor:
 
     def edit_reel(self, execution: ProcessReelExecution) -> dict[str, object]:
         self.calls.append("editing")
+        timeline = {
+            "version": "med-001.v1",
+            "timeline_id": f"timeline-{execution.reel_id}",
+            "duration_seconds": 12.0,
+            "cover_frame_timestamp_seconds": 0.0,
+            "source_clips": [{"clip_id": "source-001", "duration_seconds": 12.0}],
+            "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
+            "edit_segments": [
+                {
+                    "segment_id": "segment-001",
+                    "timeline_start_seconds": 0.0,
+                    "timeline_end_seconds": 12.0,
+                    "source_clip_id": "source-001",
+                    "source_start_seconds": 0.0,
+                    "source_end_seconds": 12.0,
+                }
+            ],
+            "overlays": [],
+            "audio_tracks": [
+                {
+                    "track_id": "audio-master",
+                    "role": "master",
+                    "start_seconds": 0.0,
+                    "end_seconds": 12.0,
+                }
+            ],
+        }
         return {
             "timeline_uri": f"memory://edits/{execution.reel_id}.json",
             "timeline_render_trace_uri": f"memory://edits/{execution.reel_id}-render-trace.json",
             "duration_seconds": 12.0,
             "cover_frame_timestamp_seconds": 0.0,
-            "timeline": {
-                "version": "med-001.v1",
-                "timeline_id": f"timeline-{execution.reel_id}",
-                "duration_seconds": 12.0,
-                "cover_frame_timestamp_seconds": 0.0,
-                "source_clips": [{"clip_id": "source-001", "duration_seconds": 12.0}],
-                "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}],
-                "edit_segments": [
-                    {
-                        "segment_id": "segment-001",
-                        "timeline_start_seconds": 0.0,
-                        "timeline_end_seconds": 12.0,
-                        "source_clip_id": "source-001",
-                        "source_start_seconds": 0.0,
-                        "source_end_seconds": 12.0,
-                    }
-                ],
-                "overlays": [],
-                "audio_tracks": [
-                    {
-                        "track_id": "audio-master",
-                        "role": "master",
-                        "start_seconds": 0.0,
-                        "end_seconds": 12.0,
-                    }
-                ],
-            },
-            "timeline_render_trace": {
-                "schema_version": "timeline_render_trace.v1",
-                "scene_timings": [
-                    {"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": 12.0}
-                ],
-                "overlay_timings": [],
-                "audio_timings": [
-                    {
-                        "track_id": "audio-master",
-                        "role": "master",
-                        "start_seconds": 0.0,
-                        "end_seconds": 12.0,
-                    }
-                ],
-                "fade_durations": [
-                    {"track_id": "audio-master", "fade_in_seconds": 0.12, "fade_out_seconds": 0.18}
-                ],
-                "final_render_duration_seconds": 12.0,
-                "source_asset_duration_seconds": 12.0,
-                "duration_mismatch_checks": {"status": "pass", "mismatches": []},
-                "cover_timestamp_seconds": 0.0,
-            },
+            "timeline": timeline,
+            "timeline_render_trace": _passing_timeline_render_trace(
+                timeline=timeline,
+                duration_seconds=12.0,
+            ),
+            "overlay_render_trace_uri": f"memory://edits/{execution.reel_id}-overlay-trace.json",
+            "overlay_render_trace": _passing_overlay_render_trace(),
         }
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
@@ -324,7 +352,7 @@ class RecordingProcessReelExecutor:
             "manifest_uri": f"memory://packages/{execution.reel_id}/package_manifest.json",
             "manifest": {
                 "version": 1,
-                "artifact_count": 7,
+                "artifact_count": 8,
                 "complete": True,
                 "artifacts": [
                     {
@@ -362,6 +390,11 @@ class RecordingProcessReelExecutor:
                         "filename": "timeline_render_trace.json",
                         "checksum_sha256": "sha256:" + ("1" * 64),
                     },
+                    {
+                        "name": "overlay_render_trace",
+                        "filename": "overlay_render_trace.json",
+                        "checksum_sha256": _SHA256_O,
+                    },
                 ],
             },
             "caption_variants": [
@@ -383,6 +416,13 @@ class RecordingProcessReelExecutor:
                 f"memory://packages/{execution.reel_id}/timeline_render_trace.json"
             ),
             "timeline_render_trace": execution.outputs["editing"].get("timeline_render_trace", {}),
+            "overlay_render_trace_uri": (
+                f"memory://packages/{execution.reel_id}/overlay_render_trace.json"
+            ),
+            "overlay_render_trace": execution.outputs["editing"].get(
+                "overlay_render_trace",
+                _passing_overlay_render_trace(),
+            ),
             "artifacts": [
                 {
                     "name": "final_video",
@@ -425,6 +465,12 @@ class RecordingProcessReelExecutor:
                     "filename": "timeline_render_trace.json",
                     "storage_uri": f"memory://packages/{execution.reel_id}/timeline_render_trace.json",
                     "checksum_sha256": "sha256:" + ("1" * 64),
+                },
+                {
+                    "name": "overlay_render_trace",
+                    "filename": "overlay_render_trace.json",
+                    "storage_uri": f"memory://packages/{execution.reel_id}/overlay_render_trace.json",
+                    "checksum_sha256": _SHA256_O,
                 },
                 {
                     "name": "package_manifest",
@@ -1935,6 +1981,42 @@ def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExe
         frame_width=1080,
         frame_height=1920,
     )
+    timeline = {
+        "version": "med-001.v1",
+        "timeline_id": "timeline-qa",
+        "duration_seconds": duration,
+        "cover_frame_timestamp_seconds": 0.0,
+        "source_clips": [{"clip_id": "source-001", "duration_seconds": duration}],
+        "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": duration}],
+        "edit_segments": [
+            {
+                "segment_id": "segment-001",
+                "timeline_start_seconds": 0.0,
+                "timeline_end_seconds": duration,
+                "source_clip_id": "source-001",
+                "source_start_seconds": 0.0,
+                "source_end_seconds": duration,
+            }
+        ],
+        "overlays": [
+            {
+                "overlay_id": f"overlay-{idx+1:03d}",
+                "start_seconds": row.start_seconds,
+                "end_seconds": row.end_seconds,
+                "text": row.text,
+                "role": row.overlay_role,
+            }
+            for idx, row in enumerate(overlays)
+        ],
+        "audio_tracks": [
+            {
+                "track_id": "audio-master",
+                "role": "master",
+                "start_seconds": 0.0,
+                "end_seconds": duration,
+            }
+        ],
+    }
     execution.outputs["editing"] = {
         "final_video_path": "/tmp/final_video.mp4",
         "cover_path": "/tmp/cover.png",
@@ -1944,42 +2026,12 @@ def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExe
         "overlay_stack_policy": default_overlay_stack_policy_for_template(None),
         "overlay_render_manifest": overlay_manifest,
         "overlay_safe_area": overlay_safe_area,
-        "timeline": {
-            "version": "med-001.v1",
-            "timeline_id": "timeline-qa",
-            "duration_seconds": duration,
-            "cover_frame_timestamp_seconds": 0.0,
-            "source_clips": [{"clip_id": "source-001", "duration_seconds": duration}],
-            "scenes": [{"scene_id": "scene-001", "start_seconds": 0.0, "end_seconds": duration}],
-            "edit_segments": [
-                {
-                    "segment_id": "segment-001",
-                    "timeline_start_seconds": 0.0,
-                    "timeline_end_seconds": duration,
-                    "source_clip_id": "source-001",
-                    "source_start_seconds": 0.0,
-                    "source_end_seconds": duration,
-                }
-            ],
-            "overlays": [
-                {
-                    "overlay_id": f"overlay-{idx+1:03d}",
-                    "start_seconds": row.start_seconds,
-                    "end_seconds": row.end_seconds,
-                    "text": row.text,
-                    "role": row.overlay_role,
-                }
-                for idx, row in enumerate(overlays)
-            ],
-            "audio_tracks": [
-                {
-                    "track_id": "audio-master",
-                    "role": "master",
-                    "start_seconds": 0.0,
-                    "end_seconds": duration,
-                }
-            ],
-        },
+        "timeline": timeline,
+        "timeline_render_trace": _passing_timeline_render_trace(
+            timeline=timeline,
+            duration_seconds=duration,
+        ),
+        "overlay_render_trace": _passing_overlay_render_trace(duration_seconds=duration),
     }
     execution.outputs["asset_resolution"] = {
         "asset_key_hash": "asset-key-hash",
@@ -2163,7 +2215,7 @@ def test_process_reel_qa_passes_when_semantic_and_format_are_healthy(
     assert overlay_details["verdict"] == "pass"
 
 
-def test_process_reel_qa_fails_when_script_is_semantically_weak(
+def test_process_reel_qa_warns_when_script_is_semantically_weak(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_passing_format_report(monkeypatch)
@@ -2194,8 +2246,10 @@ def test_process_reel_qa_fails_when_script_is_semantically_weak(
     execution = _build_qa_execution(creative_output=weak_creative)
     result = executor.run_qa(execution)
 
-    assert result.passed is False
-    assert result.details["verdict"] == "fail"
+    assert result.passed is True
+    assert result.details["verdict"] == "warn"
+    assert result.details["blocking_failures"] == []
+    assert result.details["advisory_failures"]
     semantic_details = cast(dict[str, Any], result.details["semantic_script"])
     assert semantic_details["verdict"] == "fail"
     finding_codes = [
@@ -2208,7 +2262,7 @@ def test_process_reel_qa_fails_when_script_is_semantically_weak(
     assert format_details["verdict"] == "pass"
 
 
-def test_process_reel_qa_fails_on_overlay_text_mismatch_in_manifest(
+def test_process_reel_qa_warns_on_overlay_text_mismatch_in_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_passing_format_report(monkeypatch)
@@ -2228,14 +2282,17 @@ def test_process_reel_qa_fails_on_overlay_text_mismatch_in_manifest(
 
     result = executor.run_qa(execution)
 
-    assert result.passed is False
+    assert result.passed is True
+    assert result.details["verdict"] == "warn"
+    assert result.details["blocking_failures"] == []
+    assert result.details["advisory_failures"]
     overlay = cast(dict[str, Any], result.details["overlay_text_fidelity"])
     assert overlay["verdict"] == "fail"
     codes = [cast(str, f["code"]) for f in cast(list[dict[str, Any]], overlay["findings"])]
     assert "overlay_text_mismatch" in codes
 
 
-def test_process_reel_qa_fails_when_overlay_manifest_missing_with_planned_overlays(
+def test_process_reel_qa_warns_when_overlay_manifest_missing_with_planned_overlays(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_passing_format_report(monkeypatch)
@@ -2251,7 +2308,10 @@ def test_process_reel_qa_fails_when_overlay_manifest_missing_with_planned_overla
 
     result = executor.run_qa(execution)
 
-    assert result.passed is False
+    assert result.passed is True
+    assert result.details["verdict"] == "warn"
+    assert result.details["blocking_failures"] == []
+    assert result.details["advisory_failures"]
     overlay = cast(dict[str, Any], result.details["overlay_text_fidelity"])
     assert overlay["verdict"] == "fail"
     codes = [cast(str, f["code"]) for f in cast(list[dict[str, Any]], overlay["findings"])]

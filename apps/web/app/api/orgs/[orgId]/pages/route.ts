@@ -41,13 +41,21 @@ export async function GET(
   { params }: { params: Promise<{ orgId: string }> },
 ) {
   const { orgId } = await params;
-  const response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/pages`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/pages`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: 'API is not reachable. Start the backend on port 8000, then refresh pages.' },
+      { status: 503 },
+    );
+  }
 
   return new NextResponse(await response.text(), {
     status: response.status,

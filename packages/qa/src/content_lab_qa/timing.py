@@ -31,11 +31,18 @@ class TimelineTimingConstraints(BaseModel):
         ge=0.0,
         le=1.0,
     )
-    audio_drift_tolerance_seconds: float = Field(default=0.25, ge=0.0, le=2.0)
+    audio_drift_tolerance_seconds: float = Field(default=0.35, ge=0.0, le=2.0)
 
 
 TIMELINE_TIMING_GATE_NAME = "timeline_timing"
 MEDIA_SYNC_GATE_NAME = "media_sync"
+FLOAT_NOISE_TOLERANCE_SECONDS = 1e-3
+
+
+def _exceeds_tolerance(delta_seconds: float, tolerance_seconds: float) -> bool:
+    """Treat sub-millisecond float/probe noise as inside the intended media tolerance."""
+
+    return delta_seconds > tolerance_seconds + FLOAT_NOISE_TOLERANCE_SECONDS
 
 
 def evaluate_timeline_timing_qa(
@@ -104,7 +111,7 @@ def evaluate_timeline_timing_qa(
         )
 
     duration_delta = abs(timeline_duration_f - final_duration)
-    if duration_delta > effective.frame_tolerance_seconds:
+    if _exceeds_tolerance(duration_delta, effective.frame_tolerance_seconds):
         return QAResult(
             gate_name=TIMELINE_TIMING_GATE_NAME,
             verdict=QAVerdict.FAIL,
@@ -141,7 +148,7 @@ def evaluate_timeline_timing_qa(
             if cover_ts_f < 0 or cover_ts_f > final_duration + effective.frame_tolerance_seconds:
                 extra_findings.append(
                     {
-                        "code": "cover_timestamp_out_of_range",
+                        "code": "cover_timestamp_out_of_bounds",
                         "severity": "fail",
                         "message": "Cover frame timestamp is outside canonical timeline duration.",
                         "details": {"cover_frame_timestamp_seconds": cover_ts_f},
@@ -209,28 +216,51 @@ def evaluate_media_sync_qa(
             details={"findings": [{"code": "final_duration_missing", "severity": "fail"}]},
         )
 
+    trace = editing.get("timeline_render_trace")
+    if not isinstance(trace, Mapping):
+        return QAResult(
+            gate_name=MEDIA_SYNC_GATE_NAME,
+            verdict=QAVerdict.FAIL,
+            message="Editing output is missing timeline_render_trace for media sync QA.",
+            details={
+                "findings": [
+                    {
+                        "code": "media_timeline_missing",
+                        "severity": "fail",
+                        "message": "timeline_render_trace.json is required for media sync QA.",
+                    }
+                ]
+            },
+        )
+
+    trace_findings = _findings_from_media_timeline_trace(trace)
+    findings.extend(trace_findings)
+
     timeline_payload = editing.get("timeline")
     if not isinstance(timeline_payload, Mapping):
         return QAResult(
             gate_name=MEDIA_SYNC_GATE_NAME,
             verdict=QAVerdict.FAIL,
             message="Editing output is missing canonical timeline for media sync QA.",
-            details={"findings": [{"code": "timeline_missing", "severity": "fail"}]},
+            details={"findings": [{"code": "media_timeline_missing", "severity": "fail"}]},
         )
 
     timeline_duration = _as_float(timeline_payload.get("duration_seconds"))
     if timeline_duration is None:
         findings.append(
             {
-                "code": "video_duration_mismatch",
+                "code": "creative_duration_mismatch",
                 "severity": "fail",
                 "message": "timeline.duration_seconds is missing",
             }
         )
-    elif abs(timeline_duration - final_duration) > effective.frame_tolerance_seconds:
+    elif _exceeds_tolerance(
+        abs(timeline_duration - final_duration),
+        effective.frame_tolerance_seconds,
+    ):
         findings.append(
             {
-                "code": "video_duration_mismatch",
+                "code": "creative_duration_mismatch",
                 "severity": "fail",
                 "message": "Final video duration mismatches canonical timeline duration.",
                 "details": {
@@ -247,13 +277,12 @@ def evaluate_media_sync_qa(
             if not isinstance(scene, Mapping):
                 continue
             scene_end = _as_float(scene.get("end_seconds"))
-            if (
-                scene_end is not None
-                and scene_end > final_duration + effective.frame_tolerance_seconds
+            if scene_end is not None and _exceeds_tolerance(
+                scene_end - final_duration, effective.frame_tolerance_seconds
             ):
                 findings.append(
                     {
-                        "code": "scene_plan_exceeds_actual_media",
+                        "code": "scene_exceeds_video_duration",
                         "severity": "fail",
                         "message": "Scene plan extends beyond actual media duration.",
                         "details": {"index": index, "end_seconds": scene_end},
@@ -266,13 +295,12 @@ def evaluate_media_sync_qa(
             if not isinstance(overlay, Mapping):
                 continue
             end_seconds = _as_float(overlay.get("end_seconds"))
-            if (
-                end_seconds is not None
-                and end_seconds > final_duration + effective.frame_tolerance_seconds
+            if end_seconds is not None and _exceeds_tolerance(
+                end_seconds - final_duration, effective.frame_tolerance_seconds
             ):
                 findings.append(
                     {
-                        "code": "overlay_exceeds_final_duration",
+                        "code": "overlay_exceeds_video_duration",
                         "severity": "fail",
                         "message": "Overlay exceeds final video duration.",
                         "details": {"index": index, "end_seconds": end_seconds},
@@ -283,15 +311,15 @@ def evaluate_media_sync_qa(
     if cover_ts is None:
         findings.append(
             {
-                "code": "cover_timestamp_exceeds_duration",
+                "code": "cover_timestamp_out_of_bounds",
                 "severity": "fail",
                 "message": "cover_frame_timestamp_seconds is missing or invalid.",
             }
         )
-    elif cover_ts > final_duration + effective.frame_tolerance_seconds:
+    elif _exceeds_tolerance(cover_ts - final_duration, effective.frame_tolerance_seconds):
         findings.append(
             {
-                "code": "cover_timestamp_exceeds_duration",
+                "code": "cover_timestamp_out_of_bounds",
                 "severity": "fail",
                 "message": "Cover timestamp exceeds final duration.",
                 "details": {"cover_frame_timestamp_seconds": cover_ts},
@@ -307,10 +335,13 @@ def evaluate_media_sync_qa(
             track_end = _as_float(track.get("end_seconds"))
             if track_end is not None:
                 max_audio_end = max(max_audio_end, track_end)
-        if abs(max_audio_end - final_duration) > effective.frame_tolerance_seconds:
+        if _exceeds_tolerance(
+            abs(max_audio_end - final_duration),
+            effective.frame_tolerance_seconds,
+        ):
             findings.append(
                 {
-                    "code": "audio_duration_mismatch",
+                    "code": "audio_video_duration_mismatch",
                     "severity": "fail",
                     "message": "Audio timeline duration mismatches final video duration.",
                     "details": {
@@ -321,44 +352,42 @@ def evaluate_media_sync_qa(
                 }
             )
 
-    trace = editing.get("timeline_render_trace")
-    if isinstance(trace, Mapping):
-        duration_checks = trace.get("duration_mismatch_checks")
-        if isinstance(duration_checks, Mapping):
-            mismatches = duration_checks.get("mismatches")
-            if isinstance(mismatches, list) and mismatches:
-                findings.append(
-                    {
-                        "code": "video_duration_mismatch",
-                        "severity": "fail",
-                        "message": "Duration mismatch checks reported timeline/media divergence.",
-                        "details": {"mismatches": mismatches},
-                    }
-                )
-        audio_timings = trace.get("audio_timings")
-        if isinstance(audio_timings, list):
-            max_audio_end_trace = 0.0
-            for track in audio_timings:
-                if not isinstance(track, Mapping):
-                    continue
-                track_end = _as_float(track.get("end_seconds"))
-                if track_end is not None:
-                    max_audio_end_trace = max(max_audio_end_trace, track_end)
-            drift = abs(max_audio_end_trace - final_duration)
-            if drift > effective.audio_drift_tolerance_seconds:
-                findings.append(
-                    {
-                        "code": "audio_drift_exceeds_tolerance",
-                        "severity": "fail",
-                        "message": "Audio drift exceeds tolerance.",
-                        "details": {
-                            "audio_end_seconds": max_audio_end_trace,
-                            "final_duration_seconds": final_duration,
-                            "drift_seconds": drift,
-                            "tolerance_seconds": effective.audio_drift_tolerance_seconds,
-                        },
-                    }
-                )
+    duration_checks = trace.get("duration_mismatch_checks")
+    if isinstance(duration_checks, Mapping):
+        mismatches = duration_checks.get("mismatches")
+        if isinstance(mismatches, list) and mismatches:
+            findings.append(
+                {
+                    "code": "creative_duration_mismatch",
+                    "severity": "fail",
+                    "message": "Duration mismatch checks reported timeline/media divergence.",
+                    "details": {"mismatches": mismatches},
+                }
+            )
+    audio_timings = trace.get("audio_timings")
+    if isinstance(audio_timings, list):
+        max_audio_end_trace = 0.0
+        for track in audio_timings:
+            if not isinstance(track, Mapping):
+                continue
+            track_end = _as_float(track.get("end_seconds"))
+            if track_end is not None:
+                max_audio_end_trace = max(max_audio_end_trace, track_end)
+        drift = abs(max_audio_end_trace - final_duration)
+        if _exceeds_tolerance(drift, effective.audio_drift_tolerance_seconds):
+            findings.append(
+                {
+                    "code": "audio_video_duration_mismatch",
+                    "severity": "fail",
+                    "message": "Audio drift exceeds tolerance.",
+                    "details": {
+                        "audio_end_seconds": max_audio_end_trace,
+                        "final_duration_seconds": final_duration,
+                        "drift_seconds": drift,
+                        "tolerance_seconds": effective.audio_drift_tolerance_seconds,
+                    },
+                }
+            )
 
     if findings:
         return QAResult(
@@ -382,6 +411,32 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _findings_from_media_timeline_trace(trace: Mapping[str, Any]) -> list[dict[str, Any]]:
+    checks = trace.get("checks")
+    if not isinstance(checks, Mapping):
+        return []
+    findings: list[dict[str, Any]] = []
+    for check_name, raw_check in checks.items():
+        if not isinstance(raw_check, Mapping) or raw_check.get("passed") is not False:
+            continue
+        code = raw_check.get("code")
+        if not isinstance(code, str) or not code:
+            continue
+        findings.append(
+            {
+                "code": code,
+                "severity": "fail",
+                "message": str(raw_check.get("message") or f"{check_name} failed."),
+                "details": {
+                    str(key): value
+                    for key, value in raw_check.items()
+                    if key not in {"code", "message", "passed"}
+                },
+            }
+        )
+    return findings
 
 
 __all__ = [

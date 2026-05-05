@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -326,6 +326,13 @@ def _overlay_layout_findings(
                     details={**detail_base, "font_size": layout.get("font_size")},
                 )
             )
+            findings.append(
+                OverlayTextFidelityFinding(
+                    code="overlay_readability_failed",
+                    message="Overlay font size is below the readable minimum.",
+                    details={**detail_base, "font_size": layout.get("font_size")},
+                )
+            )
         if bool(layout.get("did_not_fit_horizontally")):
             findings.append(
                 OverlayTextFidelityFinding(
@@ -352,6 +359,13 @@ def _overlay_layout_findings(
                     },
                 )
             )
+            findings.append(
+                OverlayTextFidelityFinding(
+                    code="overlay_text_clipped",
+                    message="Overlay text is clipped by the video frame.",
+                    details=detail_base,
+                )
+            )
         elif not bool(layout.get("fits_safe_area", False)):
             findings.append(
                 OverlayTextFidelityFinding(
@@ -364,6 +378,13 @@ def _overlay_layout_findings(
                         "block_right_px": layout.get("block_right_px"),
                         "block_bottom_px": layout.get("block_bottom_px"),
                     },
+                )
+            )
+            findings.append(
+                OverlayTextFidelityFinding(
+                    code="overlay_safe_area_failed",
+                    message="Overlay text is outside the safe area.",
+                    details=detail_base,
                 )
             )
     return findings
@@ -442,6 +463,17 @@ def _overlay_collision_findings(
                         "overlay_b": _overlay_collision_actor_from_overlay(
                             j, role_j, collision_source[j][0]
                         ),
+                    },
+                )
+            )
+            findings.append(
+                OverlayTextFidelityFinding(
+                    code="overlay_collision_detected",
+                    message="Two overlays collide in visible time.",
+                    details={
+                        "stack_policy_mode": mode_typed,
+                        "overlap_start_seconds": overlap[0],
+                        "overlap_end_seconds": overlap[1],
                     },
                 )
             )
@@ -637,8 +669,17 @@ def _planned_overlay_rows(
     role_rows.sort(key=lambda item: (item[0], item[1]))
     for index, overlay in enumerate(overlays):
         role = role_rows[index][2] if index < len(role_rows) else overlay.overlay_role
-        rows.append((overlay, role))
+        rows.append((_overlay_with_logical_text(overlay), role))
     return rows
+
+
+def _overlay_with_logical_text(overlay: TextOverlay) -> TextOverlay:
+    if overlay.hook_autofit is None:
+        return overlay
+    lines = overlay.hook_autofit.get("lines")
+    if isinstance(lines, list) and all(isinstance(line, str) for line in lines):
+        return replace(overlay, text=" ".join(lines))
+    return overlay
 
 
 def _authored_overlay_rows(
@@ -672,7 +713,9 @@ def _parse_render_manifest(raw: object) -> list[_RenderRow] | None:
     for entry in raw:
         if not isinstance(entry, Mapping):
             return None
-        text = str(entry.get("text") or "").strip()
+        text = str(
+            entry.get("text") or entry.get("rendered_text") or entry.get("final_render_text") or ""
+        ).strip()
         start = _optional_float(entry.get("start_seconds"))
         if start is None:
             start = 0.0

@@ -60,6 +60,15 @@ _TIMELINE_RENDER_TRACE = {
     "duration_mismatch_checks": {"status": "pass", "mismatches": []},
     "cover_timestamp_seconds": 0.0,
 }
+_OVERLAY_RENDER_TRACE = {
+    "artifact_type": "overlay_render_trace",
+    "schema_version": "rendered_overlay_manifest_v1",
+    "frame_width_px": 1080,
+    "frame_height_px": 1920,
+    "clip_duration_seconds": 12.0,
+    "overlay_count": 0,
+    "overlays": [],
+}
 
 
 def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path: Path) -> None:
@@ -80,6 +89,7 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
         provenance={"source_run_id": "run-123", "asset_ids": ["asset-1", "asset-2"]},
         timeline=_TIMELINE,
         timeline_render_trace=_TIMELINE_RENDER_TRACE,
+        overlay_render_trace=_OVERLAY_RENDER_TRACE,
         temp_root=tmp_path / "scratch",
     )
 
@@ -93,10 +103,11 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
         "provenance.json",
         "timeline.json",
         "timeline_render_trace.json",
+        "overlay_render_trace.json",
     }
     manifest = json.loads((built.directory / "package_manifest.json").read_text(encoding="utf-8"))
     assert manifest["complete"] is True
-    assert manifest["artifact_count"] == 7
+    assert manifest["artifact_count"] == 8
     assert {artifact["name"] for artifact in manifest["artifacts"]} == {
         "caption_variants",
         "cover",
@@ -105,6 +116,7 @@ def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path
         "provenance",
         "timeline",
         "timeline_render_trace",
+        "overlay_render_trace",
     }
 
 
@@ -130,6 +142,7 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         provenance={},
         timeline=_TIMELINE,
         timeline_render_trace=_TIMELINE_RENDER_TRACE,
+        overlay_render_trace=_OVERLAY_RENDER_TRACE,
         temp_root=tmp_path / "scratch-ed",
         editing_metadata={"safe_area_9_16": safe_report},
     )
@@ -174,6 +187,7 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         provenance={"source_run_id": "run-123"},
         timeline=_TIMELINE,
         timeline_render_trace=_TIMELINE_RENDER_TRACE,
+        overlay_render_trace=_OVERLAY_RENDER_TRACE,
         creative_trace={
             "schema_version": "phase_1",
             "artifact_type": "creative_trace",
@@ -185,12 +199,13 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
     trace_path = built.local_package.directory / "creative_trace.json"
     assert trace_path.exists()
     assert built.local_package.manifest is not None
-    assert built.local_package.manifest["artifact_count"] == 8
+    assert built.local_package.manifest["artifact_count"] == 9
     assert {artifact["name"] for artifact in built.local_package.manifest["artifacts"]} == {
         "caption_variants",
         "cover",
         "creative_trace",
         "final_video",
+        "overlay_render_trace",
         "posting_plan",
         "provenance",
         "timeline",
@@ -204,7 +219,7 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
         {"variant": "short", "text": "Short caption"}
     ]
     assert built.stored_package.artifact_by_name("creative_trace") is not None
-    assert client.put_object.call_count == 9
+    assert client.put_object.call_count == 10
 
 
 def test_build_ready_to_post_package_attaches_overlay_render_trace(tmp_path: Path) -> None:
@@ -329,6 +344,7 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
         provenance={"source_run_id": "run-abc", "asset_ids": ["asset-1"]},
         timeline=_TIMELINE,
         timeline_render_trace=_TIMELINE_RENDER_TRACE,
+        overlay_render_trace=_OVERLAY_RENDER_TRACE,
         temp_root=tmp_path / "builder",
         upload_metadata={"source": "pytest"},
     )
@@ -347,6 +363,7 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
         "caption_variants",
         "cover",
         "final_video",
+        "overlay_render_trace",
         "package_manifest",
         "posting_plan",
         "provenance",
@@ -359,7 +376,7 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
     )
     manifest = json.loads(manifest_object.body.decode("utf-8"))
     assert manifest["complete"] is True
-    assert manifest["artifact_count"] == 7
+    assert manifest["artifact_count"] == 8
     assert {artifact["name"] for artifact in manifest["artifacts"]} == {
         "caption_variants",
         "cover",
@@ -368,4 +385,5 @@ def test_build_ready_to_post_package_uploads_complete_package_to_minio(tmp_path:
         "provenance",
         "timeline",
         "timeline_render_trace",
+        "overlay_render_trace",
     }
