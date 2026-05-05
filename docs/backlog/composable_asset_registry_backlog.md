@@ -266,6 +266,7 @@ Recommended implementation order:
 # EPIC 1 — Baseline audit and alignment
 
 ## CAR-000 — Audit current asset implementation
+**Agent:** `codex-medium`
 
 **Objective:** Confirm what the current repo actually supports before implementing component-level Asset Registry work.
 
@@ -309,6 +310,7 @@ apps/orchestrator/
 # EPIC 2 — Component-aware asset taxonomy
 
 ## CAR-001 — Add AssetKind taxonomy
+**Agent:** `codex-medium`
 
 **Objective:** Define asset kinds so the system does not flatten everything into full generated video clips.
 
@@ -372,6 +374,7 @@ apps/api/src/content_lab_api/schemas/assets.py
 ---
 
 ## CAR-002 — Add MediaType taxonomy
+**Agent:** `codex-medium`
 
 **Objective:** Separate what the asset is used for from what file/data format it has.
 
@@ -403,6 +406,7 @@ unknown
 ---
 
 ## CAR-003 — Add transparency and alpha metadata
+**Agent:** `codex-high`
 
 **Objective:** Support object-level PNG cut-outs and layerable media assets.
 
@@ -432,6 +436,7 @@ safe_crop: optional
 ---
 
 ## CAR-004 — Add visual realism metadata
+**Agent:** `codex-high`
 
 **Objective:** Store metadata that helps assets combine into realistic videos.
 
@@ -470,6 +475,7 @@ background_safe
 ---
 
 ## CAR-005 — Add source/origin taxonomy
+**Agent:** `codex-medium`
 
 **Objective:** Track where each asset came from.
 
@@ -502,6 +508,7 @@ package_output
 # EPIC 3 — Asset Pack data model
 
 ## PACK-001 — Add AssetPack entity
+**Agent:** `codex-medium`
 
 **Objective:** Represent a planned group of reusable assets for a specific niche.
 
@@ -548,6 +555,7 @@ ready → archived
 ---
 
 ## PACK-002 — Add AssetPackItem entity or join model
+**Agent:** `codex-medium`
 
 **Objective:** Link assets to asset packs with their intended role.
 
@@ -583,6 +591,7 @@ created_at
 ---
 
 ## PACK-003 — Add PlannedAssetSpec model
+**Agent:** `codex-medium`
 
 **Objective:** Represent intentional assets before they are generated or registered.
 
@@ -622,6 +631,7 @@ status
 # EPIC 4 — Asset Pack planning and optimisation
 
 ## PLAN-001 — Implement Asset Pack Plan generator
+**Agent:** `codex-high`
 
 **Objective:** Generate an explicit plan before creating assets.
 
@@ -664,6 +674,7 @@ expected_reel_formats
 ---
 
 ## PLAN-002 — Implement user-defined asset count and mix validation
+**Agent:** `codex-medium`
 
 **Objective:** Ensure asset pack size and mix are controlled by the operator.
 
@@ -691,6 +702,7 @@ expected_reel_formats
 ---
 
 ## PLAN-003 — Implement output-potential scoring
+**Agent:** `codex-high`
 
 **Objective:** Optimise initial asset choices for reel output potential.
 
@@ -724,6 +736,7 @@ novelty_without_bloat
 ---
 
 ## PLAN-004 — Implement pack strategy summary
+**Agent:** `codex-medium`
 
 **Objective:** Produce a human-readable explanation of the asset pack.
 
@@ -750,6 +763,7 @@ novelty_without_bloat
 # EPIC 5 — Asset batch generation and registration
 
 ## BATCH-001 — Add Asset Batch Mode
+**Agent:** `codex-high`
 
 **Objective:** Add a mode that creates asset packs directly from a niche, instead of only creating assets from a reel brief.
 
@@ -778,6 +792,7 @@ Generate an asset pack for "luxury mindset" with 60 assets.
 ---
 
 ## BATCH-002 — Support mixed generation and existing asset selection
+**Agent:** `codex-high`
 
 **Objective:** Do not generate everything if useful assets already exist.
 
@@ -797,6 +812,7 @@ Generate an asset pack for "luxury mindset" with 60 assets.
 ---
 
 ## BATCH-003 — Register uploaded/source assets into packs
+**Agent:** `codex-medium`
 
 **Objective:** Allow manual/user-provided assets to become first-class pack assets.
 
@@ -824,6 +840,7 @@ Generate an asset pack for "luxury mindset" with 60 assets.
 ---
 
 ## BATCH-004 — Add pack review/approval gate
+**Agent:** `codex-medium`
 
 **Objective:** Allow operator review before expensive batch generation or before using a generated pack.
 
@@ -844,6 +861,7 @@ Generate an asset pack for "luxury mindset" with 60 assets.
 # EPIC 6 — Component-aware AssetKey and registry resolution
 
 ## KEY-001 — Extend AssetKey payload with asset kind and media type
+**Agent:** `codex-high`
 
 **Objective:** Prevent different asset types from colliding.
 
@@ -873,6 +891,7 @@ Even if some text or prompts are similar.
 ---
 
 ## KEY-002 — Add generated visual asset canonicalisation
+**Agent:** `codex-high`
 
 **Objective:** Define AssetKey payloads for generated images/videos/objects/backgrounds.
 
@@ -902,6 +921,7 @@ reference_asset_ids or hashes if present
 ---
 
 ## KEY-003 — Add derived/transformed asset canonicalisation
+**Agent:** `codex-high`
 
 **Objective:** Define AssetKeys for derived assets such as cut-outs, resized assets, reframed videos, and colour-treated assets.
 
@@ -925,6 +945,7 @@ output_parameters
 ---
 
 ## KEY-004 — Add text, overlay, audio, and final-render canonicalisation
+**Agent:** `codex-high`
 
 **Objective:** Make non-video creative components reusable and deterministic.
 
@@ -971,6 +992,7 @@ render_parameters
 ---
 
 ## REG-001 — Resolve assets per component requirement
+**Agent:** `codex-high`
 
 **Objective:** Registry resolution should operate on each required component, not only the final video.
 
@@ -1001,6 +1023,7 @@ resolve effect_layer
 ---
 
 ## REG-002 — Add future-safe decision model
+**Agent:** `codex-medium`
 
 **Objective:** Support the four intended registry decisions.
 
@@ -1028,6 +1051,7 @@ blocked
 ---
 
 ## REG-003 — Add component-level asset_usage lineage
+**Agent:** `codex-high`
 
 **Objective:** Track which assets/components were used in each reel.
 
@@ -1069,6 +1093,7 @@ created_at
 # EPIC 7 — Compatibility and Asset Combinator Engine
 
 ## COMBO-001 — Add asset compatibility metadata
+**Agent:** `codex-high`
 
 **Objective:** Store what each asset works well with.
 
@@ -1105,6 +1130,7 @@ requires_safe_area
 ---
 
 ## COMBO-002 — Implement simple filtered Asset Combinator
+**Agent:** `codex-high`
 
 **Objective:** Generate possible reel combinations from existing asset packs.
 
@@ -1152,6 +1178,7 @@ format/template
 ---
 
 ## COMBO-003 — Add output potential estimation
+**Agent:** `codex-high`
 
 **Objective:** Estimate how many useful reels an asset pack can support.
 
@@ -1170,6 +1197,7 @@ format/template
 ---
 
 ## COMBO-004 — Add performance-weighted combination selection
+**Agent:** `codex-high`
 
 **Objective:** Upgrade from filtered/random combinations to performance-informed combinations.
 
@@ -1193,6 +1221,7 @@ format/template
 # EPIC 8 — Reverse Idea Generator
 
 ## REV-001 — Generate ideas from existing assets
+**Agent:** `codex-high`
 
 **Objective:** Create video ideas from the asset bank, not only from external trends or briefs.
 
@@ -1223,6 +1252,7 @@ format: success sacrifice POV
 ---
 
 ## REV-002 — Add asset-led brief generation
+**Agent:** `codex-high`
 
 **Objective:** Convert an asset combination into a structured reel brief.
 
@@ -1250,6 +1280,7 @@ posting_plan_seed
 # EPIC 9 — Composition manifest and layered reel assembly
 
 ## COMP-001 — Define CompositionManifest schema
+**Agent:** `codex-high`
 
 **Objective:** Define the structured instructions for layering assets into a final reel.
 
@@ -1307,6 +1338,7 @@ safe_area_constraints
 ---
 
 ## COMP-002 — Implement first layered FFmpeg compositor
+**Agent:** `codex-xhigh`
 
 **Objective:** Compose images/videos/text/audio into a vertical reel.
 
@@ -1338,6 +1370,7 @@ safe_area_constraints
 ---
 
 ## COMP-003 — Add motion transforms for static assets
+**Agent:** `codex-xhigh`
 
 **Objective:** Make PNG/static assets feel like real video.
 
@@ -1369,6 +1402,7 @@ parallax_basic
 ---
 
 ## COMP-004 — Add composition realism constraints
+**Agent:** `codex-high`
 
 **Objective:** Avoid obvious fake-looking layered outputs.
 
@@ -1392,6 +1426,7 @@ parallax_basic
 # EPIC 10 — Provenance and package graph
 
 ## PROV-001 — Generate provenance from component graph
+**Agent:** `codex-high`
 
 **Objective:** Provenance must explain the layered asset graph, not just the final video.
 
@@ -1429,6 +1464,7 @@ render_timestamp
 ---
 
 ## PROV-002 — Store composition manifest as package artifact
+**Agent:** `codex-medium`
 
 **Objective:** Preserve exact composition instructions alongside the final package.
 
@@ -1449,6 +1485,7 @@ render_timestamp
 # EPIC 11 — QA for layered assets and realism
 
 ## QA-LAYER-001 — Validate source asset availability
+**Agent:** `codex-medium`
 
 **Objective:** Ensure all assets needed for a layered composition exist before rendering.
 
@@ -1468,6 +1505,7 @@ render_timestamp
 ---
 
 ## QA-LAYER-002 — Validate composition manifest
+**Agent:** `codex-medium`
 
 **Objective:** Ensure manifest is structurally valid before FFmpeg execution.
 
@@ -1489,6 +1527,7 @@ render_timestamp
 ---
 
 ## QA-LAYER-003 — Validate layered output format
+**Agent:** `codex-high`
 
 **Objective:** Check rendered output meets reel requirements.
 
@@ -1509,6 +1548,7 @@ render_timestamp
 ---
 
 ## QA-LAYER-004 — Add first realism/AI-slop QA warnings
+**Agent:** `codex-high`
 
 **Objective:** Catch obvious low-quality layered outputs.
 
@@ -1531,6 +1571,7 @@ render_timestamp
 # EPIC 12 — Asset-level performance tracking
 
 ## MET-001 — Track asset usage counts
+**Agent:** `codex-medium`
 
 **Objective:** Track how often each asset is used.
 
@@ -1552,6 +1593,7 @@ used_as_component_role counts
 ---
 
 ## MET-002 — Track performance per component asset
+**Agent:** `codex-high`
 
 **Objective:** Attribute reel performance back to component assets.
 
@@ -1581,6 +1623,7 @@ used_as_component_role counts
 ---
 
 ## MET-003 — Add combination performance tracking
+**Agent:** `codex-high`
 
 **Objective:** Track which groups of assets work together.
 
@@ -1603,6 +1646,7 @@ background + object + hook + audio
 # EPIC 13 — API control plane additions
 
 ## API-PACK-001 — Add Asset Pack API routes
+**Agent:** `codex-medium`
 
 **Objective:** Allow operators/web UI to create and manage asset packs.
 
@@ -1626,6 +1670,7 @@ GET /asset-packs/{id}/items
 ---
 
 ## API-ASSET-001 — Add component-aware asset routes
+**Agent:** `codex-medium`
 
 **Objective:** Support browsing/querying image, video, object, background, audio, and text assets.
 
@@ -1651,6 +1696,7 @@ reuse_count
 ---
 
 ## API-COMBO-001 — Add asset combinator endpoint
+**Agent:** `codex-high`
 
 **Objective:** Generate possible reel combinations from an asset pack.
 
@@ -1677,6 +1723,7 @@ candidate_compositions[]
 ---
 
 ## API-COMP-001 — Add composition preview/submit route
+**Agent:** `codex-medium`
 
 **Objective:** Allow a selected asset combination/composition manifest to be rendered.
 
@@ -1690,6 +1737,7 @@ candidate_compositions[]
 # EPIC 14 — Web/operator surface additions
 
 ## WEB-PACK-001 — Add Asset Library view
+**Agent:** `composer2`
 
 **Objective:** Let operators view reusable assets beyond full videos.
 
@@ -1711,6 +1759,7 @@ candidate_compositions[]
 ---
 
 ## WEB-PACK-002 — Add Asset Pack Planner UI
+**Agent:** `composer2`
 
 **Objective:** Let operator create user-defined asset packs.
 
@@ -1731,6 +1780,7 @@ candidate_compositions[]
 ---
 
 ## WEB-PACK-003 — Add Asset Pack Review UI
+**Agent:** `composer2`
 
 **Objective:** Let operator approve or refine the asset pack plan.
 
@@ -1751,6 +1801,7 @@ candidate_compositions[]
 ---
 
 ## WEB-COMBO-001 — Add Asset Combinator view
+**Agent:** `composer2`
 
 **Objective:** Let operator see possible reel combinations from a pack.
 
@@ -1774,6 +1825,7 @@ candidate_compositions[]
 # EPIC 15 — Workflow and worker additions
 
 ## FLOW-PACK-001 — Add generate_asset_pack flow
+**Agent:** `codex-high`
 
 **Objective:** Orchestrate asset pack planning and generation.
 
@@ -1799,6 +1851,7 @@ validate request
 ---
 
 ## FLOW-COMBO-001 — Add asset_pack_to_reels flow
+**Agent:** `codex-high`
 
 **Objective:** Create reel candidates from an asset pack.
 
@@ -1820,6 +1873,7 @@ load pack
 ---
 
 ## WORKER-COMP-001 — Add layered composition worker actor
+**Agent:** `codex-xhigh`
 
 **Objective:** Render a composition manifest into final media.
 
@@ -1843,6 +1897,7 @@ load pack
 # EPIC 16 — End-to-end tests and regression protection
 
 ## E2E-CAR-001 — Add component AssetKey regression test
+**Agent:** `codex-medium`
 
 **Objective:** Prove assets of different component roles do not collide.
 
@@ -1860,6 +1915,7 @@ load pack
 ---
 
 ## E2E-PACK-001 — Add asset pack planning smoke test
+**Agent:** `codex-medium`
 
 **Objective:** Prove a user-defined asset count creates a valid plan.
 
@@ -1881,6 +1937,7 @@ Expected:
 ---
 
 ## E2E-PACK-002 — Add asset pack generation/registration smoke test
+**Agent:** `codex-high`
 
 **Objective:** Prove assets can be generated or registered into a pack.
 
@@ -1894,6 +1951,7 @@ Expected:
 ---
 
 ## E2E-COMP-001 — Add layered composition smoke test
+**Agent:** `codex-xhigh`
 
 **Objective:** Prove a reel can be built from layered assets.
 
@@ -1917,6 +1975,7 @@ background image/video
 ---
 
 ## E2E-COMP-002 — Add asset pack to multiple reels smoke test
+**Agent:** `codex-high`
 
 **Objective:** Prove one asset pack can create multiple different reel candidates.
 
@@ -1937,6 +1996,7 @@ render at least 2 candidates
 ---
 
 ## E2E-NO-FULL-VIDEO-ONLY — Regression test against full-video-only design
+**Agent:** `codex-high`
 
 **Objective:** Ensure the system never regresses to treating only complete generated videos as assets.
 
