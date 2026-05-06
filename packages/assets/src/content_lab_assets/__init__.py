@@ -36,11 +36,13 @@ from content_lab_assets.planner import (
     validate_requested_asset_mix,
 )
 from content_lab_assets.provenance import (
+    PackageArtifactProvenance,
     PackageAssetProvenance,
     PackageProvenanceArtifact,
     PackageProvenanceSummary,
     PackageTimestampEntry,
     ProviderJobProvenance,
+    TransformProvenance,
     build_provenance,
     serialize_provenance_json,
 )
@@ -102,10 +104,12 @@ __all__ = [
     "PackAsset",
     "Phase1AssetRegistryStore",
     "PackageAssetProvenance",
+    "PackageArtifactProvenance",
     "PackageProvenanceArtifact",
     "PackageProvenanceSummary",
     "PackageTimestampEntry",
     "ProviderJobProvenance",
+    "TransformProvenance",
     "acquisition_decision_for_compatible_registry_reuse",
     "acquisition_decision_for_operator_upload",
     "default_generated_source_metadata",

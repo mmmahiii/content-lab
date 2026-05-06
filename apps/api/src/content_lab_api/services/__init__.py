@@ -1,6 +1,7 @@
 """Business-logic services."""
 
 from content_lab_api.services.asset_combinator import (
+    build_asset_led_reel_ideas,
     build_asset_pack_compositions,
     estimate_asset_pack_output_potential,
 )
@@ -80,6 +81,7 @@ __all__ = [
     "apply_task_row_spec",
     "approve_asset_pack_plan",
     "build_process_reel_persistence_service",
+    "build_asset_led_reel_ideas",
     "build_asset_pack_compositions",
     "create_asset_pack_batch",
     "create_asset_pack_plan",

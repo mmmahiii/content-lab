@@ -12,6 +12,7 @@ from content_lab_storage.checksums import checksum_file
 from content_lab_storage.client import S3StorageClient, StoredObject
 from content_lab_storage.paths import (
     CAPTION_VARIANTS_FILENAME,
+    COMPOSITION_MANIFEST_FILENAME,
     COVER_IMAGE_FILENAME,
     CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
@@ -131,7 +132,7 @@ def expected_reel_package_filenames(*, include_manifest: bool = True) -> tuple[s
 def optional_reel_package_filenames() -> tuple[str, ...]:
     """Return canonical optional filenames in a ready-to-post package directory."""
 
-    return (CREATIVE_TRACE_FILENAME,)
+    return (CREATIVE_TRACE_FILENAME, COMPOSITION_MANIFEST_FILENAME)
 
 
 def resolve_reel_package_directory(
@@ -298,6 +299,13 @@ def _artifact_specs(
             name="creative_trace",
             filename=CREATIVE_TRACE_FILENAME,
             ref=package_refs.creative_trace,
+            kind="json",
+            content_type="application/json",
+        ),
+        _ArtifactSpec(
+            name="composition_manifest",
+            filename=COMPOSITION_MANIFEST_FILENAME,
+            ref=package_refs.composition_manifest,
             kind="json",
             content_type="application/json",
         ),

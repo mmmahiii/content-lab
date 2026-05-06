@@ -249,6 +249,58 @@ class AssetPackBatchOut(AssetPackPlanOut):
     generation_decisions: list[dict[str, Any]]
 
 
+class AssetLedIdeasRequest(BaseModel):
+    """Generate reel ideas from ready assets already attached to an asset pack."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    selected_asset_ids: list[uuid.UUID] | None = None
+    target_concept_count: int = Field(default=5, ge=1, le=25)
+    format_filters: list[str] | None = None
+    style_filters: list[str] | None = None
+    selection_mode: Literal["balanced", "exploit", "explore", "mutation", "chaos"] = "balanced"
+
+
+class AssetLedReelBriefOut(BaseModel):
+    """Structured reel brief derived from one compatible asset combination."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    concept_title: str
+    hook: str
+    visual_sequence: list[str]
+    selected_asset_ids: list[uuid.UUID]
+    composition_intent: str
+    overlay_plan: str
+    audio_direction: str
+    caption_angle: str
+    posting_plan_seed: dict[str, Any]
+
+
+class AssetLedConceptOut(BaseModel):
+    """Ranked candidate concept with source asset lineage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idea: str
+    source_composition_id: str
+    source_asset_ids: list[uuid.UUID]
+    compatible_formats: list[str]
+    emotional_angles: list[str]
+    selection_score: float
+    reasons: list[str]
+    brief: AssetLedReelBriefOut
+
+
+class AssetLedIdeasOut(BaseModel):
+    """Asset-led concept generation result for one pack."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_pack: AssetPackOut
+    concepts: list[AssetLedConceptOut]
+
+
 class SourceAssetRegisterRequest(BaseModel):
     """Register user-provided bytes as a reusable asset pack member."""
 

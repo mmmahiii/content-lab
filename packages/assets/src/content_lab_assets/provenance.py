@@ -101,8 +101,14 @@ class PackageAssetProvenance(BaseModel):
     imported_at: datetime | None = None
     generation_params: dict[str, Any] = Field(default_factory=dict)
     transform_recipe: dict[str, Any] = Field(default_factory=dict)
+    transform_version: str | None = Field(default=None, max_length=64)
     used_in_reel_id: str | None = Field(default=None, max_length=128)
     used_as_component_role: str | None = Field(default=None, max_length=128)
+    layer_role: str | None = Field(default=None, max_length=64)
+    sequence_index: int | None = None
+    z_index: int | None = None
+    start_time: float | None = None
+    end_time: float | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("role", mode="before")
@@ -128,8 +134,10 @@ class PackageAssetProvenance(BaseModel):
         "original_content_hash",
         "stored_content_hash",
         "derived_from_asset_id",
+        "transform_version",
         "used_in_reel_id",
         "used_as_component_role",
+        "layer_role",
         mode="before",
     )
     @classmethod
@@ -152,8 +160,10 @@ class PackageAssetProvenance(BaseModel):
             "original_content_hash": 256,
             "stored_content_hash": 256,
             "derived_from_asset_id": 128,
+            "transform_version": 64,
             "used_in_reel_id": 128,
             "used_as_component_role": 128,
+            "layer_role": 64,
         }
         return _clean_optional_text(
             value,
@@ -300,6 +310,35 @@ class PackageProvenanceSummary(BaseModel):
     provider_credentials_redacted: bool = True
 
 
+class PackageArtifactProvenance(BaseModel):
+    """Package artifact reference retained in provenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    filename: str | None = Field(default=None, max_length=256)
+    storage_uri: str | None = Field(default=None, max_length=2_048)
+    checksum_sha256: str | None = Field(default=None, max_length=256)
+    content_type: str | None = Field(default=None, max_length=128)
+    kind: str | None = Field(default=None, max_length=64)
+    size_bytes: int | None = Field(default=None, ge=0)
+
+
+class TransformProvenance(BaseModel):
+    """Transform or layer operation used to derive the final render."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: str | None = Field(default=None, max_length=128)
+    layer_id: str | None = Field(default=None, max_length=128)
+    role: str | None = Field(default=None, max_length=128)
+    transform_recipe: dict[str, Any] = Field(default_factory=dict)
+    transform_version: str | None = Field(default=None, max_length=64)
+    start_time: float | None = None
+    end_time: float | None = None
+    z_index: int | None = None
+
+
 class PackageProvenanceArtifact(BaseModel):
     """Stable JSON-ready provenance artifact for packaged reels."""
 
@@ -307,10 +346,19 @@ class PackageProvenanceArtifact(BaseModel):
 
     schema_version: Literal["phase_1"] = "phase_1"
     artifact_type: Literal["provenance"] = "provenance"
+    reel_id: str | None = Field(default=None, max_length=128)
+    asset_pack_id: str | None = Field(default=None, max_length=128)
+    composition_manifest_hash: str | None = Field(default=None, max_length=256)
     editor_version: str = Field(min_length=1, max_length=80)
+    render_timestamp: datetime | None = None
     generation_params: dict[str, Any] = Field(default_factory=dict)
     package_timestamps: list[PackageTimestampEntry] = Field(default_factory=list)
     assets: list[PackageAssetProvenance] = Field(default_factory=list)
+    source_assets: list[PackageAssetProvenance] = Field(default_factory=list)
+    derived_assets: list[PackageAssetProvenance] = Field(default_factory=list)
+    final_render_asset_id: str | None = Field(default=None, max_length=128)
+    package_artifacts: list[PackageArtifactProvenance] = Field(default_factory=list)
+    transforms: list[TransformProvenance] = Field(default_factory=list)
     provider_jobs: list[ProviderJobProvenance] = Field(default_factory=list)
     summary: PackageProvenanceSummary
 
@@ -329,6 +377,15 @@ def build_provenance(
     package_timestamps: (
         Mapping[str, datetime | str] | Sequence[PackageTimestampEntry | Mapping[str, Any]]
     ),
+    reel_id: str | None = None,
+    asset_pack_id: str | None = None,
+    composition_manifest_hash: str | None = None,
+    source_assets: Sequence[PackageAssetProvenance | Mapping[str, Any]] | None = None,
+    derived_assets: Sequence[PackageAssetProvenance | Mapping[str, Any]] | None = None,
+    final_render_asset_id: str | None = None,
+    package_artifacts: Sequence[PackageArtifactProvenance | Mapping[str, Any]] = (),
+    transforms: Sequence[TransformProvenance | Mapping[str, Any]] = (),
+    render_timestamp: datetime | str | None = None,
 ) -> PackageProvenanceArtifact:
     """Build a stable provenance artifact while redacting provider secrets."""
 
@@ -355,12 +412,34 @@ def build_provenance(
     sanitized_generation_params = dict(
         _stable_json_value(redact_provider_data(generation_params or {}))
     )
+    normalized_source_assets = _normalize_asset_subset(
+        source_assets,
+        normalized_assets,
+        default="source",
+    )
+    normalized_derived_assets = _normalize_asset_subset(
+        derived_assets,
+        normalized_assets,
+        default="derived",
+    )
 
     return PackageProvenanceArtifact(
+        reel_id=_optional_str(reel_id),
+        asset_pack_id=_optional_str(asset_pack_id),
+        composition_manifest_hash=_optional_str(composition_manifest_hash),
         editor_version=editor_version,
+        render_timestamp=_optional_datetime(render_timestamp),
         generation_params=sanitized_generation_params,
         package_timestamps=normalized_timestamps,
         assets=list(normalized_assets),
+        source_assets=normalized_source_assets,
+        derived_assets=normalized_derived_assets,
+        final_render_asset_id=_optional_str(final_render_asset_id)
+        or _final_render_asset_id(normalized_assets),
+        package_artifacts=[
+            PackageArtifactProvenance.model_validate(artifact) for artifact in package_artifacts
+        ],
+        transforms=[TransformProvenance.model_validate(transform) for transform in transforms],
         provider_jobs=list(normalized_provider_jobs),
         summary=PackageProvenanceSummary(
             asset_count=len(normalized_assets),
@@ -412,12 +491,62 @@ def _provider_reference(job: ProviderJobProvenance) -> str | None:
     return None
 
 
+def _normalize_asset_subset(
+    explicit_assets: Sequence[PackageAssetProvenance | Mapping[str, Any]] | None,
+    all_assets: Sequence[PackageAssetProvenance],
+    *,
+    default: Literal["source", "derived"],
+) -> list[PackageAssetProvenance]:
+    if explicit_assets is not None:
+        return sorted(
+            (PackageAssetProvenance.model_validate(asset) for asset in explicit_assets),
+            key=lambda item: (
+                "" if item.stage is None else item.stage,
+                item.role,
+                "" if item.asset_id is None else item.asset_id,
+                item.storage_uri,
+            ),
+        )
+    predicate = _is_source_asset if default == "source" else _is_derived_asset
+    return [asset for asset in all_assets if predicate(asset)]
+
+
+def _is_source_asset(asset: PackageAssetProvenance) -> bool:
+    stage = (asset.stage or "").strip().lower()
+    source = (asset.source_type or asset.source or "").strip().lower()
+    return (
+        stage in {"input", "source", "raw"}
+        or source in {"uploaded", "operator_upload", "approved_external_source", "generated"}
+    ) and not _is_derived_asset(asset)
+
+
+def _is_derived_asset(asset: PackageAssetProvenance) -> bool:
+    stage = (asset.stage or "").strip().lower()
+    source = (asset.source_type or asset.source or "").strip().lower()
+    role = asset.role.strip().lower()
+    return (
+        stage in {"derived", "output", "render"}
+        or source in {"derived", "package_output"}
+        or role in {"final_video", "final_render", "cover"}
+        or asset.derived_from_asset_id is not None
+    )
+
+
+def _final_render_asset_id(assets: Sequence[PackageAssetProvenance]) -> str | None:
+    for asset in assets:
+        if asset.asset_id and asset.role.strip().lower() in {"final_video", "final_render"}:
+            return asset.asset_id
+    return None
+
+
 __all__ = [
     "PackageAssetProvenance",
+    "PackageArtifactProvenance",
     "PackageProvenanceArtifact",
     "PackageProvenanceSummary",
     "PackageTimestampEntry",
     "ProviderJobProvenance",
+    "TransformProvenance",
     "build_provenance",
     "serialize_provenance_json",
 ]

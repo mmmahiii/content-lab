@@ -165,3 +165,68 @@ def test_package_asset_provenance_backfills_source_first_fields() -> None:
     assert asset.original_content_hash == "sha256:" + ("b" * 64)
     assert asset.stored_content_hash == "sha256:" + ("a" * 64)
     assert asset.used_as_component_role == "product_prop"
+
+
+def test_build_provenance_includes_component_graph_fields() -> None:
+    timestamp = datetime(2026, 3, 25, 13, 0, tzinfo=UTC)
+
+    provenance = build_provenance(
+        reel_id="reel-1",
+        asset_pack_id="pack-1",
+        composition_manifest_hash="sha256:" + ("f" * 64),
+        final_render_asset_id="asset-render",
+        render_timestamp=timestamp,
+        assets=[
+            {
+                "role": "source_clip",
+                "stage": "input",
+                "asset_id": "asset-source",
+                "storage_uri": "s3://content-lab/assets/raw/asset-source/source.mp4",
+                "asset_kind": "source_clip",
+                "media_type": "video",
+                "source_type": "generated",
+                "stored_content_hash": "sha256:" + ("a" * 64),
+                "used_as_component_role": "source_clip",
+            },
+            {
+                "role": "final_render",
+                "stage": "output",
+                "asset_id": "asset-render",
+                "storage_uri": "s3://content-lab/assets/derived/asset-render/final.mp4",
+                "asset_kind": "final_render",
+                "media_type": "video",
+                "source_type": "derived",
+                "stored_content_hash": "sha256:" + ("b" * 64),
+                "used_as_component_role": "final_render",
+            },
+        ],
+        transforms=[
+            {
+                "asset_id": "asset-source",
+                "layer_id": "bg",
+                "role": "source_clip",
+                "transform_recipe": {"scale": 1.0},
+                "transform_version": "composition_manifest.v1",
+            }
+        ],
+        package_artifacts=[
+            {
+                "name": "composition_manifest",
+                "filename": "composition_manifest.json",
+                "checksum_sha256": "sha256:" + ("f" * 64),
+            }
+        ],
+        provider_jobs=[{"provider": "runway", "status": "succeeded"}],
+        editor_version="layered_ffmpeg_v1",
+        package_timestamps={"rendered_at": timestamp},
+    )
+
+    payload = provenance.model_dump(mode="json")
+    assert payload["reel_id"] == "reel-1"
+    assert payload["asset_pack_id"] == "pack-1"
+    assert payload["composition_manifest_hash"] == "sha256:" + ("f" * 64)
+    assert payload["source_assets"][0]["asset_id"] == "asset-source"
+    assert payload["derived_assets"][0]["asset_id"] == "asset-render"
+    assert payload["final_render_asset_id"] == "asset-render"
+    assert payload["transforms"][0]["layer_id"] == "bg"
+    assert payload["package_artifacts"][0]["name"] == "composition_manifest"

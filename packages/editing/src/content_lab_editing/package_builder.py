@@ -13,6 +13,7 @@ from uuid import UUID
 
 from content_lab_storage import (
     CAPTION_VARIANTS_FILENAME,
+    COMPOSITION_MANIFEST_FILENAME,
     COVER_IMAGE_FILENAME,
     CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
@@ -43,6 +44,7 @@ class LocalReelPackage:
     reel_id: str
     directory: Path
     manifest: dict[str, Any] | None
+    provenance: dict[str, Any]
 
     @property
     def package_root_uri(self) -> str:
@@ -70,6 +72,7 @@ def build_package_directory(
     overlay_render_trace: Mapping[str, Any] | None = None,
     timeline: Mapping[str, Any] | None = None,
     timeline_render_trace: Mapping[str, Any] | None = None,
+    composition_manifest: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
     editing_metadata: Mapping[str, Any] | None = None,
@@ -91,7 +94,15 @@ def build_package_directory(
         encoding="utf-8",
     )
     _write_json(package_directory / POSTING_PLAN_FILENAME, posting_plan)
-    _write_json(package_directory / PROVENANCE_FILENAME, provenance)
+    if composition_manifest is not None:
+        _write_json(package_directory / COMPOSITION_MANIFEST_FILENAME, composition_manifest)
+    enriched_provenance = _enrich_provenance(
+        provenance,
+        reel_id=normalized_reel_id,
+        package_directory=package_directory,
+        composition_manifest=composition_manifest,
+    )
+    _write_json(package_directory / PROVENANCE_FILENAME, enriched_provenance)
     if creative_trace is not None:
         _write_json(package_directory / CREATIVE_TRACE_FILENAME, creative_trace)
     if overlay_render_trace is None:
@@ -111,12 +122,26 @@ def build_package_directory(
             package_directory=package_directory,
             editing_metadata=editing_metadata,
         )
+        enriched_provenance = _enrich_provenance(
+            enriched_provenance,
+            reel_id=normalized_reel_id,
+            package_directory=package_directory,
+            composition_manifest=composition_manifest,
+            package_artifacts=manifest_payload["artifacts"],
+        )
+        _write_json(package_directory / PROVENANCE_FILENAME, enriched_provenance)
+        manifest_payload = _build_manifest(
+            reel_id=normalized_reel_id,
+            package_directory=package_directory,
+            editing_metadata=editing_metadata,
+        )
         _write_json(package_directory / PACKAGE_MANIFEST_FILENAME, manifest_payload)
 
     return LocalReelPackage(
         reel_id=normalized_reel_id,
         directory=package_directory,
         manifest=manifest_payload,
+        provenance=enriched_provenance,
     )
 
 
@@ -134,6 +159,7 @@ def build_ready_to_post_package(
     overlay_render_trace: Mapping[str, Any] | None = None,
     timeline: Mapping[str, Any] | None = None,
     timeline_render_trace: Mapping[str, Any] | None = None,
+    composition_manifest: Mapping[str, Any] | None = None,
     temp_root: str | Path | None = None,
     include_manifest: bool = True,
     upload_metadata: Mapping[str, str] | None = None,
@@ -152,6 +178,7 @@ def build_ready_to_post_package(
         overlay_render_trace=overlay_render_trace,
         timeline=timeline,
         timeline_render_trace=timeline_render_trace,
+        composition_manifest=composition_manifest,
         temp_root=temp_root,
         include_manifest=include_manifest,
         editing_metadata=editing_metadata,
@@ -171,12 +198,13 @@ def build_ready_to_post_package(
             reel_id=local_package.reel_id,
             stored_package=stored_package,
             manifest=local_package.manifest,
-            provenance=provenance,
+            provenance=local_package.provenance,
             creative_trace=creative_trace,
             caption_variants=caption_variants,
             overlay_render_trace=overlay_render_trace,
             timeline=timeline,
             timeline_render_trace=timeline_render_trace,
+            composition_manifest=composition_manifest,
         ),
     )
 
@@ -256,6 +284,17 @@ def _build_manifest(
                 kind="json",
             )
         )
+    composition_manifest_path = package_directory / COMPOSITION_MANIFEST_FILENAME
+    if composition_manifest_path.exists() and composition_manifest_path.is_file():
+        artifacts.append(
+            _manifest_artifact(
+                name="composition_manifest",
+                filename=COMPOSITION_MANIFEST_FILENAME,
+                package_directory=package_directory,
+                content_type="application/json",
+                kind="json",
+            )
+        )
     assert_reel_package_complete(artifacts)
     payload: dict[str, Any] = {
         "version": _MANIFEST_VERSION,
@@ -294,6 +333,141 @@ def _manifest_artifact(
     }
 
 
+def _enrich_provenance(
+    provenance: Mapping[str, Any],
+    *,
+    reel_id: str,
+    package_directory: Path,
+    composition_manifest: Mapping[str, Any] | None,
+    package_artifacts: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    enriched = dict(provenance)
+    enriched.setdefault("reel_id", reel_id)
+
+    composition_manifest_path = package_directory / COMPOSITION_MANIFEST_FILENAME
+    if composition_manifest is not None and composition_manifest_path.exists():
+        enriched["composition_manifest_hash"] = checksum_file(
+            composition_manifest_path
+        ).content_hash
+        enriched.setdefault("transforms", _composition_transforms(composition_manifest))
+
+    assets = enriched.get("assets")
+    if isinstance(assets, list):
+        enriched.setdefault("source_assets", _asset_subset(assets, derived=False))
+        enriched.setdefault("derived_assets", _asset_subset(assets, derived=True))
+        final_render_asset_id = _final_render_asset_id(assets)
+        if final_render_asset_id is not None:
+            enriched.setdefault("final_render_asset_id", final_render_asset_id)
+
+    if package_artifacts:
+        enriched["package_artifacts"] = [
+            _package_artifact_provenance(artifact) for artifact in package_artifacts
+        ]
+    return enriched
+
+
+def _composition_transforms(composition_manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    transforms: list[dict[str, Any]] = []
+    for layer in _composition_layers(composition_manifest):
+        if not isinstance(layer, Mapping):
+            continue
+        transforms.append(
+            {
+                key: value
+                for key, value in {
+                    "asset_id": _optional_text(layer.get("asset_id")),
+                    "layer_id": _optional_text(layer.get("layer_id")),
+                    "role": _optional_text(layer.get("asset_kind")),
+                    "transform_recipe": _layer_transform_recipe(layer),
+                    "transform_version": "composition_manifest.v1",
+                    "start_time": layer.get("start_time"),
+                    "end_time": layer.get("end_time"),
+                    "z_index": layer.get("z_index"),
+                }.items()
+                if value is not None
+            }
+        )
+    return transforms
+
+
+def _composition_layers(composition_manifest: Mapping[str, Any]) -> list[Any]:
+    layers: list[Any] = []
+    background = composition_manifest.get("background_layer")
+    if background is not None:
+        layers.append(background)
+    for key in ("layers", "audio_layers"):
+        value = composition_manifest.get(key)
+        if isinstance(value, list):
+            layers.extend(value)
+    return layers
+
+
+def _layer_transform_recipe(layer: Mapping[str, Any]) -> dict[str, Any]:
+    keys = (
+        "x",
+        "y",
+        "width",
+        "height",
+        "scale",
+        "opacity",
+        "crop",
+        "rotation",
+        "mask_mode",
+        "blend_mode",
+        "animation",
+        "motion_transform",
+        "safe_area_constraints",
+    )
+    return {key: layer[key] for key in keys if key in layer and layer[key] is not None}
+
+
+def _asset_subset(assets: list[Any], *, derived: bool) -> list[dict[str, Any]]:
+    return [
+        dict(asset)
+        for asset in assets
+        if isinstance(asset, Mapping) and _is_derived(asset) is derived
+    ]
+
+
+def _is_derived(asset: Mapping[str, Any]) -> bool:
+    role = _optional_text(asset.get("role")) or ""
+    stage = _optional_text(asset.get("stage")) or ""
+    source_type = _optional_text(asset.get("source_type") or asset.get("source")) or ""
+    return (
+        stage.lower() in {"derived", "output", "render"}
+        or source_type.lower() in {"derived", "package_output"}
+        or role.lower() in {"final_video", "final_render", "cover"}
+        or _optional_text(asset.get("derived_from_asset_id")) is not None
+    )
+
+
+def _final_render_asset_id(assets: list[Any]) -> str | None:
+    for asset in assets:
+        if not isinstance(asset, Mapping):
+            continue
+        role = (_optional_text(asset.get("role")) or "").lower()
+        asset_id = _optional_text(asset.get("asset_id"))
+        if role in {"final_video", "final_render"} and asset_id is not None:
+            return asset_id
+    return None
+
+
+def _package_artifact_provenance(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            "name": artifact.get("name"),
+            "filename": artifact.get("filename"),
+            "storage_uri": artifact.get("storage_uri"),
+            "checksum_sha256": artifact.get("checksum_sha256"),
+            "content_type": artifact.get("content_type"),
+            "kind": artifact.get("kind"),
+            "size_bytes": artifact.get("size_bytes"),
+        }.items()
+        if value is not None
+    }
+
+
 def _caption_variants_for_package_payload(
     value: str | Sequence[str] | Sequence[Mapping[str, Any]],
 ) -> str | list[Any]:
@@ -323,9 +497,11 @@ def _package_payload(
     overlay_render_trace: Mapping[str, Any] | None,
     timeline: Mapping[str, Any] | None,
     timeline_render_trace: Mapping[str, Any] | None,
+    composition_manifest: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     artifacts = [artifact.as_payload() for artifact in stored_package.artifacts]
     provenance_artifact = stored_package.artifact_by_name("provenance")
+    composition_manifest_artifact = stored_package.artifact_by_name("composition_manifest")
     creative_trace_artifact = stored_package.artifact_by_name("creative_trace")
     overlay_trace_artifact = stored_package.artifact_by_name("overlay_render_trace")
     timeline_artifact = stored_package.artifact_by_name("timeline")
@@ -338,6 +514,14 @@ def _package_payload(
         "manifest": {} if manifest is None else dict(manifest),
         "provenance_uri": None if provenance_artifact is None else provenance_artifact.storage_uri,
         "provenance": dict(provenance),
+        "composition_manifest_uri": (
+            None
+            if composition_manifest_artifact is None
+            else composition_manifest_artifact.storage_uri
+        ),
+        "composition_manifest": (
+            {} if composition_manifest is None else dict(composition_manifest)
+        ),
         "creative_trace_uri": (
             None if creative_trace_artifact is None else creative_trace_artifact.storage_uri
         ),
@@ -408,3 +592,10 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         json.dumps(dict(payload), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(str(value).strip().split())
+    return normalized or None

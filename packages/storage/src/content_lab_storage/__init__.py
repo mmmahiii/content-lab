@@ -17,6 +17,7 @@ from content_lab_storage.client import RetrievedObject, S3StorageClient, StoredO
 from content_lab_storage.config import S3StorageConfig
 from content_lab_storage.paths import (
     CAPTION_VARIANTS_FILENAME,
+    COMPOSITION_MANIFEST_FILENAME,
     COVER_IMAGE_FILENAME,
     CREATIVE_TRACE_FILENAME,
     FINAL_VIDEO_FILENAME,
@@ -43,6 +44,7 @@ from content_lab_storage.refs import StorageRef, build_key
 
 __all__ = [
     "CAPTION_VARIANTS_FILENAME",
+    "COMPOSITION_MANIFEST_FILENAME",
     "COVER_IMAGE_FILENAME",
     "CREATIVE_TRACE_FILENAME",
     "OVERLAY_RENDER_TRACE_FILENAME",

@@ -69,6 +69,50 @@ _OVERLAY_RENDER_TRACE = {
     "overlay_count": 0,
     "overlays": [],
 }
+_COMPOSITION_MANIFEST = {
+    "canvas_width": 1080,
+    "canvas_height": 1920,
+    "duration": 12.0,
+    "fps": 24,
+    "background_layer": {
+        "layer_id": "bg",
+        "asset_id": "asset-source",
+        "asset_kind": "source_clip",
+        "media_type": "video",
+        "z_index": 0,
+        "start_time": 0.0,
+        "end_time": 12.0,
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1920,
+        "scale": 1.0,
+        "opacity": 1.0,
+        "mask_mode": "none",
+        "blend_mode": "normal",
+    },
+    "layers": [
+        {
+            "layer_id": "product",
+            "asset_id": "asset-product",
+            "asset_kind": "product_prop",
+            "media_type": "image",
+            "z_index": 1,
+            "start_time": 1.0,
+            "end_time": 8.0,
+            "x": 100,
+            "y": 300,
+            "width": 640,
+            "height": 640,
+            "scale": 1.0,
+            "opacity": 0.95,
+            "mask_mode": "alpha",
+            "blend_mode": "normal",
+        }
+    ],
+    "audio_layers": [],
+    "export_preset": {"container": "mp4", "video_codec": "libx264", "audio_codec": "aac"},
+}
 
 
 def test_build_package_directory_writes_required_artifacts_and_manifest(tmp_path: Path) -> None:
@@ -152,6 +196,87 @@ def test_build_package_directory_merges_editing_metadata_into_manifest(tmp_path:
     )
     assert manifest["editing"]["safe_area_9_16"]["status"] == "pass"
     assert manifest["editing"]["safe_area_9_16"]["frame"]["width"] == 1080
+
+
+def test_build_package_directory_stores_composition_manifest_and_provenance(
+    tmp_path: Path,
+) -> None:
+    final_video = tmp_path / "input-video.mp4"
+    cover = tmp_path / "input-cover.png"
+    final_video.write_bytes(b"video-bytes")
+    cover.write_bytes(_ONE_BY_ONE_PNG)
+
+    built = build_package_directory(
+        reel_id="reel-composed-123",
+        final_video_path=final_video,
+        cover_path=cover,
+        caption_variants="Caption",
+        posting_plan={},
+        provenance={
+            "editor_version": "layered_ffmpeg_v1",
+            "assets": [
+                {
+                    "role": "source_clip",
+                    "asset_id": "asset-source",
+                    "asset_kind": "source_clip",
+                    "media_type": "video",
+                    "source_type": "generated",
+                    "storage_uri": "s3://content-lab/assets/raw/asset-source/source.mp4",
+                    "stored_content_hash": "sha256:" + ("a" * 64),
+                    "used_as_component_role": "source_clip",
+                },
+                {
+                    "role": "final_render",
+                    "asset_id": "asset-render",
+                    "asset_kind": "final_render",
+                    "media_type": "video",
+                    "source_type": "derived",
+                    "storage_uri": "s3://content-lab/assets/derived/asset-render/final.mp4",
+                    "stored_content_hash": "sha256:" + ("b" * 64),
+                    "used_as_component_role": "final_render",
+                },
+            ],
+            "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
+        },
+        timeline=_TIMELINE,
+        timeline_render_trace=_TIMELINE_RENDER_TRACE,
+        overlay_render_trace=_OVERLAY_RENDER_TRACE,
+        composition_manifest=_COMPOSITION_MANIFEST,
+        temp_root=tmp_path / "scratch-composed",
+    )
+
+    assert (built.directory / "composition_manifest.json").exists()
+    assert built.manifest is not None
+    assert built.manifest["artifact_count"] == 9
+    assert {artifact["name"] for artifact in built.manifest["artifacts"]} == {
+        "caption_variants",
+        "composition_manifest",
+        "cover",
+        "final_video",
+        "overlay_render_trace",
+        "posting_plan",
+        "provenance",
+        "timeline",
+        "timeline_render_trace",
+    }
+    provenance = json.loads((built.directory / "provenance.json").read_text(encoding="utf-8"))
+    composition_artifact = next(
+        artifact
+        for artifact in built.manifest["artifacts"]
+        if artifact["name"] == "composition_manifest"
+    )
+    assert provenance["reel_id"] == "reel-composed-123"
+    assert provenance["composition_manifest_hash"] == composition_artifact["checksum_sha256"]
+    assert provenance["source_assets"][0]["asset_id"] == "asset-source"
+    assert provenance["derived_assets"][0]["asset_id"] == "asset-render"
+    assert provenance["final_render_asset_id"] == "asset-render"
+    assert provenance["transforms"][1]["layer_id"] == "product"
+    assert any(
+        artifact["name"] == "composition_manifest" for artifact in provenance["package_artifacts"]
+    )
+
+
+def test_build_ready_to_post_package_attaches_creative_trace(tmp_path: Path) -> None:
     client = Mock()
     layout = CanonicalStorageLayout(bucket="content-lab")
     final_video = tmp_path / "input-video.mp4"

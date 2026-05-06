@@ -9,6 +9,7 @@ from content_lab_storage.refs import StorageRef, build_key
 
 PACKAGE_MANIFEST_FILENAME = "package_manifest.json"
 PROVENANCE_FILENAME = "provenance.json"
+COMPOSITION_MANIFEST_FILENAME = "composition_manifest.json"
 CREATIVE_TRACE_FILENAME = "creative_trace.json"
 OVERLAY_RENDER_TRACE_FILENAME = "overlay_render_trace.json"
 TIMELINE_FILENAME = "timeline.json"
@@ -36,6 +37,7 @@ class ReelPackageRefs:
     caption_variants: StorageRef
     posting_plan: StorageRef
     provenance: StorageRef
+    composition_manifest: StorageRef
     creative_trace: StorageRef
     overlay_render_trace: StorageRef
     timeline: StorageRef
@@ -93,6 +95,10 @@ class CanonicalStorageLayout:
             caption_variants=self.reel_package_object(reel_id, CAPTION_VARIANTS_FILENAME),
             posting_plan=self.reel_package_object(reel_id, POSTING_PLAN_FILENAME),
             provenance=self.reel_package_object(reel_id, PROVENANCE_FILENAME),
+            composition_manifest=self.reel_package_object(
+                reel_id,
+                COMPOSITION_MANIFEST_FILENAME,
+            ),
             creative_trace=self.reel_package_object(reel_id, CREATIVE_TRACE_FILENAME),
             overlay_render_trace=self.reel_package_object(
                 reel_id,

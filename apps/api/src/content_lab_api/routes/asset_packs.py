@@ -15,6 +15,8 @@ from content_lab_api.routes._storage import build_signed_download
 from content_lab_api.schemas.asset import AssetDetailOut
 from content_lab_api.schemas.asset_packs import (
     ApprovedAssetPackGenerateRequest,
+    AssetLedIdeasOut,
+    AssetLedIdeasRequest,
     AssetPackBatchOut,
     AssetPackBatchRequest,
     AssetPackItemOut,
@@ -28,6 +30,7 @@ from content_lab_api.schemas.asset_packs import (
 )
 from content_lab_api.services import (
     approve_asset_pack_plan,
+    build_asset_led_reel_ideas,
     create_asset_pack_batch,
     create_asset_pack_plan,
     generate_approved_asset_pack,
@@ -128,6 +131,25 @@ def generate_approved_pack(
         org_id=org_id,
         asset_pack_id=asset_pack_id,
         body=body,
+    )
+
+
+@router.post("/{asset_pack_id}/ideas", response_model=AssetLedIdeasOut)
+def generate_asset_led_ideas(
+    org_id: uuid.UUID,
+    asset_pack_id: uuid.UUID,
+    body: AssetLedIdeasRequest,
+    db: Session = Depends(get_db),
+) -> AssetLedIdeasOut:
+    return build_asset_led_reel_ideas(
+        db,
+        org_id=org_id,
+        asset_pack_id=asset_pack_id,
+        target_concept_count=body.target_concept_count,
+        selected_asset_ids=body.selected_asset_ids,
+        format_filters=body.format_filters,
+        style_filters=body.style_filters,
+        selection_mode=body.selection_mode,
     )
 
 
