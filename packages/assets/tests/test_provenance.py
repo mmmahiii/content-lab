@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from content_lab_assets.provenance import build_provenance, serialize_provenance_json
+from content_lab_assets.provenance import (
+    PackageAssetProvenance,
+    build_provenance,
+    serialize_provenance_json,
+)
 
 
 def test_build_provenance_redacts_provider_credentials_and_sorts_timeline() -> None:
@@ -124,3 +128,40 @@ def test_provenance_json_is_stable_for_equivalent_mappings() -> None:
     )
 
     assert serialize_provenance_json(first) == serialize_provenance_json(second)
+
+
+def test_package_asset_provenance_backfills_source_first_fields() -> None:
+    imported_at = datetime(2026, 3, 25, 12, 0, tzinfo=UTC)
+
+    asset = PackageAssetProvenance(
+        role="product_prop",
+        asset_id="asset-imported",
+        storage_uri="s3://content-lab/assets/raw/asset-imported/product.png",
+        content_hash="sha256:" + ("a" * 64),
+        metadata={
+            "asset_kind": "object_image",
+            "media_type": "image",
+            "source_metadata": {
+                "source_type": "approved_external_source",
+                "source_provider": "Example Stock",
+                "external_source_url": "https://cdn.example.com/product.png",
+                "licence_type": "custom",
+                "usage_allowed": True,
+                "attribution_required": True,
+                "attribution_text": "Image: Example Stock",
+                "original_content_hash": "sha256:" + ("b" * 64),
+                "imported_at": imported_at.isoformat(),
+            },
+        },
+    )
+
+    assert asset.asset_kind == "object_image"
+    assert asset.media_type == "image"
+    assert asset.source_type == "approved_external_source"
+    assert asset.source_provider == "Example Stock"
+    assert asset.licence_type == "custom"
+    assert asset.usage_allowed is True
+    assert asset.attribution_text == "Image: Example Stock"
+    assert asset.original_content_hash == "sha256:" + ("b" * 64)
+    assert asset.stored_content_hash == "sha256:" + ("a" * 64)
+    assert asset.used_as_component_role == "product_prop"

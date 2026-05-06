@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from content_lab_assets.combinator import AssetCompatibilityMetadata
 from content_lab_assets.types import AssetKind, MediaType, infer_media_type_for_asset_kind
 
 DEFAULT_REEL_FORMATS = [
@@ -255,6 +256,7 @@ class AssetPackPlannedSpec(BaseModel):
     rationale: str = Field(min_length=1)
     required_traits: dict[str, Any] = Field(default_factory=dict)
     compatible_with: dict[str, Any] = Field(default_factory=dict)
+    compatibility: AssetCompatibilityMetadata = Field(default_factory=AssetCompatibilityMetadata)
     intended_reel_formats: list[str] = Field(default_factory=list)
     priority: int = Field(ge=0)
     estimated_reuse_count: int = Field(ge=0)
@@ -324,7 +326,9 @@ class AssetPackPlanInput(BaseModel):
     def _normalize_reel_types(cls, value: Sequence[str] | None) -> list[str]:
         if value is None:
             return []
-        return [_normalize_text(item, field_name="target_reel_types", max_length=96) for item in value]
+        return [
+            _normalize_text(item, field_name="target_reel_types", max_length=96) for item in value
+        ]
 
     @model_validator(mode="after")
     def _validate_asset_mix(self) -> AssetPackPlanInput:
@@ -466,14 +470,7 @@ def _asset_mix_key_to_kind(raw_key: str) -> AssetKind:
 
 
 def _normalize_mix_key(raw_key: str) -> str:
-    return (
-        str(raw_key)
-        .strip()
-        .lower()
-        .replace("/", "_")
-        .replace("-", "_")
-        .replace(" ", "_")
-    )
+    return str(raw_key).strip().lower().replace("/", "_").replace("-", "_").replace(" ", "_")
 
 
 def _asset_mix_guidance(asset_mix: Mapping[str, int], requested_asset_count: int) -> list[str]:
@@ -498,10 +495,7 @@ def _weighted_counts(weights: Mapping[AssetKind, float], total: int) -> dict[str
     if weight_sum <= 0:
         raise ValueError("asset mix weights must sum to a positive value")
 
-    raw = {
-        kind: (weight / weight_sum) * total
-        for kind, weight in weights.items()
-    }
+    raw = {kind: (weight / weight_sum) * total for kind, weight in weights.items()}
     counts = {kind: floor(value) for kind, value in raw.items()}
     remaining = total - sum(counts.values())
     ranked = sorted(
@@ -536,6 +530,12 @@ def _build_planned_specs(
                 expected_reel_formats=expected_reel_formats,
                 style_persona_constraints=style_persona_constraints,
             )
+            compatibility = _compatibility_metadata(
+                niche=niche,
+                category=category,
+                expected_reel_formats=expected_reel_formats,
+                style_persona_constraints=style_persona_constraints,
+            )
             specs.append(
                 AssetPackPlannedSpec(
                     asset_kind=kind,
@@ -555,6 +555,7 @@ def _build_planned_specs(
                         "reel_formats": expected_reel_formats,
                         "style_persona_constraints": dict(style_persona_constraints),
                     },
+                    compatibility=compatibility,
                     intended_reel_formats=_formats_for_category(category, expected_reel_formats),
                     priority=0,
                     estimated_reuse_count=_estimated_reuse_count(
@@ -617,8 +618,7 @@ def _score_output_potential(
         )
 
     criteria_scores = {
-        criterion: round(base_scores[criterion], 2)
-        for criterion in OUTPUT_POTENTIAL_CRITERIA
+        criterion: round(base_scores[criterion], 2) for criterion in OUTPUT_POTENTIAL_CRITERIA
     }
     weighted_score = sum(
         criteria_scores[criterion] * OUTPUT_POTENTIAL_WEIGHTS[criterion]
@@ -730,7 +730,9 @@ def _build_pack_strategy(
         "niche": niche,
         "target_audience": target_audience or "Operators can refine this before generation.",
         "visual_style": _visual_style_summary(style_persona_constraints),
-        "emotional_angles": _emotional_angles(niche, expected_reel_formats, style_persona_constraints),
+        "emotional_angles": _emotional_angles(
+            niche, expected_reel_formats, style_persona_constraints
+        ),
         "core_motifs": _core_motifs(niche, category_split, style_persona_constraints),
         "asset_category_split": category_split,
         "expected_reel_formats": expected_reel_formats,
@@ -799,8 +801,7 @@ def _visual_style_summary(style_persona_constraints: Mapping[str, Any]) -> str:
     ]
     if not selected:
         selected = [
-            f"{key}: {value}"
-            for key, value in sorted(style_persona_constraints.items())[:4]
+            f"{key}: {value}" for key, value in sorted(style_persona_constraints.items())[:4]
         ]
     return "; ".join(selected)
 
@@ -871,7 +872,11 @@ def _why_assets_were_chosen(planned_specs: Sequence[AssetPackPlannedSpec]) -> li
         if spec.category in seen_categories:
             continue
         seen_categories.add(spec.category)
-        rationale = spec.output_potential_rationale[0] if spec.output_potential_rationale else spec.rationale
+        rationale = (
+            spec.output_potential_rationale[0]
+            if spec.output_potential_rationale
+            else spec.rationale
+        )
         reasons.append(
             f"{spec.category.replace('_', ' ')} assets lead with score "
             f"{spec.output_potential_score:g}: {rationale}"
@@ -894,8 +899,12 @@ def _multi_reel_generation_strategy(
         for category in ("hook_copy", "audio_bed", "transition_motif", "layout_system")
         if category in category_split
     ]
-    visual_text = ", ".join(category.replace("_", " ") for category in visual_categories) or "visual"
-    pacing_text = ", ".join(category.replace("_", " ") for category in pacing_categories) or "hook and pacing"
+    visual_text = (
+        ", ".join(category.replace("_", " ") for category in visual_categories) or "visual"
+    )
+    pacing_text = (
+        ", ".join(category.replace("_", " ") for category in pacing_categories) or "hook and pacing"
+    )
     return (
         f"Combine {visual_text} assets with {pacing_text} assets across "
         f"{len(expected_reel_formats)} reel formats. The {requested_asset_count}-asset pack is "
@@ -973,6 +982,70 @@ def _required_traits(
     if category in {"scene_setter", "proof_visual"}:
         traits["usable_as_b_roll"] = True
     return traits
+
+
+def _compatibility_metadata(
+    *,
+    niche: str,
+    category: str,
+    expected_reel_formats: list[str],
+    style_persona_constraints: Mapping[str, Any],
+) -> AssetCompatibilityMetadata:
+    visual_style = _compatibility_values(
+        style_persona_constraints,
+        "visual_style",
+        "style",
+        default=["platform_native"],
+    )
+    emotion = _compatibility_values(
+        style_persona_constraints,
+        "emotion",
+        "emotional_angles",
+        default=["useful"],
+    )
+    pace = _compatibility_values(style_persona_constraints, "pace", default=["medium"])
+    base = {
+        "niche": [niche],
+        "topic": [niche],
+        "theme": _core_motifs(niche, {category: 1}, style_persona_constraints),
+        "emotion": emotion,
+        "visual_style": visual_style,
+        "pace": pace,
+        "format_type": _formats_for_category(category, expected_reel_formats),
+        "requires_safe_area": category in {"scene_setter", "proof_visual", "layout_system"},
+    }
+    if category == "scene_setter":
+        base["works_as_background_for"] = [
+            "foreground",
+            "subject_video",
+            "object_image",
+            "transparent_cutout_png",
+            "prop_image",
+        ]
+        base["works_with_audio_moods"] = emotion
+        base["works_with_hook_types"] = _formats_for_category(category, expected_reel_formats)
+    elif category in {"detail_prop", "layerable_cutout"}:
+        base["requires_transparency"] = category == "layerable_cutout"
+        base["works_with_object_types"] = [category, "foreground"]
+    elif category == "audio_bed":
+        base["works_with_audio_moods"] = emotion
+    elif category == "hook_copy":
+        base["works_with_hook_types"] = _formats_for_category(category, expected_reel_formats)
+    return AssetCompatibilityMetadata.model_validate(base)
+
+
+def _compatibility_values(
+    source: Mapping[str, Any],
+    *keys: str,
+    default: list[str],
+) -> list[str]:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, Sequence):
+            return [str(item) for item in value]
+    return default
 
 
 def _formats_for_category(category: str, expected_reel_formats: list[str]) -> list[str]:

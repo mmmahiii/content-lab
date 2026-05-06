@@ -331,8 +331,21 @@ def test_asset_usage_unique_reel_asset_role(db_session: Session, org_id: uuid.UU
             reel_id=rid,
             asset_id=aid,
             usage_role="background",
+            component_role="background_video",
+            layer_role="base",
+            sequence_index=0,
+            z_index=0,
+            start_time=0.0,
+            end_time=2.0,
+            transform_recipe={"crop": "9:16"},
+            transform_version="v1",
+            metadata_json={"scene_id": "scene-1"},
         ),
     )
+    row = db_session.scalars(select(AssetUsage).where(AssetUsage.asset_id == aid)).one()
+    assert row.component_role == "background_video"
+    assert row.transform_recipe == {"crop": "9:16"}
+    assert row.metadata_json == {"scene_id": "scene-1"}
     with pytest.raises(IntegrityError):
         db_session.execute(
             insert(AssetUsage).values(
@@ -573,9 +586,7 @@ def test_planned_asset_spec_holds_pack_plan_before_asset_exists(
     assert spec.status == "planned"
 
 
-def test_planned_asset_spec_rejects_invalid_status(
-    db_session: Session, org_id: uuid.UUID
-) -> None:
+def test_planned_asset_spec_rejects_invalid_status(db_session: Session, org_id: uuid.UUID) -> None:
     pack_id = uuid.uuid4()
     db_session.execute(
         insert(AssetPack).values(

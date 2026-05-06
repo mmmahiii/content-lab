@@ -75,7 +75,13 @@ def _valid_package_payload() -> dict[str, Any]:
             "assets": [
                 {
                     "role": "source_clip",
+                    "asset_id": "asset-source",
+                    "asset_kind": "source_clip",
+                    "media_type": "video",
+                    "source_type": "generated",
                     "storage_uri": "s3://content-lab/assets/source.mp4",
+                    "stored_content_hash": _SHA256_A,
+                    "used_as_component_role": "source_clip",
                 }
             ],
             "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
@@ -217,8 +223,9 @@ def test_evaluate_package_aggregates_package_and_provenance_checks() -> None:
     assert payload["checks"][2]["gate_name"] == "package_overlay_render_trace"
     assert payload["checks"][3]["gate_name"] == "caption_meta_language"
     assert payload["checks"][4]["gate_name"] == "package_provenance"
-    assert payload["checks"][5]["gate_name"] == "package_script_semantics"
-    assert payload["checks"][5]["verdict"] == "skip"
+    assert payload["checks"][5]["gate_name"] == "source_rights"
+    assert payload["checks"][6]["gate_name"] == "package_script_semantics"
+    assert payload["checks"][5]["verdict"] == "pass"
 
 
 def test_validate_caption_meta_language_fails_for_clear_caption_bug() -> None:

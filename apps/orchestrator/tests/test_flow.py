@@ -405,7 +405,13 @@ class RecordingProcessReelExecutor:
                 "assets": [
                     {
                         "role": "source_clip",
+                        "asset_id": f"asset-{execution.reel_id}-source",
+                        "asset_kind": "source_clip",
+                        "media_type": "video",
+                        "source_type": "generated",
                         "storage_uri": f"memory://assets/{execution.reel_id}/source.mp4",
+                        "stored_content_hash": "sha256:" + ("a" * 64),
+                        "used_as_component_role": "source_clip",
                     }
                 ],
                 "provider_jobs": [{"provider": "runway", "status": "succeeded"}],

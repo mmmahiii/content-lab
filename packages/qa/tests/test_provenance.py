@@ -3,19 +3,34 @@ from __future__ import annotations
 from content_lab_qa.provenance import validate_package_provenance
 
 
+def _asset_lineage(**updates: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "role": "source_clip",
+        "asset_id": "asset-source",
+        "asset_kind": "source_clip",
+        "media_type": "video",
+        "source_type": "generated",
+        "storage_uri": "s3://content-lab/assets/source.mp4",
+        "stored_content_hash": "sha256:" + ("a" * 64),
+        "used_as_component_role": "source_clip",
+    }
+    payload.update(updates)
+    return payload
+
+
 def test_validate_package_provenance_passes_with_required_lineage() -> None:
     result = validate_package_provenance(
         {
             "editor_version": "basic_vertical_v1",
             "assets": [
-                {
-                    "role": "source_clip",
-                    "storage_uri": "s3://content-lab/assets/source.mp4",
-                },
-                {
-                    "role": "final_video",
-                    "storage_uri": "s3://content-lab/reels/packages/reel-123/final_video.mp4",
-                },
+                _asset_lineage(),
+                _asset_lineage(
+                    role="final_video",
+                    asset_id="asset-output",
+                    asset_kind="final_render",
+                    storage_uri="s3://content-lab/reels/packages/reel-123/final_video.mp4",
+                    used_as_component_role="final_video",
+                ),
             ],
             "provider_jobs": [
                 {
@@ -34,7 +49,7 @@ def test_validate_package_provenance_fails_when_editor_lineage_missing() -> None
     result = validate_package_provenance(
         {
             "assets": [
-                {"role": "source_clip", "storage_uri": "s3://content-lab/assets/source.mp4"}
+                _asset_lineage(),
             ],
             "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
         }
@@ -48,7 +63,7 @@ def test_validate_package_provenance_fails_for_invalid_asset_entry() -> None:
     result = validate_package_provenance(
         {
             "editor_version": "basic_vertical_v1",
-            "assets": [{"storage_uri": "s3://content-lab/assets/source.mp4"}],
+            "assets": [_asset_lineage(role="")],
             "provider_jobs": [{"provider": "runway", "status": "succeeded"}],
         }
     )
@@ -62,7 +77,7 @@ def test_validate_package_provenance_fails_for_missing_provider_lineage() -> Non
         {
             "editor_version": "basic_vertical_v1",
             "assets": [
-                {"role": "source_clip", "storage_uri": "s3://content-lab/assets/source.mp4"}
+                _asset_lineage(),
             ],
             "provider_jobs": [],
         }

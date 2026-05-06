@@ -12,6 +12,10 @@ from content_lab_assets.asset_key import (
     AssetKey,
     Phase1ProviderLockError,
     build_asset_key,
+    build_audio_asset_key,
+    build_derived_asset_key,
+    build_final_render_asset_key,
+    build_overlay_text_asset_key,
     validate_phase1_provider_model,
 )
 from content_lab_assets.policy import (
@@ -192,6 +196,21 @@ def build_generation_payload(
             media_type=media_type,
         )
     )
+    component_metadata = _component_metadata_from_request_payload(request_payload)
+    provenance: dict[str, Any] = {
+        "source": "asset_registry.resolve",
+        "phase": "phase1_exact_reuse",
+        "reference_asset_ids": canonical_params.get("reference_asset_ids", []),
+        "init_image_hash": canonical_params.get("init_image_hash"),
+        **(
+            {"source_metadata": request_payload["source_metadata"]}
+            if request_payload and isinstance(request_payload.get("source_metadata"), Mapping)
+            else {}
+        ),
+    }
+    if component_metadata:
+        provenance["component_requirement"] = component_metadata
+
     return {
         "resolution": "generate",
         "request": dict(request_payload or {}),
@@ -211,12 +230,7 @@ def build_generation_payload(
             "external_ref": build_runway_job_external_ref(asset_key_hash=asset_key.asset_key_hash),
             "status": RunwayJobStatus.SUBMITTED.value,
         },
-        "provenance": {
-            "source": "asset_registry.resolve",
-            "phase": "phase1_exact_reuse",
-            "reference_asset_ids": canonical_params.get("reference_asset_ids", []),
-            "init_image_hash": canonical_params.get("init_image_hash"),
-        },
+        "provenance": provenance,
     }
 
 
@@ -245,8 +259,21 @@ def resolve_phase1_asset(
 ) -> AssetResolutionDecision:
     """Resolve a phase-1 generation request through exact reuse or staged generation."""
 
+    normalized_asset_kind = AssetKind(asset_kind)
+    normalized_asset_source = AssetSource(asset_source)
+    normalized_media_type = (
+        infer_media_type_for_asset_kind(normalized_asset_kind)
+        if media_type is None
+        else validate_asset_kind_media_type(
+            asset_kind=normalized_asset_kind,
+            media_type=media_type,
+        )
+    )
     asset_key = build_asset_key(
         asset_class=asset_class,
+        asset_kind=normalized_asset_kind,
+        media_type=normalized_media_type,
+        asset_source=normalized_asset_source,
         provider=provider,
         model=model,
         prompt=prompt,
@@ -258,16 +285,6 @@ def resolve_phase1_asset(
         motion=motion,
         init_image_hash=init_image_hash,
         reference_asset_ids=reference_asset_ids,
-    )
-    normalized_asset_kind = AssetKind(asset_kind)
-    normalized_asset_source = AssetSource(asset_source)
-    normalized_media_type = (
-        infer_media_type_for_asset_kind(normalized_asset_kind)
-        if media_type is None
-        else validate_asset_kind_media_type(
-            asset_kind=normalized_asset_kind,
-            media_type=media_type,
-        )
     )
     existing_asset = store.get_asset_by_key_hash(
         org_id=org_id,
@@ -286,6 +303,7 @@ def resolve_phase1_asset(
             asset_source=normalized_asset_source,
             gen_params=gen_params,
             policy=_policy_metadata(policy_context),
+            request_payload=request_payload,
         )
         return _apply_exact_reuse_policy(
             exact_decision,
@@ -312,6 +330,7 @@ def resolve_phase1_asset(
         media_type=normalized_media_type,
         asset_source=normalized_asset_source,
         policy=_policy_metadata(policy_context),
+        request_payload=request_payload,
     )
     return _apply_generate_policy(
         generate_decision,
@@ -329,7 +348,18 @@ def _reuse_exact_decision(
     asset_source: AssetSource,
     gen_params: RegistryAssetGenParams | None,
     policy: DecisionPolicyMetadata,
+    request_payload: Mapping[str, Any] | None,
 ) -> ReuseExactDecision:
+    provenance: dict[str, Any] = {
+        "source": "asset_registry",
+        "resolution": "exact_memoisation",
+        "matched_via": "asset_key_hash",
+        "asset_status": asset.status,
+        "asset_gen_param_seq": None if gen_params is None else gen_params.seq,
+    }
+    component_metadata = _component_metadata_from_request_payload(request_payload)
+    if component_metadata:
+        provenance["component_requirement"] = component_metadata
     return ReuseExactDecision(
         asset_id=asset.asset_id,
         asset_class=asset.asset_class,
@@ -344,13 +374,7 @@ def _reuse_exact_decision(
         canonical_params=(
             asset_key.canonical_params if gen_params is None else dict(gen_params.canonical_params)
         ),
-        provenance={
-            "source": "asset_registry",
-            "resolution": "exact_memoisation",
-            "matched_via": "asset_key_hash",
-            "asset_status": asset.status,
-            "asset_gen_param_seq": None if gen_params is None else gen_params.seq,
-        },
+        provenance=provenance,
         policy=policy,
     )
 
@@ -363,6 +387,7 @@ def _generate_decision(
     media_type: MediaType,
     asset_source: AssetSource,
     policy: DecisionPolicyMetadata,
+    request_payload: Mapping[str, Any] | None,
 ) -> GenerateDecision:
     generation_intent = GenerationIntent(
         asset_id=intent.asset_id,
@@ -379,6 +404,16 @@ def _generate_decision(
         asset_key_hash=asset_key.asset_key_hash,
         payload=dict(intent.payload),
     )
+    provenance: dict[str, Any] = {
+        "source": "asset_registry",
+        "resolution": "generate",
+        "asset_id": str(intent.asset_id),
+        "asset_status": intent.status,
+    }
+    component_metadata = _component_metadata_from_request_payload(request_payload)
+    if component_metadata:
+        provenance["component_requirement"] = component_metadata
+
     return GenerateDecision(
         asset_class=asset_key.canonical_params["asset_class"],
         asset_kind=intent.asset_kind or asset_kind,
@@ -390,12 +425,7 @@ def _generate_decision(
         model=asset_key.canonical_params["model"],
         canonical_params=asset_key.canonical_params,
         generation_intent=generation_intent,
-        provenance={
-            "source": "asset_registry",
-            "resolution": "generate",
-            "asset_id": str(intent.asset_id),
-            "asset_status": intent.status,
-        },
+        provenance=provenance,
         policy=policy,
     )
 
@@ -458,6 +488,26 @@ def _normalize_required_text(value: str, *, field_name: str) -> str:
     return normalized
 
 
+def _component_metadata_from_request_payload(
+    request_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not request_payload:
+        return {}
+    component_payload = request_payload.get("component_requirement")
+    source = component_payload if isinstance(component_payload, Mapping) else request_payload
+    component_fields = (
+        "component_role",
+        "layer_role",
+        "sequence_index",
+        "z_index",
+        "start_time",
+        "end_time",
+        "transform_recipe",
+        "transform_version",
+    )
+    return {field: source[field] for field in component_fields if source.get(field) is not None}
+
+
 __all__ = [
     "AlphaMode",
     "AssetKey",
@@ -487,9 +537,13 @@ __all__ = [
     "ReuseWithTransformDecision",
     "aspect_ratio_from_dimensions",
     "build_asset_key",
+    "build_audio_asset_key",
     "build_decision_policy_metadata",
+    "build_derived_asset_key",
+    "build_final_render_asset_key",
     "build_generation_idempotency_key",
     "build_generation_payload",
+    "build_overlay_text_asset_key",
     "detect_png_transparency",
     "detect_png_visual_metadata",
     "infer_media_type_for_asset_kind",

@@ -13,6 +13,7 @@ from content_lab_core.types import QAVerdict
 from content_lab_qa.gate import QAResult, qa_result_blocks_readiness
 from content_lab_qa.provenance import validate_package_provenance
 from content_lab_qa.semantic_script import SemanticScriptQARequest, evaluate_semantic_script
+from content_lab_qa.source_rights import validate_source_rights
 from content_lab_qa.text import validate_caption_meta_language
 
 _REQUIRED_PACKAGE_ARTIFACTS: tuple[tuple[str, str], ...] = (
@@ -67,6 +68,7 @@ def evaluate_package(package_payload: Mapping[str, Any] | object) -> PackageQARe
         validate_package_overlay_render_trace(package_payload),
         validate_caption_meta_language(package_payload),
         validate_package_provenance(_provenance_payload(package_payload)),
+        validate_source_rights(_provenance_payload(package_payload)),
         validate_package_script_semantics(package_payload),
     ]
     errors = [

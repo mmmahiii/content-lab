@@ -363,6 +363,44 @@ def test_build_generation_payload_preserves_component_asset_kind() -> None:
     assert payload["provider_submission"]["asset_source"] == "generated"
 
 
+def test_resolve_phase1_asset_preserves_component_requirement_metadata() -> None:
+    org_id = uuid.uuid4()
+    store = InMemoryPhase1Store()
+
+    decision = resolve_phase1_asset(
+        store,
+        org_id=org_id,
+        asset_class="component",
+        asset_kind=AssetKind.BACKGROUND_VIDEO,
+        media_type=MediaType.VIDEO,
+        provider="runway",
+        model="gen4.5",
+        prompt="Slow office background pan",
+        duration_seconds=4,
+        ratio="9:16",
+        request_payload={
+            "component_role": "background_video",
+            "layer_role": "base",
+            "sequence_index": 0,
+            "transform_recipe": {"fit": "cover"},
+            "transform_version": "v1",
+        },
+    )
+
+    assert decision.decision == "generate"
+    assert decision.provenance["component_requirement"] == {
+        "component_role": "background_video",
+        "layer_role": "base",
+        "sequence_index": 0,
+        "transform_recipe": {"fit": "cover"},
+        "transform_version": "v1",
+    }
+    assert (
+        decision.generation_intent.payload["provenance"]["component_requirement"]
+        == (decision.provenance["component_requirement"])
+    )
+
+
 def test_asset_record_distinguishes_derived_outputs_from_source_assets() -> None:
     source = AssetRecord(
         name="uploaded-object.png",

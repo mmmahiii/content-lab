@@ -1690,15 +1690,35 @@ def _build_package_provenance(
     if job_id is not None:
         provider_payload["job_id"] = job_id
 
-    assets = [
-        {
-            "role": "source_clip",
-            "storage_uri": _required_text(
-                asset_output.get("storage_uri"),
-                field_name="asset_resolution.storage_uri",
-            ),
-        }
-    ]
+    asset_id = _optional_text(asset_output.get("asset_id"))
+    if asset_id is None:
+        generation = _mapping(asset_output.get("generation"))
+        asset_id = _optional_text(generation.get("asset_id"))
+    asset_kind = _optional_text(asset_output.get("asset_kind")) or "generated_clip"
+    media_type = _optional_text(asset_output.get("media_type")) or "video"
+    source_type = _optional_text(asset_output.get("asset_source")) or "generated"
+    generation = _mapping(asset_output.get("generation"))
+    stored_content_hash = (
+        _optional_text(asset_output.get("content_hash"))
+        or _optional_text(generation.get("content_hash"))
+        or _optional_text(asset_output.get("asset_key_hash"))
+    )
+    asset_lineage: dict[str, Any] = {
+        "role": "source_clip",
+        "asset_kind": asset_kind,
+        "media_type": media_type,
+        "source_type": source_type,
+        "storage_uri": _required_text(
+            asset_output.get("storage_uri"),
+            field_name="asset_resolution.storage_uri",
+        ),
+        "used_as_component_role": "source_clip",
+    }
+    if asset_id is not None:
+        asset_lineage["asset_id"] = asset_id
+    if stored_content_hash is not None:
+        asset_lineage["stored_content_hash"] = stored_content_hash
+    assets = [asset_lineage]
     return {
         "editor_version": _required_text(
             editing_output.get("template_version"),

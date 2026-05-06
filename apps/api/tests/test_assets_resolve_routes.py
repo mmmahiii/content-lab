@@ -355,3 +355,74 @@ def test_asset_resolve_rejects_non_phase1_provider_model(
         response.json()["detail"]
         == "phase-1 asset resolution only supports provider='runway' and model='gen4.5'"
     )
+
+
+def test_asset_resolve_persists_source_metadata_on_generate_intent(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    payload = _resolve_payload(reference_asset_ids=[uuid.uuid4()])
+    payload["source_metadata"] = {
+        "source_type": "generated",
+        "source_provider": "runway",
+        "usage_allowed": True,
+        "commercial_use_allowed": False,
+    }
+
+    response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "generate"
+    prov = body["generation_intent"]["payload"]["provenance"]
+    assert prov["source_metadata"]["source_type"] == "generated"
+    assert prov["source_metadata"]["source_provider"] == "runway"
+
+    asset_id = uuid.UUID(body["generation_intent"]["asset_id"])
+    asset = db_session.get(Asset, asset_id)
+    assert asset is not None
+    intent = (asset.metadata_ or {}).get("intent") or {}
+    assert intent["provenance"]["source_metadata"]["source_type"] == "generated"
+
+
+def test_asset_resolve_accepts_component_requirement_payload(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    payload = {
+        "component_requirement": {
+            "component_role": "object_png",
+            "layer_role": "foreground",
+            "sequence_index": 2,
+            "z_index": 10,
+            "start_time": 1.0,
+            "end_time": 3.0,
+            "asset_class": "component",
+            "provider": "runway",
+            "model": "gen4.5",
+            "prompt": "Transparent espresso cup cutout",
+            "ratio": "9:16",
+            "transform_recipe": {"fit": "contain"},
+            "transform_version": "v1",
+        }
+    }
+
+    response = assets_client.post(f"/orgs/{org_id}/assets/resolve", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "generate"
+    assert body["asset_kind"] == "transparent_cutout_png"
+    assert body["media_type"] == "image"
+    assert body["canonical_params"]["asset_kind"] == "transparent_cutout_png"
+    component = body["provenance"]["component_requirement"]
+    assert component["component_role"] == "object_png"
+    assert component["layer_role"] == "foreground"
+    assert component["sequence_index"] == 2
+
+    asset_id = uuid.UUID(body["generation_intent"]["asset_id"])
+    asset = db_session.get(Asset, asset_id)
+    assert asset is not None
+    intent = (asset.metadata_ or {}).get("intent") or {}
+    assert intent["provenance"]["component_requirement"]["transform_recipe"] == {"fit": "contain"}

@@ -13,8 +13,13 @@ from content_lab_api.deps import get_db
 from content_lab_api.models import Asset, AssetGenParam, Org
 from content_lab_api.routes._storage import build_signed_download
 from content_lab_api.schemas.asset import AssetDetailOut, SignedDownloadOut
-from content_lab_api.schemas.assets import AssetResolveDecision, AssetResolveRequest
-from content_lab_api.services import resolve_asset_request
+from content_lab_api.schemas.assets import (
+    ApprovedExternalImportOut,
+    ApprovedExternalImportRequest,
+    AssetResolveDecision,
+    AssetResolveRequest,
+)
+from content_lab_api.services import import_approved_external_asset, resolve_asset_request
 
 router = APIRouter(prefix="/orgs/{org_id}/assets", tags=["assets"])
 
@@ -72,6 +77,31 @@ def _asset_detail_out(db: Session, *, asset: Asset) -> AssetDetailOut:
         provenance=provenance,
         download=build_signed_download(storage_uri=asset.storage_uri),
         created_at=asset.created_at,
+    )
+
+
+@router.post("/import-approved-external", response_model=ApprovedExternalImportOut, status_code=status.HTTP_201_CREATED)
+def import_approved_external(
+    org_id: uuid.UUID,
+    body: ApprovedExternalImportRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> ApprovedExternalImportOut:
+    """Import bytes from an operator-approved URL into canonical storage (controlled, not a crawler)."""
+
+    _get_org_or_404(db, org_id)
+    asset, _item, reused, warnings, licence_ok = import_approved_external_asset(
+        db,
+        request,
+        org_id=org_id,
+        body=body,
+    )
+    return ApprovedExternalImportOut(
+        asset_id=asset.id,
+        reused_existing_asset=reused,
+        import_warnings=warnings,
+        licence_metadata_complete=licence_ok,
+        asset_pack_item_id=None if _item is None else _item.id,
     )
 
 

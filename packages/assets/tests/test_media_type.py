@@ -62,7 +62,9 @@ def test_asset_kind_media_type_compatibility(
     media_type: MediaType,
 ) -> None:
     assert media_type in compatible_media_types_for_asset_kind(asset_kind)
-    assert validate_asset_kind_media_type(asset_kind=asset_kind, media_type=media_type) is media_type
+    assert (
+        validate_asset_kind_media_type(asset_kind=asset_kind, media_type=media_type) is media_type
+    )
 
 
 def test_text_and_json_assets_are_not_treated_as_video() -> None:

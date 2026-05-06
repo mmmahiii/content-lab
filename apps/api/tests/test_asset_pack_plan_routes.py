@@ -15,6 +15,7 @@ from content_lab_api.deps import get_db
 from content_lab_api.main import app
 from content_lab_api.models import (
     Asset,
+    AssetGenParam,
     AssetPack,
     AssetPackItem,
     AuditLog,
@@ -605,3 +606,200 @@ def test_register_source_asset_for_pack_reuses_existing_source_asset_by_key(
     assert second_item.pack_role == "hero_product"
     assert db_session.query(Asset).filter(Asset.org_id == org_id).count() == 1
     assert len(storage.puts) == 1
+
+
+def test_register_source_asset_persists_source_metadata_and_gen_param(
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    pack = AssetPack(
+        org_id=org_id,
+        name="Source meta kit",
+        niche="coffee",
+        requested_asset_count=1,
+        status="planned",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    storage = _FakeStorageClient()
+    request = cast(Request, SimpleNamespace(state=SimpleNamespace(actor="operator:uploader")))
+    body = SourceAssetRegisterRequest(
+        asset_class="component",
+        asset_kind="object_image",
+        asset_source="uploaded",
+        pack_role="product_prop",
+        filename="product.png",
+        content_type="image/png",
+        data_base64=base64.b64encode(_PNG_1X1_TRANSPARENT).decode("ascii"),
+        source_metadata={
+            "source_type": "operator_uploaded",
+            "usage_allowed": True,
+            "commercial_use_allowed": False,
+            "licence_type": "stock_single_use",
+        },
+    )
+    asset, _, _ = register_source_asset_for_pack(
+        db_session,
+        request,
+        org_id=org_id,
+        asset_pack_id=pack.id,
+        body=body,
+        storage_client=storage,
+        settings=Settings(minio_bucket="content-lab"),
+    )
+    assert asset.metadata_["source_metadata"]["source_type"] == "operator_uploaded"
+    assert asset.metadata_["source_metadata"]["licence_type"] == "stock_single_use"
+    row = db_session.query(AssetGenParam).filter(AssetGenParam.asset_id == asset.id).one()
+    assert row.asset_key_hash == asset.asset_key_hash
+    assert row.canonical_params.get("content_hash") == asset.content_hash
+
+
+def test_asset_pack_generate_records_acquisition_on_compatible_reuse(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    existing = Asset(
+        org_id=org_id,
+        asset_class="component",
+        storage_uri="s3://content-lab/assets/library/luxury-bg.mp4",
+        source="uploaded",
+        status="ready",
+        metadata_={
+            "asset_kind": "background_video",
+            "media_type": "video",
+            "asset_source": "uploaded",
+            "niche": "luxury mindset",
+            "pack_role": "scene_setter",
+            "intended_reel_formats": ["belief shift"],
+        },
+    )
+    db_session.add(existing)
+    db_session.flush()
+
+    plan_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/plan",
+        json={
+            "name": "Luxury mindset starter",
+            "niche": "luxury mindset",
+            "requested_asset_count": 2,
+            "asset_mix": {"background_video": 1, "hook_text": 1},
+            "target_reel_types": ["belief shift"],
+        },
+    )
+    assert plan_response.status_code == 201
+    pack_id = uuid.UUID(plan_response.json()["asset_pack"]["id"])
+    asset_pack_client.post(f"/orgs/{org_id}/asset-packs/{pack_id}/approve", json={})
+    asset_pack_client.post(f"/orgs/{org_id}/asset-packs/{pack_id}/generate", json={})
+
+    uploaded_item = (
+        db_session.query(AssetPackItem)
+        .filter(AssetPackItem.asset_pack_id == pack_id, AssetPackItem.asset_id == existing.id)
+        .one()
+    )
+    acq = uploaded_item.metadata_json.get("acquisition_decision") or {}
+    assert acq.get("recommended_acquisition_path") == "reuse_existing_registry_asset"
+    assert acq.get("resolved_acquisition_path") == "reuse_existing_registry_asset"
+
+
+def test_asset_pack_generate_blocks_planned_spec_when_acquisition_forces_block(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    plan_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/plan",
+        json={
+            "name": "Blocked kit",
+            "niche": "coffee shop marketing",
+            "requested_asset_count": 1,
+            "asset_mix": {"hook_text": 1},
+        },
+    )
+    assert plan_response.status_code == 201
+    pack_id = uuid.UUID(plan_response.json()["asset_pack"]["id"])
+    spec = (
+        db_session.query(PlannedAssetSpec)
+        .filter(PlannedAssetSpec.asset_pack_id == pack_id)
+        .order_by(PlannedAssetSpec.priority)
+        .first()
+    )
+    assert spec is not None
+    traits = dict(spec.required_traits or {})
+    traits["acquisition"] = {"force_block": True, "block_reason": "manual QA hold"}
+    spec.required_traits = traits
+    db_session.flush()
+
+    asset_pack_client.post(f"/orgs/{org_id}/asset-packs/{pack_id}/approve", json={})
+    response = asset_pack_client.post(f"/orgs/{org_id}/asset-packs/{pack_id}/generate", json={})
+    assert response.status_code == 201
+    item = db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack_id).one()
+    assert item.status == "failed"
+    db_session.refresh(spec)
+    assert spec.status == "failed"
+    acq = item.metadata_json.get("acquisition_decision") or {}
+    assert acq.get("recommended_acquisition_path") == "block_or_replace_asset"
+    decisions = response.json()["generation_decisions"]
+    assert len(decisions) == 1
+    assert decisions[0]["recommended_acquisition_path"] == "block_or_replace_asset"
+
+
+def test_asset_pack_generate_attaches_approved_external_asset_id(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    ext = Asset(
+        org_id=org_id,
+        asset_class="component",
+        storage_uri="s3://content-lab/assets/library/ext-hook.txt",
+        source="imported",
+        status="ready",
+        metadata_={
+            "asset_kind": "hook_text",
+            "media_type": "text",
+            "asset_source": "imported",
+            "niche": "tea shop",
+            "pack_role": "detail_prop",
+            "intended_reel_formats": [],
+        },
+    )
+    db_session.add(ext)
+    db_session.flush()
+
+    plan_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/plan",
+        json={
+            "name": "External hook kit",
+            "niche": "coffee shop marketing",
+            "requested_asset_count": 1,
+            "asset_mix": {"hook_text": 1},
+            "target_reel_types": ["product tease"],
+        },
+    )
+    assert plan_response.status_code == 201
+    pack_id = uuid.UUID(plan_response.json()["asset_pack"]["id"])
+    spec = (
+        db_session.query(PlannedAssetSpec)
+        .filter(PlannedAssetSpec.asset_pack_id == pack_id)
+        .order_by(PlannedAssetSpec.priority)
+        .first()
+    )
+    assert spec is not None
+    traits = dict(spec.required_traits or {})
+    traits["acquisition"] = {"approved_external_asset_id": str(ext.id)}
+    spec.required_traits = traits
+    db_session.flush()
+
+    asset_pack_client.post(f"/orgs/{org_id}/asset-packs/{pack_id}/approve", json={})
+    response = asset_pack_client.post(f"/orgs/{org_id}/asset-packs/{pack_id}/generate", json={})
+    assert response.status_code == 201
+    item = db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack_id).one()
+    assert item.asset_id == ext.id
+    assert item.metadata_json.get("asset_selection", {}).get("mode") == "approved_external_attach"
+    acq = item.metadata_json.get("acquisition_decision") or {}
+    assert acq.get("resolved_acquisition_path") == "use_approved_external_asset"
+    assert response.json()["generation_decisions"][0]["resolved_acquisition_path"] == (
+        "use_approved_external_asset"
+    )
+    assert db_session.query(Task).filter(Task.org_id == org_id).count() == 0

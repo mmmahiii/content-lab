@@ -1510,6 +1510,12 @@ output_parameters
 - A resized/reframed asset has its own key.
 - Transform outputs are reproducible.
 
+**Implementation result (2026-05-06):**
+
+- Implemented in `packages/assets/src/content_lab_assets/asset_key.py` via `build_derived_asset_key`.
+- Canonical payloads are normalized in `packages/assets/src/content_lab_assets/canonicalise.py` with `asset_kind`, `media_type`, `asset_source=derived`, source identity, `transform_recipe`, `transform_recipe_version`, and `output_parameters`.
+- Covered by `packages/assets/tests/test_asset_key.py` tests for transparent cut-outs, resized/reframed outputs, stable equivalent payload hashing, output-parameter hash changes, and required source identity.
+
 ---
 
 ## KEY-004 — Add text, overlay, audio, and final-render canonicalisation
@@ -1556,6 +1562,12 @@ render_parameters
 - Hook/text assets can be reused.
 - Audio assets can be reused.
 - Final renders are deterministic derived outputs.
+
+**Implementation result (2026-05-06):**
+
+- Implemented in `packages/assets/src/content_lab_assets/asset_key.py` via `build_overlay_text_asset_key`, `build_audio_asset_key`, and `build_final_render_asset_key`.
+- Canonical payloads are normalized in `packages/assets/src/content_lab_assets/canonicalise.py` for overlay/text, audio, and final render components.
+- Covered by `packages/assets/tests/test_asset_key.py` tests for reusable hook text, reusable audio, deterministic final renders, source-order sensitivity, and manifest/export/render parameter hashing.
 
 ---
 

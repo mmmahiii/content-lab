@@ -1,17 +1,22 @@
 """Business-logic services."""
 
+from content_lab_api.services.asset_combinator import (
+    build_asset_pack_compositions,
+    estimate_asset_pack_output_potential,
+)
 from content_lab_api.services.asset_packs import (
     approve_asset_pack_plan,
     create_asset_pack_batch,
     create_asset_pack_plan,
     ensure_asset_pack_generation_is_planned,
     generate_approved_asset_pack,
+    import_approved_external_asset,
     mark_asset_pack_asset_failed,
     mark_asset_pack_asset_ready,
+    refresh_asset_pack_readiness,
     regenerate_asset_pack_plan,
     register_source_asset_for_pack,
     reject_asset_pack_plan,
-    refresh_asset_pack_readiness,
 )
 from content_lab_api.services.asset_persistence import (
     AssetPersistenceStateError,
@@ -75,6 +80,7 @@ __all__ = [
     "apply_task_row_spec",
     "approve_asset_pack_plan",
     "build_process_reel_persistence_service",
+    "build_asset_pack_compositions",
     "create_asset_pack_batch",
     "create_asset_pack_plan",
     "create_reel_family",
@@ -83,7 +89,9 @@ __all__ = [
     "create_task_row",
     "ensure_task_row",
     "ensure_asset_pack_generation_is_planned",
+    "estimate_asset_pack_output_potential",
     "generate_approved_asset_pack",
+    "import_approved_external_asset",
     "get_provider_job_by_external_ref",
     "get_run_by_idempotency_key",
     "get_task_by_idempotency_key",

@@ -9,6 +9,11 @@ For phase-1 Runway ``gen4.5`` generation we normalise inputs as follows:
 - aspect ratios such as ``9 : 16`` and ``9x16`` canonicalise to ``9:16``;
 - integral floats canonicalise to integers so ``6`` and ``6.0`` hash identically;
 - motion parameter mappings are canonicalised recursively with stable key ordering.
+
+KEY-001 / KEY-002 (composable asset registry) extend the payload with
+``asset_kind``, ``media_type``, and ``asset_source`` so that different output
+roles (background_image, object_image, final_render, hook_text, ...) hash to
+distinct AssetKeys even when the prompt and provider parameters match.
 """
 
 from __future__ import annotations
@@ -19,6 +24,14 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, NotRequired, TypedDict
 
+from content_lab_assets.types import (
+    AssetKind,
+    AssetSource,
+    MediaType,
+    infer_media_type_for_asset_kind,
+    validate_asset_kind_media_type,
+)
+
 _ASPECT_RATIO_PATTERN = re.compile(r"^\s*(\d+)\s*(?::|x|/)\s*(\d+)\s*$", re.IGNORECASE)
 
 
@@ -26,6 +39,9 @@ class RunwayGen45AssetKeyPayload(TypedDict):
     """Canonical AssetKey payload for a Runway gen4.5 generation request."""
 
     asset_class: str
+    asset_kind: str
+    media_type: str
+    asset_source: str
     provider: str
     model: str
     prompt: str
@@ -39,12 +55,68 @@ class RunwayGen45AssetKeyPayload(TypedDict):
     reference_asset_ids: NotRequired[list[str]]
 
 
+class DerivedTransformAssetKeyPayload(TypedDict):
+    """Canonical AssetKey payload for deterministic derived assets."""
+
+    asset_kind: str
+    media_type: str
+    asset_source: str
+    source_asset_id: NotRequired[str]
+    source_content_hash: NotRequired[str]
+    transform_recipe: dict[str, Any]
+    transform_recipe_version: str
+    output_parameters: dict[str, Any]
+
+
+class OverlayTextAssetKeyPayload(TypedDict):
+    """Canonical AssetKey payload for text and overlay creative components."""
+
+    asset_kind: str
+    media_type: str
+    asset_source: str
+    canonical_text: str
+    timing: dict[str, Any]
+    layout: dict[str, Any]
+    safe_area: dict[str, Any]
+    template_version: str
+    style: dict[str, Any]
+
+
+class AudioAssetKeyPayload(TypedDict):
+    """Canonical AssetKey payload for reusable audio components."""
+
+    asset_kind: str
+    media_type: str
+    asset_source: str
+    audio_identity: Any
+    trim_range: Any
+    volume: Any
+    normalisation: Any
+    looping: Any
+
+
+class FinalRenderAssetKeyPayload(TypedDict):
+    """Canonical AssetKey payload for deterministic final render outputs."""
+
+    asset_kind: str
+    media_type: str
+    asset_source: str
+    ordered_source_asset_ids_or_hashes: list[str]
+    composition_manifest_hash: str
+    edit_template_version: str
+    export_preset: Any
+    render_parameters: dict[str, Any]
+
+
 def canonicalise_runway_gen45_generation(
     *,
     asset_class: str,
     provider: str,
     model: str,
     prompt: str,
+    asset_kind: AssetKind | str = AssetKind.GENERATED_CLIP,
+    media_type: MediaType | str | None = None,
+    asset_source: AssetSource | str = AssetSource.GENERATED,
     negative_prompt: str | None = None,
     seed: int | None = None,
     duration_seconds: float | int | None = None,
@@ -56,8 +128,22 @@ def canonicalise_runway_gen45_generation(
 ) -> RunwayGen45AssetKeyPayload:
     """Return the canonical payload used for exact-match AssetKey hashing."""
 
+    normalized_asset_kind = AssetKind(asset_kind)
+    normalized_media_type = (
+        infer_media_type_for_asset_kind(normalized_asset_kind)
+        if media_type is None
+        else validate_asset_kind_media_type(
+            asset_kind=normalized_asset_kind,
+            media_type=media_type,
+        )
+    )
+    normalized_asset_source = AssetSource(asset_source)
+
     canonical_params: RunwayGen45AssetKeyPayload = {
         "asset_class": _normalize_required_text(asset_class, field_name="asset_class").lower(),
+        "asset_kind": normalized_asset_kind.value,
+        "media_type": normalized_media_type.value,
+        "asset_source": normalized_asset_source.value,
         "provider": _normalize_identifier(provider),
         "model": _normalize_identifier(model),
         "prompt": _normalize_required_text(prompt, field_name="prompt"),
@@ -94,6 +180,162 @@ def canonicalise_runway_gen45_generation(
         canonical_params["reference_asset_ids"] = canonical_reference_asset_ids
 
     return canonical_params
+
+
+def canonicalise_derived_transform(
+    *,
+    asset_kind: AssetKind | str,
+    media_type: MediaType | str | None = None,
+    source_asset_id: uuid.UUID | str | None = None,
+    source_content_hash: str | None = None,
+    transform_recipe: Mapping[str, Any],
+    transform_recipe_version: str,
+    output_parameters: Mapping[str, Any],
+) -> DerivedTransformAssetKeyPayload:
+    """Return canonical key material for reproducible transform outputs."""
+
+    normalized_asset_kind, normalized_media_type = _normalize_asset_kind_media_type(
+        asset_kind=asset_kind,
+        media_type=media_type,
+    )
+    canonical_source_asset_id = _normalize_optional_identifier(
+        None if source_asset_id is None else str(source_asset_id)
+    )
+    canonical_source_content_hash = _normalize_optional_identifier(source_content_hash)
+    if canonical_source_asset_id is None and canonical_source_content_hash is None:
+        raise ValueError("source_asset_id or source_content_hash is required")
+
+    canonical_params: DerivedTransformAssetKeyPayload = {
+        "asset_kind": normalized_asset_kind.value,
+        "media_type": normalized_media_type.value,
+        "asset_source": AssetSource.DERIVED.value,
+        "transform_recipe": _canonicalize_mapping(transform_recipe),
+        "transform_recipe_version": _normalize_required_text(
+            transform_recipe_version,
+            field_name="transform_recipe_version",
+        ),
+        "output_parameters": _canonicalize_mapping(output_parameters),
+    }
+    if canonical_source_asset_id is not None:
+        canonical_params["source_asset_id"] = canonical_source_asset_id
+    if canonical_source_content_hash is not None:
+        canonical_params["source_content_hash"] = canonical_source_content_hash
+    return canonical_params
+
+
+def canonicalise_overlay_text(
+    *,
+    asset_kind: AssetKind | str,
+    canonical_text: str,
+    timing: Mapping[str, Any],
+    layout: Mapping[str, Any],
+    safe_area: Mapping[str, Any],
+    template_version: str,
+    style: Mapping[str, Any],
+    media_type: MediaType | str | None = None,
+    asset_source: AssetSource | str = AssetSource.MANUAL_TEMPLATE,
+) -> OverlayTextAssetKeyPayload:
+    """Return canonical key material for hook text, captions, and overlay plans."""
+
+    normalized_asset_kind, normalized_media_type = _normalize_asset_kind_media_type(
+        asset_kind=asset_kind,
+        media_type=media_type,
+    )
+    normalized_asset_source = AssetSource(asset_source)
+    return {
+        "asset_kind": normalized_asset_kind.value,
+        "media_type": normalized_media_type.value,
+        "asset_source": normalized_asset_source.value,
+        "canonical_text": _normalize_required_text(canonical_text, field_name="canonical_text"),
+        "timing": _canonicalize_mapping(timing),
+        "layout": _canonicalize_mapping(layout),
+        "safe_area": _canonicalize_mapping(safe_area),
+        "template_version": _normalize_required_text(
+            template_version,
+            field_name="template_version",
+        ),
+        "style": _canonicalize_mapping(style),
+    }
+
+
+def canonicalise_audio(
+    *,
+    asset_kind: AssetKind | str,
+    audio_identity: Any,
+    trim_range: Any,
+    volume: Any,
+    normalisation: Any,
+    looping: Any,
+    media_type: MediaType | str | None = None,
+    asset_source: AssetSource | str = AssetSource.DERIVED,
+) -> AudioAssetKeyPayload:
+    """Return canonical key material for reusable audio assets."""
+
+    normalized_asset_kind, normalized_media_type = _normalize_asset_kind_media_type(
+        asset_kind=asset_kind,
+        media_type=media_type,
+    )
+    normalized_asset_source = AssetSource(asset_source)
+    return {
+        "asset_kind": normalized_asset_kind.value,
+        "media_type": normalized_media_type.value,
+        "asset_source": normalized_asset_source.value,
+        "audio_identity": _canonicalize_required_value(
+            audio_identity,
+            field_name="audio_identity",
+        ),
+        "trim_range": _canonicalize_required_value(trim_range, field_name="trim_range"),
+        "volume": _canonicalize_required_value(volume, field_name="volume"),
+        "normalisation": _canonicalize_required_value(
+            normalisation,
+            field_name="normalisation",
+        ),
+        "looping": _canonicalize_required_value(looping, field_name="looping"),
+    }
+
+
+def canonicalise_final_render(
+    *,
+    ordered_source_asset_ids_or_hashes: Sequence[uuid.UUID | str],
+    composition_manifest_hash: str,
+    edit_template_version: str,
+    export_preset: Any,
+    render_parameters: Mapping[str, Any],
+    asset_kind: AssetKind | str = AssetKind.FINAL_RENDER,
+    media_type: MediaType | str | None = None,
+    asset_source: AssetSource | str = AssetSource.PACKAGE_OUTPUT,
+) -> FinalRenderAssetKeyPayload:
+    """Return canonical key material for deterministic final render outputs."""
+
+    normalized_asset_kind, normalized_media_type = _normalize_asset_kind_media_type(
+        asset_kind=asset_kind,
+        media_type=media_type,
+    )
+    normalized_asset_source = AssetSource(asset_source)
+    ordered_sources = _canonicalize_ordered_asset_ids_or_hashes(
+        ordered_source_asset_ids_or_hashes,
+    )
+    if not ordered_sources:
+        raise ValueError("ordered_source_asset_ids_or_hashes must not be empty")
+    return {
+        "asset_kind": normalized_asset_kind.value,
+        "media_type": normalized_media_type.value,
+        "asset_source": normalized_asset_source.value,
+        "ordered_source_asset_ids_or_hashes": ordered_sources,
+        "composition_manifest_hash": _normalize_required_text(
+            composition_manifest_hash,
+            field_name="composition_manifest_hash",
+        ).lower(),
+        "edit_template_version": _normalize_required_text(
+            edit_template_version,
+            field_name="edit_template_version",
+        ),
+        "export_preset": _canonicalize_required_value(
+            export_preset,
+            field_name="export_preset",
+        ),
+        "render_parameters": _canonicalize_mapping(render_parameters),
+    }
 
 
 def serialise_canonical_payload(payload: Mapping[str, Any]) -> str:
@@ -198,7 +440,42 @@ def _canonicalize_value(value: Any) -> Any:
     return value
 
 
+def _canonicalize_required_value(value: Any, *, field_name: str) -> Any:
+    normalized = _canonicalize_value(value)
+    if normalized is None:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
+def _normalize_asset_kind_media_type(
+    *,
+    asset_kind: AssetKind | str,
+    media_type: MediaType | str | None,
+) -> tuple[AssetKind, MediaType]:
+    normalized_asset_kind = AssetKind(asset_kind)
+    normalized_media_type = (
+        infer_media_type_for_asset_kind(normalized_asset_kind)
+        if media_type is None
+        else validate_asset_kind_media_type(
+            asset_kind=normalized_asset_kind,
+            media_type=media_type,
+        )
+    )
+    return normalized_asset_kind, normalized_media_type
+
+
 def _canonicalize_reference_asset_ids(
     value: Sequence[uuid.UUID | str],
 ) -> list[str]:
     return sorted({str(item).strip().lower() for item in value})
+
+
+def _canonicalize_ordered_asset_ids_or_hashes(
+    value: Sequence[uuid.UUID | str],
+) -> list[str]:
+    canonical_items: list[str] = []
+    for item in value:
+        normalized = _normalize_optional_identifier(str(item))
+        if normalized is not None:
+            canonical_items.append(normalized)
+    return canonical_items

@@ -43,6 +43,7 @@ from content_lab_qa.semantic_script import (
     SemanticScriptQARequest,
     evaluate_semantic_script,
 )
+from content_lab_qa.source_rights import SourceRightsPolicy, validate_source_rights
 from content_lab_qa.text import (
     USER_FACING_COPY_RULE_DEFS,
     CopyLintCategory,
@@ -84,6 +85,7 @@ __all__ = [
     "SemanticScriptFinding",
     "SemanticScriptQARequest",
     "SemanticScriptQAReport",
+    "SourceRightsPolicy",
     "OverlayTextFidelityFinding",
     "OverlayTextFidelityReport",
     "TIMELINE_TIMING_GATE_NAME",
@@ -97,6 +99,7 @@ __all__ = [
     "evaluate_repetition",
     "evaluate_reel_package_format",
     "evaluate_semantic_script",
+    "validate_source_rights",
     "evaluate_media_sync_qa",
     "evaluate_timeline_timing_qa",
     "evaluate_user_facing_text",

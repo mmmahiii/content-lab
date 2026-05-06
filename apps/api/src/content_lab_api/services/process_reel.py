@@ -22,6 +22,7 @@ from typing import Any, Protocol, cast
 from sqlalchemy.orm import Session
 
 from content_lab_api.db import SessionLocal
+from content_lab_api.models.asset_usage import AssetUsage
 from content_lab_api.models.reel import GeneratedReelStatus, Reel
 from content_lab_api.models.reel_family import ReelFamily
 from content_lab_api.models.run import Run
@@ -252,6 +253,14 @@ class ProcessReelRepository(Protocol):
         metadata_patch: Mapping[str, Any] | None = None,
     ) -> ReelRecord: ...
 
+    def record_asset_usages(
+        self,
+        *,
+        org_id: str,
+        reel_id: str,
+        package_payload: Mapping[str, Any],
+    ) -> list[dict[str, Any]]: ...
+
     def task_statuses(self, run_id: str) -> dict[str, str]: ...
 
 
@@ -474,9 +483,15 @@ class StubProcessReelExecutor:
                 "assets": [
                     {
                         "role": "source_clip",
+                        "asset_id": f"asset-{execution.reel_id}-primary",
+                        "asset_kind": "source_clip",
+                        "media_type": "video",
+                        "source_type": "generated",
                         "storage_uri": (
                             f"s3://content-lab/assets/derived/{execution.reel_id}/primary.mp4"
                         ),
+                        "stored_content_hash": "sha256:" + ("a" * 64),
+                        "used_as_component_role": "source_clip",
                     }
                 ],
                 "provider_jobs": [
@@ -589,6 +604,13 @@ def _parse_uuid(value: str, *, field_name: str) -> uuid.UUID:
         return uuid.UUID(str(value))
     except ValueError as exc:
         raise ValueError(f"{field_name} must be a valid UUID for persisted execution") from exc
+
+
+def _try_parse_uuid(value: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        return None
 
 
 class SQLAlchemyProcessReelRepository:
@@ -820,6 +842,64 @@ class SQLAlchemyProcessReelRepository:
         finally:
             session.close()
 
+    def record_asset_usages(
+        self,
+        *,
+        org_id: str,
+        reel_id: str,
+        package_payload: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        session = self._session_factory()
+        try:
+            org_uuid = _parse_uuid(org_id, field_name="org_id")
+            reel_uuid = _parse_uuid(reel_id, field_name="reel_id")
+            persisted: list[dict[str, Any]] = []
+            for spec in _asset_usage_specs_from_package(
+                org_id=org_id,
+                reel_id=reel_id,
+                package_payload=package_payload,
+            ):
+                asset_id = _try_parse_uuid(str(spec["asset_id"]))
+                if asset_id is None:
+                    continue
+                row = (
+                    session.query(AssetUsage)
+                    .filter(
+                        AssetUsage.reel_id == reel_uuid,
+                        AssetUsage.asset_id == asset_id,
+                        AssetUsage.usage_role == spec["usage_role"],
+                    )
+                    .one_or_none()
+                )
+                if row is None:
+                    row = AssetUsage(
+                        org_id=org_uuid,
+                        reel_id=reel_uuid,
+                        asset_id=asset_id,
+                        usage_role=str(spec["usage_role"]),
+                    )
+                    session.add(row)
+                row.sort_order = _optional_int(spec.get("sort_order"))
+                row.component_role = _optional_str(spec.get("component_role"))
+                row.layer_role = _optional_str(spec.get("layer_role"))
+                row.sequence_index = _optional_int(spec.get("sequence_index"))
+                row.z_index = _optional_int(spec.get("z_index"))
+                row.start_time = _optional_float(spec.get("start_time"))
+                row.end_time = _optional_float(spec.get("end_time"))
+                row.transform_recipe = _optional_dict(spec.get("transform_recipe"))
+                row.transform_version = _optional_str(spec.get("transform_version"))
+                row.metadata_json = _optional_dict(spec.get("metadata_json")) or {}
+                persisted.append(dict(spec))
+
+            session.flush()
+            session.commit()
+            return persisted
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     @staticmethod
     def _to_run_record(run: Run) -> RunRecord:
         return RunRecord(
@@ -854,6 +934,7 @@ class InMemoryProcessReelRepository:
         self.reels: dict[str, ReelRecord] = {}
         self.runs: dict[str, RunRecord] = {}
         self.tasks: dict[tuple[str, str], TaskRecord] = {}
+        self.asset_usages: list[dict[str, Any]] = []
 
     def seed_reel(
         self,
@@ -995,6 +1076,24 @@ class InMemoryProcessReelRepository:
         if metadata_patch:
             reel.metadata = _merge_dicts(reel.metadata, metadata_patch)
         return replace(reel, metadata=dict(reel.metadata))
+
+    def record_asset_usages(
+        self,
+        *,
+        org_id: str,
+        reel_id: str,
+        package_payload: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        rows = _asset_usage_specs_from_package(
+            org_id=org_id,
+            reel_id=reel_id,
+            package_payload=package_payload,
+        )
+        self.asset_usages = [
+            existing for existing in self.asset_usages if existing.get("reel_id") != reel_id
+        ]
+        self.asset_usages.extend(rows)
+        return [dict(row) for row in rows]
 
     def task_statuses(self, run_id: str) -> dict[str, str]:
         statuses = {
@@ -1441,6 +1540,11 @@ class ProcessReelPersistenceService:
             "package": package_payload,
             "package_artifact_uris": _package_artifact_uris(package_payload),
             "package_provenance_refs": _collect_reference_values(package_payload.get("provenance")),
+            "asset_usage": self._repository.record_asset_usages(
+                org_id=execution.org_id,
+                reel_id=execution.reel_id,
+                package_payload=package_payload,
+            ),
             PROCESS_REEL_METADATA_KEY: {
                 "last_run_id": execution.run_id,
                 "current_step": ProcessReelStep.PACKAGING.value,
@@ -1532,6 +1636,84 @@ def _package_artifact_uris(package_payload: Mapping[str, Any]) -> dict[str, str]
     return artifact_uris
 
 
+def _asset_usage_specs_from_package(
+    *,
+    org_id: str,
+    reel_id: str,
+    package_payload: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    provenance = package_payload.get("provenance")
+    if not isinstance(provenance, Mapping):
+        return []
+    assets = provenance.get("assets")
+    if not isinstance(assets, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for index, asset in enumerate(assets):
+        if not isinstance(asset, Mapping):
+            continue
+        asset_id = _optional_str(asset.get("asset_id"))
+        if asset_id is None:
+            continue
+        component_role = _first_text(
+            asset.get("used_as_component_role"),
+            asset.get("component_role"),
+            asset.get("role"),
+            asset.get("asset_kind"),
+        )
+        usage_role = _first_text(asset.get("role"), component_role, asset.get("asset_kind"))
+        if usage_role is None:
+            continue
+        dedupe_key = (asset_id, usage_role)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        row = {
+            "org_id": org_id,
+            "reel_id": reel_id,
+            "asset_id": asset_id,
+            "usage_role": usage_role,
+            "component_role": component_role or usage_role,
+            "layer_role": _first_text(asset.get("layer_role"), asset.get("layer")),
+            "sort_order": index,
+            "sequence_index": _optional_int(asset.get("sequence_index")),
+            "z_index": _optional_int(asset.get("z_index")),
+            "start_time": _optional_float(asset.get("start_time") or asset.get("start_seconds")),
+            "end_time": _optional_float(asset.get("end_time") or asset.get("end_seconds")),
+            "transform_recipe": _optional_dict(asset.get("transform_recipe")),
+            "transform_version": _optional_str(
+                asset.get("transform_version") or asset.get("transform_recipe_version")
+            ),
+            "metadata_json": {
+                key: value
+                for key, value in dict(asset).items()
+                if key
+                not in {
+                    "asset_id",
+                    "used_as_component_role",
+                    "component_role",
+                    "role",
+                    "asset_kind",
+                    "layer_role",
+                    "layer",
+                    "sequence_index",
+                    "z_index",
+                    "start_time",
+                    "start_seconds",
+                    "end_time",
+                    "end_seconds",
+                    "transform_recipe",
+                    "transform_version",
+                    "transform_recipe_version",
+                }
+            },
+        }
+        rows.append({key: value for key, value in row.items() if value is not None})
+    return rows
+
+
 def _collect_reference_values(value: Any, *, path: str = "") -> list[dict[str, str]]:
     references: list[dict[str, str]] = []
     if isinstance(value, Mapping):
@@ -1554,6 +1736,45 @@ def _collect_reference_values(value: Any, *, path: str = "") -> list[dict[str, s
     if terminal.endswith(("_id", "_ids", "_ref", "_refs", "_uri", "_uris")):
         references.append({"path": path, "value": str(value)})
     return references
+
+
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        normalized = _optional_str(value)
+        if normalized is not None:
+            return normalized
+    return None
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(str(value).strip().split())
+    return normalized or None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_dict(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return dict(value)
 
 
 def _optional_mapping(**kwargs: Any) -> dict[str, Any]:

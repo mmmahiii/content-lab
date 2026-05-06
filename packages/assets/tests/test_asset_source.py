@@ -5,6 +5,7 @@ import uuid
 from content_lab_assets.types import (
     AssetKind,
     AssetSource,
+    AssetSourceType,
     GenerateDecision,
     GenerationIntent,
     MediaType,
@@ -23,6 +24,18 @@ def test_asset_source_includes_required_values() -> None:
     }
 
 
+def test_asset_source_type_includes_backlog_values() -> None:
+    assert {st.value for st in AssetSourceType} == {
+        "generated",
+        "operator_uploaded",
+        "approved_external_source",
+        "existing_registry_asset",
+        "derived_from_existing",
+        "package_output",
+        "unknown",
+    }
+
+
 def test_generated_and_derived_asset_sources_are_distinct() -> None:
     assert {
         AssetSource.UPLOADED,
@@ -30,14 +43,17 @@ def test_generated_and_derived_asset_sources_are_distinct() -> None:
         AssetSource.DERIVED,
         AssetSource.PACKAGE_OUTPUT,
     } <= set(AssetSource)
-    assert len(
-        {
-            AssetSource.UPLOADED.value,
-            AssetSource.GENERATED.value,
-            AssetSource.DERIVED.value,
-            AssetSource.PACKAGE_OUTPUT.value,
-        }
-    ) == 4
+    assert (
+        len(
+            {
+                AssetSource.UPLOADED.value,
+                AssetSource.GENERATED.value,
+                AssetSource.DERIVED.value,
+                AssetSource.PACKAGE_OUTPUT.value,
+            }
+        )
+        == 4
+    )
 
 
 def test_registry_payloads_default_to_generated_source() -> None:

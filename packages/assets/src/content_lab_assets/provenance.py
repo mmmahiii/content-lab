@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from content_lab_assets.providers.base import redact_provider_data
 
@@ -50,6 +50,28 @@ def _stable_json_value(value: Any) -> Any:
     return value
 
 
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
 class PackageAssetProvenance(BaseModel):
     """Asset lineage entry included in the package provenance artifact."""
 
@@ -63,6 +85,24 @@ class PackageAssetProvenance(BaseModel):
     source: str | None = Field(default=None, max_length=128)
     content_hash: str | None = Field(default=None, max_length=256)
     asset_key_hash: str | None = Field(default=None, max_length=256)
+    asset_kind: str | None = Field(default=None, max_length=64)
+    media_type: str | None = Field(default=None, max_length=64)
+    source_type: str | None = Field(default=None, max_length=128)
+    source_provider: str | None = Field(default=None, max_length=128)
+    external_source_url: str | None = Field(default=None, max_length=2_048)
+    source_reference_id: str | None = Field(default=None, max_length=256)
+    licence_type: str | None = Field(default=None, max_length=128)
+    usage_allowed: bool | None = None
+    attribution_required: bool | None = None
+    attribution_text: str | None = Field(default=None, max_length=4_000)
+    original_content_hash: str | None = Field(default=None, max_length=256)
+    stored_content_hash: str | None = Field(default=None, max_length=256)
+    derived_from_asset_id: str | None = Field(default=None, max_length=128)
+    imported_at: datetime | None = None
+    generation_params: dict[str, Any] = Field(default_factory=dict)
+    transform_recipe: dict[str, Any] = Field(default_factory=dict)
+    used_in_reel_id: str | None = Field(default=None, max_length=128)
+    used_as_component_role: str | None = Field(default=None, max_length=128)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("role", mode="before")
@@ -71,7 +111,26 @@ class PackageAssetProvenance(BaseModel):
         return _clean_text(value, field_name="role", max_length=64)
 
     @field_validator(
-        "stage", "asset_id", "kind", "source", "content_hash", "asset_key_hash", mode="before"
+        "stage",
+        "asset_id",
+        "kind",
+        "source",
+        "content_hash",
+        "asset_key_hash",
+        "asset_kind",
+        "media_type",
+        "source_type",
+        "source_provider",
+        "external_source_url",
+        "source_reference_id",
+        "licence_type",
+        "attribution_text",
+        "original_content_hash",
+        "stored_content_hash",
+        "derived_from_asset_id",
+        "used_in_reel_id",
+        "used_as_component_role",
+        mode="before",
     )
     @classmethod
     def _normalize_optional_fields(cls, value: str | None, info: Any) -> str | None:
@@ -82,6 +141,19 @@ class PackageAssetProvenance(BaseModel):
             "source": 128,
             "content_hash": 256,
             "asset_key_hash": 256,
+            "asset_kind": 64,
+            "media_type": 64,
+            "source_type": 128,
+            "source_provider": 128,
+            "external_source_url": 2_048,
+            "source_reference_id": 256,
+            "licence_type": 128,
+            "attribution_text": 4_000,
+            "original_content_hash": 256,
+            "stored_content_hash": 256,
+            "derived_from_asset_id": 128,
+            "used_in_reel_id": 128,
+            "used_as_component_role": 128,
         }
         return _clean_optional_text(
             value,
@@ -98,6 +170,57 @@ class PackageAssetProvenance(BaseModel):
     @classmethod
     def _sanitize_metadata(cls, value: Mapping[str, Any] | None) -> dict[str, Any]:
         return dict(_stable_json_value(redact_provider_data(value or {})))
+
+    @field_validator("generation_params", "transform_recipe", mode="before")
+    @classmethod
+    def _sanitize_lineage_payloads(cls, value: Mapping[str, Any] | None) -> dict[str, Any]:
+        return dict(_stable_json_value(redact_provider_data(value or {})))
+
+    @model_validator(mode="after")
+    def _backfill_source_first_fields(self) -> PackageAssetProvenance:
+        source_metadata = self.metadata.get("source_metadata")
+        if isinstance(source_metadata, Mapping):
+            self.source_type = self.source_type or _optional_str(source_metadata.get("source_type"))
+            self.source_provider = self.source_provider or _optional_str(
+                source_metadata.get("source_provider")
+            )
+            self.external_source_url = self.external_source_url or _optional_str(
+                source_metadata.get("external_source_url")
+            )
+            self.source_reference_id = self.source_reference_id or _optional_str(
+                source_metadata.get("source_reference_id")
+            )
+            self.licence_type = self.licence_type or _optional_str(
+                source_metadata.get("licence_type")
+            )
+            self.usage_allowed = (
+                self.usage_allowed
+                if self.usage_allowed is not None
+                else _optional_bool(source_metadata.get("usage_allowed"))
+            )
+            self.attribution_required = (
+                self.attribution_required
+                if self.attribution_required is not None
+                else _optional_bool(source_metadata.get("attribution_required"))
+            )
+            self.attribution_text = self.attribution_text or _optional_str(
+                source_metadata.get("attribution_text")
+            )
+            self.original_content_hash = self.original_content_hash or _optional_str(
+                source_metadata.get("original_content_hash")
+            )
+            self.imported_at = self.imported_at or _optional_datetime(
+                source_metadata.get("imported_at")
+            )
+
+        self.asset_kind = self.asset_kind or _optional_str(self.metadata.get("asset_kind"))
+        self.media_type = self.media_type or _optional_str(self.metadata.get("media_type"))
+        self.source_type = (
+            self.source_type or _optional_str(self.metadata.get("asset_source")) or self.source
+        )
+        self.stored_content_hash = self.stored_content_hash or self.content_hash
+        self.used_as_component_role = self.used_as_component_role or self.role
+        return self
 
 
 class ProviderJobProvenance(BaseModel):

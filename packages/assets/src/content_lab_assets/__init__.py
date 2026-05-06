@@ -1,11 +1,48 @@
 """Asset registry: cataloging, deduplication, and embedding lookup."""
 
+from content_lab_assets.acquisition import (
+    AcquisitionDecision,
+    AssetAcquisitionPath,
+    acquisition_decision_for_compatible_registry_reuse,
+    acquisition_decision_for_operator_upload,
+    default_generated_source_metadata,
+    evaluate_acquisition_before_generation,
+)
+from content_lab_assets.combinator import (
+    AssetCompatibilityMetadata,
+    CandidateComposition,
+    OutputPotentialEstimate,
+    PackAsset,
+    compatible_asset_pair,
+    estimate_output_potential,
+    generate_candidate_compositions,
+    select_performance_weighted_combinations,
+)
+from content_lab_assets.importer import (
+    MAX_APPROVED_IMPORT_BYTES,
+    ApprovedImportValidationError,
+    assert_safe_http_url_for_fetch,
+    usage_metadata_sufficient,
+)
+from content_lab_assets.motion_suitability import (
+    MotionSuitabilityAssessment,
+    evaluate_motion_suitability,
+)
 from content_lab_assets.planner import (
     AssetPackPlan,
     AssetPackPlanInput,
     AssetPackPlannedSpec,
     generate_asset_pack_plan,
     validate_requested_asset_mix,
+)
+from content_lab_assets.provenance import (
+    PackageAssetProvenance,
+    PackageProvenanceArtifact,
+    PackageProvenanceSummary,
+    PackageTimestampEntry,
+    ProviderJobProvenance,
+    build_provenance,
+    serialize_provenance_json,
 )
 from content_lab_assets.registry import (
     AlphaMode,
@@ -20,7 +57,11 @@ from content_lab_assets.registry import (
     Phase1AssetRegistryStore,
     ReuseExactDecision,
     aspect_ratio_from_dimensions,
+    build_audio_asset_key,
+    build_derived_asset_key,
+    build_final_render_asset_key,
     build_generation_idempotency_key,
+    build_overlay_text_asset_key,
     detect_png_transparency,
     detect_png_visual_metadata,
     infer_media_type_for_asset_kind,
@@ -29,9 +70,19 @@ from content_lab_assets.registry import (
     validate_asset_kind_media_type,
 )
 from content_lab_assets.store import RunwayAssetStore, SQLRunwayAssetStore, StoredRunwayGeneration
+from content_lab_assets.types import (
+    AssetSourceMetadata,
+    AssetSourceType,
+    infer_asset_source_type_from_asset_source,
+)
 
 __all__ = [
+    "MAX_APPROVED_IMPORT_BYTES",
+    "AcquisitionDecision",
     "AlphaMode",
+    "ApprovedImportValidationError",
+    "AssetAcquisitionPath",
+    "AssetCompatibilityMetadata",
     "AssetKind",
     "AssetPackPlan",
     "AssetPackPlanInput",
@@ -39,23 +90,52 @@ __all__ = [
     "AssetRecord",
     "AssetRegistry",
     "AssetSource",
+    "AssetSourceMetadata",
+    "AssetSourceType",
     "AssetTransparencyMetadata",
     "AssetVisualMetadata",
+    "CandidateComposition",
     "GenerateDecision",
     "MediaType",
+    "MotionSuitabilityAssessment",
+    "OutputPotentialEstimate",
+    "PackAsset",
     "Phase1AssetRegistryStore",
+    "PackageAssetProvenance",
+    "PackageProvenanceArtifact",
+    "PackageProvenanceSummary",
+    "PackageTimestampEntry",
+    "ProviderJobProvenance",
+    "acquisition_decision_for_compatible_registry_reuse",
+    "acquisition_decision_for_operator_upload",
+    "default_generated_source_metadata",
+    "assert_safe_http_url_for_fetch",
+    "evaluate_acquisition_before_generation",
+    "evaluate_motion_suitability",
     "RunwayAssetStore",
     "ReuseExactDecision",
     "SQLRunwayAssetStore",
     "StoredRunwayGeneration",
     "aspect_ratio_from_dimensions",
+    "build_audio_asset_key",
+    "build_derived_asset_key",
+    "build_final_render_asset_key",
     "build_generation_idempotency_key",
+    "build_overlay_text_asset_key",
+    "build_provenance",
+    "compatible_asset_pair",
     "detect_png_transparency",
     "detect_png_visual_metadata",
+    "estimate_output_potential",
     "generate_asset_pack_plan",
+    "generate_candidate_compositions",
+    "infer_asset_source_type_from_asset_source",
     "infer_media_type_for_asset_kind",
     "is_ready_asset_status",
     "resolve_phase1_asset",
+    "serialize_provenance_json",
+    "select_performance_weighted_combinations",
+    "usage_metadata_sufficient",
     "validate_requested_asset_mix",
     "validate_asset_kind_media_type",
 ]

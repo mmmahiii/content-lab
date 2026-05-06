@@ -16,6 +16,7 @@ from content_lab_assets.registry import (
     MediaType,
     infer_media_type_for_asset_kind,
 )
+from content_lab_assets.types import AssetSourceMetadata
 
 AssetPackStatusValue = Literal[
     "draft", "planned", "approved", "rejected", "generating", "ready", "failed", "archived"
@@ -143,6 +144,7 @@ class AssetPackItemCreate(BaseModel):
     priority: int = 0
     status: AssetPackItemStatusValue = "planned"
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+    compatibility_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AssetPackItemOut(BaseModel):
@@ -158,6 +160,7 @@ class AssetPackItemOut(BaseModel):
     priority: int
     status: AssetPackItemStatusValue
     metadata_json: dict[str, Any]
+    compatibility_metadata: dict[str, Any]
     created_at: datetime
 
 
@@ -171,6 +174,7 @@ class PlannedAssetSpecCreate(BaseModel):
     prompt_or_description: str = Field(min_length=1)
     required_traits: dict[str, Any] = Field(default_factory=dict)
     compatible_with: dict[str, Any] = Field(default_factory=dict)
+    compatibility_metadata: dict[str, Any] = Field(default_factory=dict)
     intended_reel_formats: list[str] = Field(default_factory=list)
     priority: int = Field(default=0, ge=0)
     estimated_reuse_count: int = Field(default=0, ge=0)
@@ -189,6 +193,7 @@ class PlannedAssetSpecOut(BaseModel):
     prompt_or_description: str
     required_traits: dict[str, Any]
     compatible_with: dict[str, Any]
+    compatibility_metadata: dict[str, Any]
     intended_reel_formats: list[str]
     priority: int
     estimated_reuse_count: int
@@ -211,6 +216,7 @@ class PlannedAssetSpecPlanOut(BaseModel):
     rationale: str
     required_traits: dict[str, Any]
     compatible_with: dict[str, Any]
+    compatibility_metadata: dict[str, Any]
     intended_reel_formats: list[str]
     priority: int
     estimated_reuse_count: int
@@ -232,6 +238,7 @@ class AssetPackPlanOut(BaseModel):
     strategy_summary: str
     reuse_rationale: str
     expected_reel_formats: list[str]
+    planning_resolution_summary: dict[str, int] = Field(default_factory=dict)
 
 
 class AssetPackBatchOut(AssetPackPlanOut):
@@ -263,6 +270,7 @@ class SourceAssetRegisterRequest(BaseModel):
     fps: float | None = Field(default=None, gt=0)
     duration_seconds: float | None = Field(default=None, gt=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    source_metadata: AssetSourceMetadata | None = None
 
     @model_validator(mode="after")
     def _validate_source_registration(self) -> SourceAssetRegisterRequest:

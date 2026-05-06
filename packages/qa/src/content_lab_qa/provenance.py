@@ -9,7 +9,16 @@ from content_lab_core.types import QAVerdict
 from content_lab_qa.gate import QAResult
 
 _REQUIRED_PROVENANCE_FIELDS = ("editor_version", "assets", "provider_jobs")
-_REQUIRED_ASSET_FIELDS = ("role", "storage_uri")
+_REQUIRED_ASSET_FIELDS = (
+    "role",
+    "storage_uri",
+    "asset_id",
+    "asset_kind",
+    "media_type",
+    "source_type",
+    "stored_content_hash",
+    "used_as_component_role",
+)
 _REQUIRED_PROVIDER_FIELDS = ("provider", "status")
 
 
@@ -54,7 +63,7 @@ def validate_package_provenance(provenance: Mapping[str, Any] | object) -> QARes
             missing_fields = [
                 field_name
                 for field_name in _REQUIRED_ASSET_FIELDS
-                if _is_blank(asset.get(field_name))
+                if _is_blank(_asset_provenance_value(asset, field_name))
             ]
             if missing_fields:
                 errors.append(
@@ -110,6 +119,27 @@ def _is_blank(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip() == ""
     return False
+
+
+def _asset_provenance_value(asset: Mapping[str, Any], field_name: str) -> Any:
+    value = asset.get(field_name)
+    if not _is_blank(value):
+        return value
+    metadata = asset.get("metadata")
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    source_metadata = metadata.get("source_metadata")
+    source_metadata = source_metadata if isinstance(source_metadata, Mapping) else {}
+    if field_name == "asset_kind":
+        return metadata.get("asset_kind") or asset.get("kind")
+    if field_name == "media_type":
+        return metadata.get("media_type") or asset.get("kind")
+    if field_name == "source_type":
+        return source_metadata.get("source_type") or metadata.get("asset_source") or asset.get("source")
+    if field_name == "stored_content_hash":
+        return asset.get("content_hash") or metadata.get("content_hash")
+    if field_name == "used_as_component_role":
+        return asset.get("role")
+    return value
 
 
 __all__ = ["validate_package_provenance"]

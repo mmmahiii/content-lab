@@ -116,7 +116,20 @@ def _package_payload(reel_id: str, run_id: str) -> dict[str, Any]:
             "assets": [
                 {
                     "role": "source_clip",
+                    "asset_id": f"asset-{reel_id}-source",
+                    "asset_kind": "source_clip",
+                    "media_type": "video",
+                    "source_type": "generated",
                     "storage_uri": f"s3://content-lab/assets/{reel_id}/source.mp4",
+                    "stored_content_hash": "sha256:" + ("a" * 64),
+                    "used_as_component_role": "source_clip",
+                    "layer_role": "base",
+                    "sequence_index": 0,
+                    "z_index": 0,
+                    "start_seconds": 0.0,
+                    "end_seconds": 12.0,
+                    "transform_recipe": {"trim": "full"},
+                    "transform_version": "v1",
                 }
             ],
             "provider_jobs": [
@@ -244,6 +257,7 @@ def test_process_reel_service_persists_package_payload_on_reel_metadata() -> Non
     assert reel.metadata["package_provenance_refs"] == [
         {"path": "asset_ids[0]", "value": "asset-1"},
         {"path": "asset_ids[1]", "value": "asset-2"},
+        {"path": "assets[0].asset_id", "value": "asset-reel-42-source"},
         {"path": "assets[0].storage_uri", "value": "s3://content-lab/assets/reel-42/source.mp4"},
         {"path": "provider_jobs[0].job_id", "value": "job-reel-42"},
         {"path": "source_run_id", "value": summary["run_id"]},
@@ -251,6 +265,29 @@ def test_process_reel_service_persists_package_payload_on_reel_metadata() -> Non
             "path": "upstream_refs.timeline_uri",
             "value": "memory://edits/reel-42.json",
         },
+    ]
+    assert reel.metadata["asset_usage"] == [
+        {
+            "org_id": "org-1",
+            "reel_id": "reel-42",
+            "asset_id": "asset-reel-42-source",
+            "usage_role": "source_clip",
+            "component_role": "source_clip",
+            "layer_role": "base",
+            "sort_order": 0,
+            "sequence_index": 0,
+            "z_index": 0,
+            "start_time": 0.0,
+            "end_time": 12.0,
+            "transform_recipe": {"trim": "full"},
+            "transform_version": "v1",
+            "metadata_json": {
+                "media_type": "video",
+                "source_type": "generated",
+                "storage_uri": "s3://content-lab/assets/reel-42/source.mp4",
+                "stored_content_hash": _SHA256_A,
+            },
+        }
     ]
     assert summary["package"]["manifest"]["complete"] is True
     assert summary["package"]["package_qa"]["passed"] is True

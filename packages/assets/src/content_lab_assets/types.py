@@ -74,6 +74,72 @@ class AssetSource(StrEnum):
     PACKAGE_OUTPUT = "package_output"
 
 
+class AssetSourceType(StrEnum):
+    """Fine-grained provenance for assets (CAR-5A-002).
+
+    Complements :class:`AssetSource` (API / registry transport) with a stable
+    vocabulary for provenance, QA, and acquisition policy.
+    """
+
+    GENERATED = "generated"
+    OPERATOR_UPLOADED = "operator_uploaded"
+    APPROVED_EXTERNAL_SOURCE = "approved_external_source"
+    EXISTING_REGISTRY_ASSET = "existing_registry_asset"
+    DERIVED_FROM_EXISTING = "derived_from_existing"
+    PACKAGE_OUTPUT = "package_output"
+    UNKNOWN = "unknown"
+
+
+class AssetSourceMetadata(BaseModel):
+    """Structured source / licence / import metadata for registry assets."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    source_type: AssetSourceType = AssetSourceType.UNKNOWN
+    source_provider: str | None = Field(default=None, max_length=128)
+    external_source_url: str | None = Field(default=None, max_length=2048)
+    source_reference_id: str | None = Field(default=None, max_length=256)
+    licence_type: str | None = Field(default=None, max_length=128)
+    licence_notes: str | None = Field(default=None, max_length=4000)
+    usage_allowed: bool | None = None
+    commercial_use_allowed: bool | None = None
+    attribution_required: bool | None = None
+    attribution_text: str | None = Field(default=None, max_length=4000)
+    imported_by: str | None = Field(default=None, max_length=256)
+    imported_at: datetime | None = None
+    original_content_hash: str | None = Field(default=None, max_length=128)
+    stored_asset_id: uuid.UUID | None = None
+    source_quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_risk_notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def _validate_usage_and_attribution(self) -> AssetSourceMetadata:
+        if self.usage_allowed is False and self.commercial_use_allowed is True:
+            raise ValueError("commercial_use_allowed cannot be true when usage_allowed is false")
+        if self.attribution_required is True:
+            text = (self.attribution_text or "").strip()
+            if not text:
+                raise ValueError("attribution_text is required when attribution_required is true")
+        if self.usage_allowed is None and self.commercial_use_allowed is True:
+            raise ValueError("commercial_use_allowed requires explicit usage_allowed")
+        return self
+
+
+def infer_asset_source_type_from_asset_source(asset_source: AssetSource | str) -> AssetSourceType:
+    """Map legacy :class:`AssetSource` values to :class:`AssetSourceType` for provenance."""
+
+    normalized = AssetSource(asset_source)
+    return {
+        AssetSource.GENERATED: AssetSourceType.GENERATED,
+        AssetSource.UPLOADED: AssetSourceType.OPERATOR_UPLOADED,
+        AssetSource.IMPORTED: AssetSourceType.APPROVED_EXTERNAL_SOURCE,
+        AssetSource.OBSERVED_REFERENCE: AssetSourceType.UNKNOWN,
+        AssetSource.DERIVED: AssetSourceType.DERIVED_FROM_EXISTING,
+        AssetSource.MANUAL_TEMPLATE: AssetSourceType.OPERATOR_UPLOADED,
+        AssetSource.PACKAGE_OUTPUT: AssetSourceType.PACKAGE_OUTPUT,
+    }.get(normalized, AssetSourceType.UNKNOWN)
+
+
 class AlphaMode(StrEnum):
     """How transparency or masking should be interpreted for layerable assets."""
 
@@ -444,6 +510,8 @@ __all__ = [
     "AssetResolutionDecisionBase",
     "AssetPromptTrace",
     "AssetSource",
+    "AssetSourceMetadata",
+    "AssetSourceType",
     "AssetTransparencyMetadata",
     "AssetVisualMetadata",
     "BlockedDecision",
@@ -458,6 +526,7 @@ __all__ = [
     "compatible_media_types_for_asset_kind",
     "detect_png_transparency",
     "detect_png_visual_metadata",
+    "infer_asset_source_type_from_asset_source",
     "infer_media_type_for_asset_kind",
     "validate_asset_kind_media_type",
 ]

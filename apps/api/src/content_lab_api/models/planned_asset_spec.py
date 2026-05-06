@@ -109,6 +109,7 @@ class PlannedAssetSpec(Base):
     prompt_or_description: Mapped[str] = mapped_column(Text)
     required_traits: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
     compatible_with: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
+    compatibility_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default_factory=dict)
     intended_reel_formats: Mapped[list[str]] = mapped_column(JSONB, default_factory=list)
     priority: Mapped[int] = mapped_column(Integer, default=0)
     estimated_reuse_count: Mapped[int] = mapped_column(Integer, default=0)

@@ -24,12 +24,12 @@ from content_lab_api.models import (
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_alembic_single_head_is_0012() -> None:
-    """Migration smoke: revision graph loads and head is 0012."""
+def test_alembic_single_head_is_0014() -> None:
+    """Migration smoke: revision graph loads and head is 0014."""
     cfg = Config(str(API_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["0012"]
+    assert heads == ["0014"]
 
 
 def test_alembic_down_revision_chain() -> None:
@@ -50,6 +50,9 @@ def test_alembic_down_revision_chain() -> None:
     rev12 = script.get_revision("0012")
     assert rev12 is not None
     assert rev12.down_revision == "0011"
+    rev14 = script.get_revision("0014")
+    assert rev14 is not None
+    assert rev14.down_revision == "0013"
 
 
 def _partial_unique_index_names(table: Table) -> set[str]:
@@ -116,6 +119,7 @@ def test_asset_pack_item_default_field_values() -> None:
     assert item.priority == 0
     assert item.status == "planned"
     assert item.metadata_json == {}
+    assert item.compatibility_metadata == {}
 
 
 def test_planned_asset_spec_default_field_values() -> None:
@@ -130,6 +134,7 @@ def test_planned_asset_spec_default_field_values() -> None:
     )
     assert spec.required_traits == {}
     assert spec.compatible_with == {}
+    assert spec.compatibility_metadata == {}
     assert spec.intended_reel_formats == []
     assert spec.priority == 0
     assert spec.estimated_reuse_count == 0

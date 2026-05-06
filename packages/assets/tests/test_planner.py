@@ -13,6 +13,8 @@ def test_generate_asset_pack_plan_defaults_mix_and_matches_requested_count() -> 
 
     assert sum(plan.asset_mix.values()) == 8
     assert len(plan.planned_asset_specs) == 8
+    assert plan.planned_asset_specs[0].compatibility.niche == ["pilates_for_beginners"]
+    assert plan.planned_asset_specs[0].compatibility.format_type
     assert plan.asset_pack_plan["asset_mix_source"] == "default"
     assert plan.expected_reel_formats
     assert "future reels" in plan.reuse_rationale
@@ -124,7 +126,9 @@ def test_generate_asset_pack_plan_scores_and_prioritizes_output_potential() -> N
         "novelty_without_bloat",
     }
     assert first_spec.output_potential_rationale
-    assert first_spec.required_traits["output_potential"]["score"] == first_spec.output_potential_score
+    assert (
+        first_spec.required_traits["output_potential"]["score"] == first_spec.output_potential_score
+    )
     assert (
         plan.asset_pack_plan["output_potential_scoring"]["priority_method"]
         == "weighted_output_potential_desc"
@@ -177,8 +181,7 @@ def test_generate_asset_pack_plan_discounts_duplicate_category_bloat() -> None:
     )
 
     novelty_scores = [
-        spec.output_potential_scores["novelty_without_bloat"]
-        for spec in plan.planned_asset_specs
+        spec.output_potential_scores["novelty_without_bloat"] for spec in plan.planned_asset_specs
     ]
     assert novelty_scores == sorted(novelty_scores, reverse=True)
     assert novelty_scores[0] > novelty_scores[-1]
