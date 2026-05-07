@@ -104,6 +104,30 @@ type ArtifactTab = 'video' | 'cover' | 'captions' | 'plan' | 'qa' | 'runway' | '
 
 type WorkspaceWorkbenchTab = 'two_button_reel_path' | 'asset_pack_generation';
 
+type AssetLibraryKind = 'background' | 'object' | 'video' | 'hook' | 'audio' | 'final_output';
+
+type AssetLibraryItem = {
+  id: string;
+  title: string;
+  kind: AssetLibraryKind;
+  mediaType: string;
+  pack: string;
+  tags: string[];
+  layerSuitability: string;
+  reuseCount: number;
+  performanceScore: number;
+  previewTone: string;
+};
+
+type AssetPackPlannerState = {
+  niche: string;
+  totalAssetCount: number;
+  split: string;
+  targetReelTypes: string;
+  styleConstraints: string;
+  qualityLevel: 'lean' | 'balanced' | 'premium';
+};
+
 const emptyForm: FormState = {
   displayName: '',
   handle: '',
@@ -130,6 +154,126 @@ const workflowSteps = [
   { key: 'editing', label: 'Editing' },
   { key: 'qa', label: 'QA' },
   { key: 'packaging', label: 'Packaging' },
+];
+
+const assetKindTabs: { kind: AssetLibraryKind; label: string }[] = [
+  { kind: 'background', label: 'Backgrounds' },
+  { kind: 'object', label: 'PNG objects' },
+  { kind: 'video', label: 'Videos' },
+  { kind: 'hook', label: 'Hooks' },
+  { kind: 'audio', label: 'Audio' },
+  { kind: 'final_output', label: 'Final outputs' },
+];
+
+const assetLibrarySeed: AssetLibraryItem[] = [
+  {
+    id: 'bg-01',
+    title: 'Desk gradient loop',
+    kind: 'background',
+    mediaType: 'video/mp4',
+    pack: 'Launch kit A',
+    tags: ['desk', 'clean', 'loop'],
+    layerSuitability: 'Backdrop, text-safe center',
+    reuseCount: 8,
+    performanceScore: 86,
+    previewTone: 'linear-gradient(135deg, #213547, #5eead4)',
+  },
+  {
+    id: 'bg-02',
+    title: 'Phone scroll plate',
+    kind: 'background',
+    mediaType: 'image/png',
+    pack: 'UGC starters',
+    tags: ['phone', 'scroll', 'neutral'],
+    layerSuitability: 'Backdrop, subject left',
+    reuseCount: 5,
+    performanceScore: 79,
+    previewTone: 'linear-gradient(135deg, #334155, #f8fafc)',
+  },
+  {
+    id: 'obj-01',
+    title: 'Cutout product stack',
+    kind: 'object',
+    mediaType: 'image/png',
+    pack: 'Launch kit A',
+    tags: ['transparent', 'product', 'hero'],
+    layerSuitability: 'Transparent foreground',
+    reuseCount: 11,
+    performanceScore: 91,
+    previewTone: 'radial-gradient(circle at 50% 40%, #f8fafc 0 18%, #475569 19% 42%, #111827 43%)',
+  },
+  {
+    id: 'obj-02',
+    title: 'Creator reaction sticker',
+    kind: 'object',
+    mediaType: 'image/png',
+    pack: 'UGC starters',
+    tags: ['transparent', 'face', 'reaction'],
+    layerSuitability: 'Overlay, lower third',
+    reuseCount: 7,
+    performanceScore: 83,
+    previewTone: 'radial-gradient(circle at 50% 42%, #fde68a 0 20%, #fb7185 21% 44%, #111827 45%)',
+  },
+  {
+    id: 'vid-01',
+    title: 'Before-after swipe',
+    kind: 'video',
+    mediaType: 'video/mp4',
+    pack: 'Proof pack',
+    tags: ['before-after', 'proof', 'motion'],
+    layerSuitability: 'Primary footage',
+    reuseCount: 4,
+    performanceScore: 88,
+    previewTone: 'linear-gradient(90deg, #0f172a 0 50%, #fbbf24 50%)',
+  },
+  {
+    id: 'hook-01',
+    title: 'Stop doing this first',
+    kind: 'hook',
+    mediaType: 'text',
+    pack: 'Hook bank',
+    tags: ['problem', 'fast-open', 'educational'],
+    layerSuitability: 'Opening caption',
+    reuseCount: 16,
+    performanceScore: 94,
+    previewTone: 'linear-gradient(135deg, #0f172a, #7c3aed)',
+  },
+  {
+    id: 'hook-02',
+    title: 'Three signs it is working',
+    kind: 'hook',
+    mediaType: 'text',
+    pack: 'Hook bank',
+    tags: ['listicle', 'proof', 'retention'],
+    layerSuitability: 'Opening caption',
+    reuseCount: 9,
+    performanceScore: 84,
+    previewTone: 'linear-gradient(135deg, #064e3b, #22c55e)',
+  },
+  {
+    id: 'aud-01',
+    title: 'Tight soft pulse',
+    kind: 'audio',
+    mediaType: 'audio/wav',
+    pack: 'Audio bed 01',
+    tags: ['pulse', 'soft', 'loop'],
+    layerSuitability: 'Bed under voiceover',
+    reuseCount: 6,
+    performanceScore: 78,
+    previewTone: 'repeating-linear-gradient(90deg, #5eead4 0 8px, #0f172a 8px 16px)',
+  },
+  {
+    id: 'out-01',
+    title: 'Founder proof reel',
+    kind: 'final_output',
+    mediaType: 'video/mp4',
+    pack: 'Published winners',
+    tags: ['final', 'proof', 'winner'],
+    layerSuitability: 'Reference output',
+    reuseCount: 3,
+    performanceScore: 92,
+    previewTone: 'linear-gradient(135deg, #111827, #e2e8f0 50%, #5eead4)',
+  },
 ];
 
 function normalizeHandle(value: string): string | null {
@@ -1067,6 +1211,28 @@ export function PageWorkspace() {
             <p className="eyebrow">{selectedPage.ownership}</p>
             <strong>{selectedPage.display_name}</strong>
             <span>{selectedPage.handle ?? selectedPage.platform}</span>
+            <div className="rail-policy">
+              <button
+                className="policy-toggle"
+                type="button"
+                aria-expanded={isPolicyOpen}
+                onClick={() => setIsPolicyOpen((current) => !current)}
+              >
+                <span>Policy</span>
+                <strong>{isPolicyOpen ? 'Hide' : 'Show'}</strong>
+              </button>
+              <p className="muted">{formatPolicySource(policy)}</p>
+              {isPolicyOpen && policyDraft ? (
+                <PolicyEditor
+                  policyDraft={policyDraft}
+                  isSaving={isPolicySaving}
+                  savePolicy={() => void savePolicy()}
+                  updatePolicyDraft={updatePolicyDraft}
+                  numberValue={numberValue}
+                />
+              ) : null}
+              {isPolicyOpen && !policyDraft ? <p className="muted">Loading policy...</p> : null}
+            </div>
             <button className="danger-button" type="button" onClick={deleteSelectedPage} disabled={isSaving}>
               Delete
             </button>
@@ -1197,6 +1363,12 @@ export function PageWorkspace() {
 
                   <div className="generation-grid">
                     <div className="plan-zone">
+                      <div className="section-heading is-compact">
+                        <div>
+                          <p className="eyebrow">Reel workflow</p>
+                          <h3>Queued plan</h3>
+                        </div>
+                      </div>
                       <div className="inline-controls">
                         <label className="field">
                           Queued plans
@@ -1284,8 +1456,18 @@ export function PageWorkspace() {
                         detail={packageDetail}
                         notice={packageNotice}
                         failures={failureMessages}
-                      />
+                        />
                       <LifecycleSteps run={selectedPackageRun} />
+
+                      <section className="connected-panel">
+                        <div className="section-heading is-compact">
+                          <div>
+                            <p className="eyebrow">Generated package</p>
+                            <h3>Package plan</h3>
+                          </div>
+                        </div>
+                        <PlanSummary plan={selectedPackagePlanPayload} emptyLabel="No package plan" compact />
+                      </section>
 
                       {artifactTabs.length ? (
                         <ArtifactViewer
@@ -1315,12 +1497,17 @@ export function PageWorkspace() {
               </>
             ) : (
               <section
-                className="generation-surface workbench-blank-panel"
+                className="asset-pack-workspace"
                 id="workbench-panel-asset-pack"
                 role="tabpanel"
                 aria-labelledby="workbench-tab-asset-pack"
                 aria-label="Asset pack based generation"
-              />
+              >
+                <AssetPackGenerationWorkspace
+                  selectedPage={selectedPage}
+                  queueCombination={() => setMessage('Asset-led reel composition queued for review.')}
+                />
+              </section>
             )}
           </>
         ) : (
@@ -1335,55 +1522,6 @@ export function PageWorkspace() {
           </section>
         )}
       </section>
-
-      <aside className="inspector" aria-label="Inspector">
-        {(!selectedPage || workbenchTab === 'two_button_reel_path') ? (
-          <>
-            <section className="inspector-section">
-              <div className="section-heading is-compact">
-                <div>
-                  <p className="eyebrow">Reel workflow</p>
-                  <h3>Queued plan</h3>
-                </div>
-              </div>
-              <PlanSummary plan={selectedPlanPayload} emptyLabel="No plans queued" compact />
-            </section>
-
-            <section className="inspector-section">
-              <div className="section-heading is-compact">
-                <div>
-                  <p className="eyebrow">Generated package</p>
-                  <h3>Package plan</h3>
-                </div>
-              </div>
-              <PlanSummary plan={selectedPackagePlanPayload} emptyLabel="No package plan" compact />
-            </section>
-          </>
-        ) : null}
-
-        <section className="inspector-section">
-          <button
-            className="policy-toggle"
-            type="button"
-            aria-expanded={isPolicyOpen}
-            onClick={() => setIsPolicyOpen((current) => !current)}
-          >
-            <span>Policy</span>
-            <strong>{isPolicyOpen ? 'Hide' : 'Show'}</strong>
-          </button>
-          <p className="muted">{formatPolicySource(policy)}</p>
-          {isPolicyOpen && policyDraft ? (
-            <PolicyEditor
-              policyDraft={policyDraft}
-              isSaving={isPolicySaving}
-              savePolicy={() => void savePolicy()}
-              updatePolicyDraft={updatePolicyDraft}
-              numberValue={numberValue}
-            />
-          ) : null}
-          {isPolicyOpen && !policyDraft ? <p className="muted">Loading policy...</p> : null}
-        </section>
-      </aside>
     </main>
   );
 }
@@ -1573,6 +1711,337 @@ function ArtifactViewer({
         )
       ) : null}
     </div>
+  );
+}
+
+function AssetPackGenerationWorkspace({
+  selectedPage,
+  queueCombination,
+}: {
+  selectedPage: PageRecord;
+  queueCombination: () => void;
+}) {
+  const [assetKind, setAssetKind] = useState<AssetLibraryKind>('background');
+  const [planner, setPlanner] = useState<AssetPackPlannerState>({
+    niche: selectedPage.handle ?? selectedPage.display_name,
+    totalAssetCount: 24,
+    split: '6 backgrounds, 6 transparent objects, 4 clips, 4 hooks, 2 audio, 2 reference outputs',
+    targetReelTypes: 'proof reel, listicle, product demo, objection handling',
+    styleConstraints: 'High contrast captions, clean product cutouts, mobile-first safe areas',
+    qualityLevel: 'balanced',
+  });
+
+  const filteredAssets = assetLibrarySeed.filter((asset) => asset.kind === assetKind);
+  const plan = buildAssetPackPlan(planner);
+  const selectedBackground = bestAsset('background');
+  const selectedObject = bestAsset('object');
+  const selectedHook = bestAsset('hook');
+  const selectedAudio = bestAsset('audio');
+  const selectedVideo = bestAsset('video');
+  const outputScore = Math.round(
+    [selectedBackground, selectedObject, selectedHook, selectedAudio, selectedVideo].reduce(
+      (sum, asset) => sum + asset.performanceScore,
+      0,
+    ) / 5,
+  );
+
+  return (
+    <>
+      <section className="generation-surface">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Asset library</p>
+            <h3>Reusable assets</h3>
+          </div>
+          <span className="status-pill">{assetLibrarySeed.length} assets</span>
+        </div>
+
+        <div className="tabs asset-kind-tabs" role="tablist" aria-label="Asset library categories">
+          {assetKindTabs.map((tab) => (
+            <button
+              className={assetKind === tab.kind ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={assetKind === tab.kind}
+              key={tab.kind}
+              onClick={() => setAssetKind(tab.kind)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="asset-library-grid">
+          {filteredAssets.map((asset) => (
+            <article className="asset-card" key={asset.id}>
+              <div className="asset-preview" style={{ background: asset.previewTone }}>
+                <span>{asset.kind.replace('_', ' ')}</span>
+              </div>
+              <div className="asset-card-body">
+                <div>
+                  <h4>{asset.title}</h4>
+                  <p className="muted">{asset.mediaType}</p>
+                </div>
+                <dl className="asset-meta">
+                  <div>
+                    <dt>Pack</dt>
+                    <dd>{asset.pack}</dd>
+                  </div>
+                  <div>
+                    <dt>Layer</dt>
+                    <dd>{asset.layerSuitability}</dd>
+                  </div>
+                  <div>
+                    <dt>Reuse</dt>
+                    <dd>{asset.reuseCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Score</dt>
+                    <dd>{asset.performanceScore}</dd>
+                  </div>
+                </dl>
+                <div className="tag-row">
+                  {asset.tags.map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <div className="asset-pack-grid">
+        <section className="generation-surface">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Asset pack planner</p>
+              <h3>User-defined pack</h3>
+            </div>
+          </div>
+
+          <div className="planner-form">
+            <label className="field">
+              Niche
+              <input
+                value={planner.niche}
+                onChange={(event) => setPlanner((current) => ({ ...current, niche: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              Total asset count
+              <input
+                min="6"
+                max="80"
+                type="number"
+                value={planner.totalAssetCount}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    totalAssetCount: Number.parseInt(event.target.value || '0', 10),
+                  }))
+                }
+              />
+            </label>
+            <label className="field">
+              Optional asset split
+              <textarea
+                value={planner.split}
+                onChange={(event) => setPlanner((current) => ({ ...current, split: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              Target reel types
+              <textarea
+                value={planner.targetReelTypes}
+                onChange={(event) =>
+                  setPlanner((current) => ({ ...current, targetReelTypes: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field">
+              Style constraints
+              <textarea
+                value={planner.styleConstraints}
+                onChange={(event) =>
+                  setPlanner((current) => ({ ...current, styleConstraints: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field">
+              Generation budget / quality
+              <select
+                value={planner.qualityLevel}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    qualityLevel: event.target.value as AssetPackPlannerState['qualityLevel'],
+                  }))
+                }
+              >
+                <option value="lean">Lean</option>
+                <option value="balanced">Balanced</option>
+                <option value="premium">Premium</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section className="generation-surface">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Asset pack review</p>
+              <h3>Proposed plan</h3>
+            </div>
+            <span className={`status-pill ${plan.warningCount ? 'is-live' : 'is-good'}`}>
+              {plan.warningCount ? `${plan.warningCount} warning` : 'Ready'}
+            </span>
+          </div>
+
+          <div className="review-summary">
+            <span>{plan.mixSummary}</span>
+            <span>{plan.outputPotential}</span>
+          </div>
+
+          <div className="planned-assets">
+            {plan.specs.map((spec) => (
+              <article className="planned-asset" key={spec.category}>
+                <div>
+                  <h4>{spec.category}</h4>
+                  <p>{spec.reason}</p>
+                </div>
+                <span>{spec.count}</span>
+              </article>
+            ))}
+          </div>
+
+          <div className="review-columns">
+            <div>
+              <h4>Expected reel formats</h4>
+              <ul>
+                {plan.formats.map((format) => (
+                  <li key={format}>{format}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h4>Warnings / bottlenecks</h4>
+              <ul>
+                {plan.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="review-actions">
+            <button className="primary-button" type="button">
+              Approve pack plan
+            </button>
+            <button className="danger-button" type="button">
+              Stop plan
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <section className="output-surface">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Asset combinator</p>
+            <h3>Reel combinations</h3>
+          </div>
+          <button className="primary-button" type="button" onClick={queueCombination}>
+            Queue render
+          </button>
+        </div>
+
+        <div className="combo-grid">
+          <CombinationSlot label="Background" asset={selectedBackground} />
+          <CombinationSlot label="Foreground object" asset={selectedObject} />
+          <CombinationSlot label="Hook" asset={selectedHook} />
+          <CombinationSlot label="Audio" asset={selectedAudio} />
+          <CombinationSlot label="Format / template" asset={selectedVideo} />
+          <div className="combo-score">
+            <span>Estimated output score</span>
+            <strong>{outputScore}</strong>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function bestAsset(kind: AssetLibraryKind): AssetLibraryItem {
+  return [...assetLibrarySeed]
+    .filter((asset) => asset.kind === kind)
+    .sort((left, right) => right.performanceScore - left.performanceScore)[0];
+}
+
+function buildAssetPackPlan(planner: AssetPackPlannerState) {
+  const total = Number.isFinite(planner.totalAssetCount) ? Math.max(0, planner.totalAssetCount) : 0;
+  const specs = [
+    {
+      category: 'Backgrounds',
+      count: Math.max(1, Math.round(total * 0.25)),
+      reason: 'Reusable plates give each reel a distinct setting without regenerating full videos.',
+    },
+    {
+      category: 'Transparent objects',
+      count: Math.max(1, Math.round(total * 0.25)),
+      reason: 'Foreground PNGs make product, subject, and proof variants composable.',
+    },
+    {
+      category: 'Motion clips',
+      count: Math.max(1, Math.round(total * 0.17)),
+      reason: 'Short videos carry pacing and proof moments for higher-retention formats.',
+    },
+    {
+      category: 'Hooks',
+      count: Math.max(1, Math.round(total * 0.17)),
+      reason: 'Hook copy lets the same visual assets support multiple angles.',
+    },
+    {
+      category: 'Audio beds',
+      count: Math.max(1, Math.round(total * 0.08)),
+      reason: 'A small audio set keeps rhythm consistent while preserving edit variety.',
+    },
+    {
+      category: 'Reference outputs',
+      count: Math.max(1, Math.round(total * 0.08)),
+      reason: 'Final outputs anchor style and performance expectations for future generations.',
+    },
+  ];
+  const formats = planner.targetReelTypes
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  const warnings = [
+    total < 12 ? 'Pack is small; combination variety may be limited.' : null,
+    planner.styleConstraints.trim() ? null : 'No style constraints recorded.',
+    planner.split.trim() ? null : 'No explicit split recorded; planner will infer categories.',
+  ].filter((item): item is string => item !== null);
+  return {
+    specs,
+    formats: formats.length ? formats : ['proof reel', 'product demo'],
+    mixSummary: `${total} assets for ${planner.niche || 'selected page'} at ${planner.qualityLevel} quality`,
+    outputPotential: `Estimated ${Math.max(3, Math.round(total * 1.8))} candidate reels`,
+    warnings: warnings.length ? warnings : ['No bottlenecks detected in the current plan.'],
+    warningCount: warnings.length,
+  };
+}
+
+function CombinationSlot({ label, asset }: { label: string; asset: AssetLibraryItem }) {
+  return (
+    <article className="combo-slot">
+      <div className="asset-preview is-small" style={{ background: asset.previewTone }} />
+      <div>
+        <span>{label}</span>
+        <strong>{asset.title}</strong>
+        <p>{asset.tags.join(', ')}</p>
+      </div>
+    </article>
   );
 }
 

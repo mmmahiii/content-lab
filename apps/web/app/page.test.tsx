@@ -10,9 +10,8 @@ describe('HomePage', () => {
 
     expect(markup).toContain('Content Lab');
     expect(markup).toContain('Pages');
-    expect(markup).toContain('Reel workflow');
+    expect(markup).toContain('Reel workbench');
     expect(markup).toContain('Create your first page');
-    expect(markup).toContain('Package plan');
-    expect(markup).toContain('Policy');
+    expect(markup).not.toContain('Inspector');
   });
 });
