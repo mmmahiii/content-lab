@@ -23,6 +23,7 @@ from content_lab_qa.package import (
     PackageQAResult,
     PackageQualityAssuranceError,
     evaluate_package,
+    validate_layered_output_format,
     validate_package_completeness,
     validate_package_script_semantics,
 )
@@ -104,6 +105,7 @@ __all__ = [
     "evaluate_timeline_timing_qa",
     "evaluate_user_facing_text",
     "validate_package_completeness",
+    "validate_layered_output_format",
     "validate_package_script_semantics",
     "validate_package_provenance",
     "validate_caption_meta_language",

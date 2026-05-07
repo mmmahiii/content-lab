@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
@@ -244,3 +245,26 @@ class ApprovedExternalImportOut(BaseModel):
     import_warnings: list[str] = Field(default_factory=list)
     licence_metadata_complete: bool = True
     asset_pack_item_id: uuid.UUID | None = None
+
+
+class AssetLibraryItemOut(BaseModel):
+    """Operator-facing asset library row with component-aware metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    org_id: uuid.UUID
+    asset_class: str
+    asset_kind: str | None = None
+    media_type: str | None = None
+    niche: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    asset_pack_ids: list[uuid.UUID] = Field(default_factory=list)
+    has_transparency: bool | None = None
+    ready_status: str
+    performance_score: float | None = None
+    reuse_count: int = 0
+    source: str
+    storage_uri: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime

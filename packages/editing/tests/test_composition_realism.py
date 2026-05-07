@@ -138,3 +138,36 @@ def test_realism_report_warns_on_static_cutout_style_and_edge_risks() -> None:
     assert "alpha_layer_without_mask_mode" in warning_codes
     assert "alpha_edges_need_review" in warning_codes
     assert "background_object_style_mismatch" in warning_codes
+
+
+def test_realism_report_warns_on_tiny_text_clipping_and_layer_clutter() -> None:
+    layers = [
+        _object_layer(x=-12, y=760),
+        _text_layer(height=24),
+        _text_layer(layer_id="text-2", asset_id="text-2", z_index=3),
+        _text_layer(layer_id="text-3", asset_id="text-3", z_index=4),
+        _text_layer(layer_id="text-4", asset_id="text-4", z_index=5),
+        _object_layer(layer_id="object-2", asset_id="object-2", z_index=6),
+        _object_layer(layer_id="object-3", asset_id="object-3", z_index=7),
+        _object_layer(layer_id="object-4", asset_id="object-4", z_index=8),
+        _object_layer(layer_id="object-5", asset_id="object-5", z_index=9),
+    ]
+
+    report = validate_composition_realism(_manifest(layers=layers))
+    payload = report.as_dict()
+    codes = _codes(report)
+
+    assert "text_too_small" in codes
+    assert "object_clipped_unintentionally" in codes
+    assert "too_many_visual_layers" in payload["warning_codes"]
+    assert "too_many_text_layers" in payload["warning_codes"]
+
+
+def test_realism_report_fails_when_expected_transparency_is_missing() -> None:
+    report = validate_composition_realism(
+        _manifest(layers=[_object_layer()]),
+        asset_metadata={"object": {"has_alpha": False}},
+    )
+
+    assert report.passed is False
+    assert "expected_transparency_missing" in _codes(report)

@@ -5,8 +5,13 @@ from content_lab_api.services.asset_combinator import (
     build_asset_pack_compositions,
     estimate_asset_pack_output_potential,
 )
+from content_lab_api.services.asset_metrics import (
+    aggregate_reel_metric_asset_performance,
+    refresh_asset_usage_summaries,
+)
 from content_lab_api.services.asset_packs import (
     approve_asset_pack_plan,
+    create_asset_pack,
     create_asset_pack_batch,
     create_asset_pack_plan,
     ensure_asset_pack_generation_is_planned,
@@ -14,6 +19,7 @@ from content_lab_api.services.asset_packs import (
     import_approved_external_asset,
     mark_asset_pack_asset_failed,
     mark_asset_pack_asset_ready,
+    plan_existing_asset_pack,
     refresh_asset_pack_readiness,
     regenerate_asset_pack_plan,
     register_source_asset_for_pack,
@@ -79,11 +85,13 @@ __all__ = [
     "SQLAlchemyProcessReelRepository",
     "StubProcessReelExecutor",
     "apply_task_row_spec",
+    "aggregate_reel_metric_asset_performance",
     "approve_asset_pack_plan",
     "build_process_reel_persistence_service",
     "build_asset_led_reel_ideas",
     "build_asset_pack_compositions",
     "create_asset_pack_batch",
+    "create_asset_pack",
     "create_asset_pack_plan",
     "create_reel_family",
     "create_reel_variant",
@@ -101,6 +109,7 @@ __all__ = [
     "load_policy_bundle",
     "mark_asset_pack_asset_failed",
     "mark_asset_pack_asset_ready",
+    "plan_existing_asset_pack",
     "persist_asset_content",
     "record_provider_job_poll",
     "record_provider_job_result",
@@ -110,4 +119,5 @@ __all__ = [
     "reject_asset_pack_plan",
     "resolve_asset_request",
     "refresh_asset_pack_readiness",
+    "refresh_asset_usage_summaries",
 ]

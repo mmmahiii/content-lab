@@ -6,9 +6,15 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from content_lab_api.models import AssetPack, AssetPackItem
+from content_lab_api.models import (
+    AssetPack,
+    AssetPackItem,
+    AssetPerformanceSummary,
+    AssetUsageSummary,
+)
 from content_lab_api.schemas.asset_packs import (
     AssetLedConceptOut,
     AssetLedIdeasOut,
@@ -140,7 +146,33 @@ def _load_pack_assets(
     if selected_asset_ids:
         query = query.filter(AssetPackItem.asset_id.in_(selected_asset_ids))
     items = query.order_by(AssetPackItem.priority.asc(), AssetPackItem.created_at.asc()).all()
-    return [_pack_asset_from_item(item) for item in items if item.asset_id is not None]
+    asset_ids = [item.asset_id for item in items if item.asset_id is not None]
+    usage_by_asset = _usage_by_asset(db, asset_ids=asset_ids)
+    performance_by_asset = _performance_by_asset(db, asset_ids=asset_ids)
+    return [
+        _pack_asset_from_item(
+            item,
+            usage_summary=usage_by_asset.get(item.asset_id),
+            performance_summary=performance_by_asset.get(item.asset_id),
+        )
+        for item in items
+        if item.asset_id is not None
+    ]
+
+
+def _usage_by_asset(
+    db: Session,
+    *,
+    asset_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, AssetUsageSummary]:
+    if not asset_ids or not _table_exists(db, "asset_usage_summaries"):
+        return {}
+    return {
+        summary.asset_id: summary
+        for summary in db.query(AssetUsageSummary)
+        .filter(AssetUsageSummary.asset_id.in_(asset_ids))
+        .all()
+    }
 
 
 def _load_asset_pack(db: Session, *, org_id: uuid.UUID, asset_pack_id: uuid.UUID) -> AssetPack:
@@ -154,11 +186,18 @@ def _load_asset_pack(db: Session, *, org_id: uuid.UUID, asset_pack_id: uuid.UUID
     return pack
 
 
-def _pack_asset_from_item(item: AssetPackItem) -> PackAsset:
+def _pack_asset_from_item(
+    item: AssetPackItem,
+    *,
+    usage_summary: AssetUsageSummary | None = None,
+    performance_summary: AssetPerformanceSummary | None = None,
+) -> PackAsset:
     metadata = _merge_metadata(
         _planned_spec_metadata(item),
         item.metadata_json,
         {"compatibility": item.compatibility_metadata},
+        _usage_metadata(usage_summary),
+        _performance_metadata(performance_summary),
     )
     return PackAsset.from_pack_item(
         {
@@ -177,6 +216,64 @@ def _pack_asset_from_item(item: AssetPackItem) -> PackAsset:
             "usage_count": metadata.get("usage_count", 0),
         }
     )
+
+
+def _performance_by_asset(
+    db: Session,
+    *,
+    asset_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, AssetPerformanceSummary]:
+    if not asset_ids or not _table_exists(db, "asset_performance_summaries"):
+        return {}
+    rows = (
+        db.query(AssetPerformanceSummary)
+        .filter(AssetPerformanceSummary.asset_id.in_(asset_ids))
+        .all()
+    )
+    best: dict[uuid.UUID, AssetPerformanceSummary] = {}
+    for row in rows:
+        current = best.get(row.asset_id)
+        if current is None or _performance_score(row) > _performance_score(current):
+            best[row.asset_id] = row
+    return best
+
+
+def _table_exists(db: Session, table_name: str) -> bool:
+    bind = db.get_bind()
+    return inspect(bind).has_table(table_name)
+
+
+def _usage_metadata(summary: AssetUsageSummary | None) -> dict[str, Any]:
+    if summary is None:
+        return {}
+    return {
+        "usage_count": summary.reuse_count,
+        "reuse_count": summary.reuse_count,
+        "last_used_at": None if summary.last_used_at is None else summary.last_used_at.isoformat(),
+        "used_in_reel_count": summary.used_in_reel_count,
+        "used_in_pack_count": summary.used_in_pack_count,
+        "used_as_component_role_counts": summary.used_as_component_role_counts,
+    }
+
+
+def _performance_metadata(summary: AssetPerformanceSummary | None) -> dict[str, Any]:
+    if summary is None:
+        return {}
+    return {
+        "performance_score": _performance_score(summary),
+        "performance_sample_count": summary.sample_count,
+        "performance_metric_averages": summary.metric_averages,
+        "performance_attribution_note": summary.attribution_note,
+    }
+
+
+def _performance_score(summary: AssetPerformanceSummary) -> float:
+    metrics = dict(summary.metric_averages or {})
+    for key in ("performance_score", "engagement_score", "quality_score"):
+        value = metrics.get(key)
+        if isinstance(value, int | float):
+            return float(value)
+    return 0.0
 
 
 def _planned_spec_metadata(item: AssetPackItem) -> dict[str, Any]:

@@ -27,6 +27,7 @@ from content_lab_api.models.reel import GeneratedReelStatus, Reel
 from content_lab_api.models.reel_family import ReelFamily
 from content_lab_api.models.run import Run
 from content_lab_api.models.task import Task
+from content_lab_api.services.asset_metrics import refresh_asset_usage_summaries
 from content_lab_qa.package import PackageQualityAssuranceError, evaluate_package
 from content_lab_runs import RunStatus, TaskStatus
 from content_lab_storage import CanonicalStorageLayout
@@ -854,6 +855,7 @@ class SQLAlchemyProcessReelRepository:
             org_uuid = _parse_uuid(org_id, field_name="org_id")
             reel_uuid = _parse_uuid(reel_id, field_name="reel_id")
             persisted: list[dict[str, Any]] = []
+            touched_asset_ids: list[uuid.UUID] = []
             for spec in _asset_usage_specs_from_package(
                 org_id=org_id,
                 reel_id=reel_id,
@@ -862,6 +864,7 @@ class SQLAlchemyProcessReelRepository:
                 asset_id = _try_parse_uuid(str(spec["asset_id"]))
                 if asset_id is None:
                     continue
+                touched_asset_ids.append(asset_id)
                 row = (
                     session.query(AssetUsage)
                     .filter(
@@ -891,6 +894,12 @@ class SQLAlchemyProcessReelRepository:
                 row.metadata_json = _optional_dict(spec.get("metadata_json")) or {}
                 persisted.append(dict(spec))
 
+            if touched_asset_ids:
+                refresh_asset_usage_summaries(
+                    session,
+                    org_id=org_uuid,
+                    asset_ids=touched_asset_ids,
+                )
             session.flush()
             session.commit()
             return persisted

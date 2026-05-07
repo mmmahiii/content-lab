@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from content_lab_qa.package import evaluate_package, validate_package_completeness
+from content_lab_qa.package import (
+    evaluate_package,
+    validate_layered_output_format,
+    validate_package_completeness,
+)
 from content_lab_qa.text import lint_caption_texts, validate_caption_meta_language
 
 _SHA256_A = "sha256:" + ("a" * 64)
@@ -219,13 +223,58 @@ def test_evaluate_package_aggregates_package_and_provenance_checks() -> None:
     assert not result.passed
     assert result.errors == ["Package provenance must include at least one provider lineage entry."]
     assert payload["checks"][0]["gate_name"] == "package_completeness"
-    assert payload["checks"][1]["gate_name"] == "package_media_timeline"
-    assert payload["checks"][2]["gate_name"] == "package_overlay_render_trace"
-    assert payload["checks"][3]["gate_name"] == "caption_meta_language"
-    assert payload["checks"][4]["gate_name"] == "package_provenance"
-    assert payload["checks"][5]["gate_name"] == "source_rights"
-    assert payload["checks"][6]["gate_name"] == "package_script_semantics"
-    assert payload["checks"][5]["verdict"] == "pass"
+    assert payload["checks"][1]["gate_name"] == "package_layered_output"
+    assert payload["checks"][2]["gate_name"] == "package_media_timeline"
+    assert payload["checks"][3]["gate_name"] == "package_overlay_render_trace"
+    assert payload["checks"][4]["gate_name"] == "caption_meta_language"
+    assert payload["checks"][5]["gate_name"] == "package_provenance"
+    assert payload["checks"][6]["gate_name"] == "source_rights"
+    assert payload["checks"][7]["gate_name"] == "package_script_semantics"
+    assert payload["checks"][6]["verdict"] == "pass"
+
+
+def test_validate_layered_output_format_passes_for_valid_reel_output() -> None:
+    payload = _valid_package_payload()
+    payload["composition_manifest"] = {"schema_version": "composition_manifest_v1"}
+    payload["duration_seconds"] = 12.0
+    payload["layered_output"] = {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_seconds": 12.02,
+        "streams": [
+            {"codec_type": "video", "width": 1080, "height": 1920},
+            {"codec_type": "audio", "codec_name": "aac"},
+        ],
+    }
+
+    result = validate_layered_output_format(payload)
+
+    assert result.passed
+    assert result.details["findings"] == []
+
+
+def test_validate_layered_output_format_blocks_broken_render_package() -> None:
+    payload = _valid_package_payload()
+    payload["composition_manifest"] = {"schema_version": "composition_manifest_v1"}
+    payload["duration_seconds"] = 12.0
+    payload["layered_output"] = {
+        "format_name": "matroska,webm",
+        "duration_seconds": 9.0,
+        "streams": [{"codec_type": "video", "width": 720, "height": 1280}],
+    }
+    payload["artifacts"] = [
+        artifact for artifact in payload["artifacts"] if artifact["name"] != "cover"
+    ]
+
+    result = validate_layered_output_format(payload)
+    codes = {str(finding["code"]) for finding in result.details["findings"]}
+
+    assert not result.passed
+    assert "final_video_not_valid_mp4" in codes
+    assert "final_video_dimensions_invalid" in codes
+    assert "final_video_duration_invalid" in codes
+    assert "final_video_missing_audio" in codes
+    assert "cover_image_missing" in codes
+    assert "package_artifacts_incomplete" in codes
 
 
 def test_validate_caption_meta_language_fails_for_clear_caption_bug() -> None:
@@ -254,10 +303,10 @@ def test_evaluate_package_warns_when_caption_meta_language_invalid() -> None:
     assert result.passed
     assert result.verdict.value == "pass"
     assert result.errors == []
-    assert result.checks[3].gate_name == "caption_meta_language"
-    assert not result.checks[3].passed
-    assert result.checks[3].as_payload()["blocks_readiness"] is False
-    findings = result.checks[3].details["findings"]
+    assert result.checks[4].gate_name == "caption_meta_language"
+    assert not result.checks[4].passed
+    assert result.checks[4].as_payload()["blocks_readiness"] is False
+    findings = result.checks[4].details["findings"]
     assert isinstance(findings, list)
     first_finding = findings[0]
     assert isinstance(first_finding, dict)
@@ -272,10 +321,10 @@ def test_evaluate_package_warns_when_caption_sources_missing() -> None:
 
     assert result.passed
     assert result.errors == []
-    assert result.checks[3].gate_name == "caption_meta_language"
-    assert result.checks[3].verdict.value == "fail"
-    assert result.checks[3].as_payload()["blocks_readiness"] is False
-    assert result.checks[3].details["errors"] == ["missing_caption_sources"]
+    assert result.checks[4].gate_name == "caption_meta_language"
+    assert result.checks[4].verdict.value == "fail"
+    assert result.checks[4].as_payload()["blocks_readiness"] is False
+    assert result.checks[4].details["errors"] == ["missing_caption_sources"]
 
 
 def test_lint_caption_texts_deduplicates_repeated_rows() -> None:

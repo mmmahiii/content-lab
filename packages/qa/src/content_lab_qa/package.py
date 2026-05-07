@@ -64,6 +64,7 @@ def evaluate_package(package_payload: Mapping[str, Any] | object) -> PackageQARe
 
     checks: list[QAResult] = [
         validate_package_completeness(package_payload),
+        validate_layered_output_format(package_payload),
         validate_package_media_timeline(package_payload),
         validate_package_overlay_render_trace(package_payload),
         validate_caption_meta_language(package_payload),
@@ -105,6 +106,119 @@ def validate_package_script_semantics(package_payload: Mapping[str, Any] | objec
         verdict=base.verdict,
         message=base.message,
         details=dict(base.details),
+    )
+
+
+def validate_layered_output_format(package_payload: Mapping[str, Any] | object) -> QAResult:
+    """Validate rendered layered output before package readiness."""
+
+    if not isinstance(package_payload, Mapping):
+        return QAResult(
+            gate_name="package_layered_output",
+            verdict=QAVerdict.FAIL,
+            message="Package payload must be a JSON object for layered output QA.",
+            details={"findings": [_finding("layered_output_payload_missing")]},
+        )
+    if not _requires_layered_output_check(package_payload):
+        return QAResult(
+            gate_name="package_layered_output",
+            verdict=QAVerdict.SKIP,
+            message="Package has no layered output metadata; layered output QA skipped.",
+            details={"skipped": True},
+        )
+
+    findings: list[dict[str, Any]] = []
+    artifacts = _artifact_index(package_payload.get("artifacts"))
+    output = _layered_output_metadata(package_payload)
+    video_stream = _first_stream(output, "video")
+    audio_stream = _first_stream(output, "audio")
+
+    width = _optional_float(output.get("width") or video_stream.get("width"))
+    height = _optional_float(output.get("height") or video_stream.get("height"))
+    if width != 1080 or height != 1920:
+        findings.append(
+            _finding(
+                "final_video_dimensions_invalid",
+                width=width,
+                height=height,
+                expected_width=1080,
+                expected_height=1920,
+            )
+        )
+
+    format_name = str(output.get("format_name") or "").strip().lower()
+    container = str(output.get("container") or output.get("format") or "").strip().lower()
+    final_video = artifacts.get("final_video", {})
+    final_filename = _artifact_filename(final_video)
+    has_container_metadata = bool(format_name or container)
+    invalid_container_metadata = "mp4" not in format_name and container != "mp4"
+    invalid_filename = not final_filename.endswith(".mp4")
+    if (has_container_metadata and invalid_container_metadata) or (
+        not has_container_metadata and invalid_filename
+    ):
+        findings.append(
+            _finding(
+                "final_video_not_valid_mp4",
+                format_name=format_name,
+                container=container,
+                filename=final_filename,
+            )
+        )
+
+    duration = _optional_float(
+        output.get("duration_seconds")
+        or output.get("duration")
+        or _mapping_get(output.get("format"), "duration")
+    )
+    expected_duration = _expected_package_duration(package_payload)
+    if duration is None or duration <= 0:
+        findings.append(_finding("final_video_duration_missing"))
+    elif expected_duration is not None and abs(duration - expected_duration) > 0.25:
+        findings.append(
+            _finding(
+                "final_video_duration_invalid",
+                duration_seconds=duration,
+                expected_duration_seconds=expected_duration,
+            )
+        )
+
+    intentional_silence = bool(
+        package_payload.get("intentional_silence")
+        or output.get("intentional_silence")
+        or _mapping_get(package_payload.get("audio"), "intentional_silence")
+    )
+    if not audio_stream and not intentional_silence:
+        findings.append(_finding("final_video_missing_audio"))
+
+    cover = artifacts.get("cover")
+    if cover is None:
+        findings.append(_finding("cover_image_missing"))
+    elif _artifact_filename(cover) != "cover.png":
+        findings.append(
+            _finding("cover_image_invalid", filename=_artifact_filename(cover))
+        )
+
+    completeness = validate_package_completeness(package_payload)
+    if not completeness.passed:
+        findings.append(
+            _finding(
+                "package_artifacts_incomplete",
+                errors=_string_list(completeness.details.get("errors")),
+            )
+        )
+
+    if findings:
+        return QAResult(
+            gate_name="package_layered_output",
+            verdict=QAVerdict.FAIL,
+            message="Layered output format validation failed.",
+            details={"findings": findings},
+        )
+    return QAResult(
+        gate_name="package_layered_output",
+        verdict=QAVerdict.PASS,
+        message="Layered output format validation passed.",
+        details={"findings": []},
     )
 
 
@@ -368,6 +482,19 @@ def validate_package_completeness(package_payload: Mapping[str, Any] | object) -
     )
 
 
+def _artifact_index(value: object) -> dict[str, Mapping[str, Any]]:
+    if not isinstance(value, list):
+        return {}
+    index: dict[str, Mapping[str, Any]] = {}
+    for artifact in value:
+        if not isinstance(artifact, Mapping):
+            continue
+        name = str(artifact.get("name", "")).strip()
+        if name and name not in index:
+            index[name] = artifact
+    return index
+
+
 def _validate_manifest(
     package_payload: Mapping[str, Any],
     artifact_index: Mapping[str, Mapping[str, Any]],
@@ -510,6 +637,46 @@ def _mapping_get(value: object, key: str) -> object:
     return None
 
 
+def _requires_layered_output_check(package_payload: Mapping[str, Any]) -> bool:
+    return any(
+        key in package_payload
+        for key in (
+            "composition_manifest",
+            "layered_composition",
+            "layered_output",
+            "final_video_metadata",
+        )
+    )
+
+
+def _layered_output_metadata(package_payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    for key in ("layered_output", "final_video_metadata", "media_metadata"):
+        value = package_payload.get(key)
+        if isinstance(value, Mapping):
+            return value
+    return {}
+
+
+def _first_stream(metadata: Mapping[str, Any], codec_type: str) -> Mapping[str, Any]:
+    streams = metadata.get("streams")
+    if not isinstance(streams, list):
+        return {}
+    for stream in streams:
+        if isinstance(stream, Mapping) and stream.get("codec_type") == codec_type:
+            return stream
+    return {}
+
+
+def _expected_package_duration(package_payload: Mapping[str, Any]) -> float | None:
+    return _optional_float(
+        package_payload.get("duration_seconds")
+        or _mapping_get(package_payload.get("timeline"), "duration_seconds")
+        or _mapping_get(package_payload.get("timeline_render_trace"), "final_render_duration_seconds")
+        or _mapping_get(package_payload.get("timeline_render_trace"), "duration_seconds")
+        or _mapping_get(package_payload.get("overlay_render_trace"), "clip_duration_seconds")
+    )
+
+
 def _optional_float(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
@@ -519,11 +686,25 @@ def _optional_float(value: object) -> float | None:
         return None
 
 
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
 def _overlay_trace_finding(code: str, index: int, **details: Any) -> dict[str, Any]:
     return {
         "code": code,
         "severity": "fail",
         "index": index,
+        **details,
+    }
+
+
+def _finding(code: str, **details: Any) -> dict[str, Any]:
+    return {
+        "code": code,
+        "severity": "fail",
         **details,
     }
 
@@ -539,6 +720,7 @@ __all__ = [
     "PackageQAResult",
     "PackageQualityAssuranceError",
     "evaluate_package",
+    "validate_layered_output_format",
     "validate_package_completeness",
     "validate_package_media_timeline",
     "validate_package_overlay_render_trace",

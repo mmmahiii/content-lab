@@ -2,11 +2,14 @@
 
 from content_lab_api.models.api_key import ApiKey
 from content_lab_api.models.asset import Asset
+from content_lab_api.models.asset_combination_performance import AssetCombinationPerformance
 from content_lab_api.models.asset_family import AssetFamily
 from content_lab_api.models.asset_gen_param import AssetGenParam
 from content_lab_api.models.asset_pack import AssetPack, AssetPackStatus
 from content_lab_api.models.asset_pack_item import AssetPackItem, AssetPackItemStatus
+from content_lab_api.models.asset_performance_summary import AssetPerformanceSummary
 from content_lab_api.models.asset_usage import AssetUsage
+from content_lab_api.models.asset_usage_summary import AssetUsageSummary
 from content_lab_api.models.audio_track import AudioTrack
 from content_lab_api.models.audit_log import AuditLog
 from content_lab_api.models.derived_feature import DerivedFeature
@@ -40,13 +43,16 @@ from content_lab_api.models.user import User
 __all__ = [
     "ApiKey",
     "Asset",
+    "AssetCombinationPerformance",
     "AssetFamily",
     "AssetGenParam",
     "AssetPack",
     "AssetPackItem",
     "AssetPackItemStatus",
     "AssetPackStatus",
+    "AssetPerformanceSummary",
     "AssetUsage",
+    "AssetUsageSummary",
     "AudioTrack",
     "AuditLog",
     "DerivedFeature",

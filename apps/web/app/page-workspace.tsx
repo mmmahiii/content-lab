@@ -102,6 +102,8 @@ type FormState = {
 
 type ArtifactTab = 'video' | 'cover' | 'captions' | 'plan' | 'qa' | 'runway' | 'timeline' | 'trace' | 'raw';
 
+type WorkspaceWorkbenchTab = 'two_button_reel_path' | 'asset_pack_generation';
+
 const emptyForm: FormState = {
   displayName: '',
   handle: '',
@@ -590,6 +592,7 @@ export function PageWorkspace() {
   const [packageNotice, setPackageNotice] = useState('');
   const [pageLoadError, setPageLoadError] = useState<string | null>(null);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('video');
+  const [workbenchTab, setWorkbenchTab] = useState<WorkspaceWorkbenchTab>('two_button_reel_path');
   const [artifactText, setArtifactText] = useState('');
   const [artifactTextStatus, setArtifactTextStatus] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -1143,139 +1146,182 @@ export function PageWorkspace() {
               </div>
             </header>
 
-            <section className="generation-surface" aria-label="Two-button reel path">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Reel workflow</p>
-                  <h3>Two-button path</h3>
-                </div>
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={() => void triggerIdeaPlan()}
-                  disabled={isWorkflowSaving}
-                >
-                  Create plan
-                </button>
-              </div>
+            <nav className="tabs workbench-mode-tabs" role="tablist" aria-label="Generation workspace">
+              <button
+                type="button"
+                role="tab"
+                id="workbench-tab-two-button"
+                aria-controls="workbench-panel-two-button"
+                aria-selected={workbenchTab === 'two_button_reel_path'}
+                className={workbenchTab === 'two_button_reel_path' ? 'is-active' : ''}
+                onClick={() => setWorkbenchTab('two_button_reel_path')}
+              >
+                Two-button reel path
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="workbench-tab-asset-pack"
+                aria-controls="workbench-panel-asset-pack"
+                aria-selected={workbenchTab === 'asset_pack_generation'}
+                className={workbenchTab === 'asset_pack_generation' ? 'is-active' : ''}
+                onClick={() => setWorkbenchTab('asset_pack_generation')}
+              >
+                Asset pack based generation
+              </button>
+            </nav>
 
-              <div className="generation-grid">
-                <div className="plan-zone">
-                  <div className="inline-controls">
-                    <label className="field">
-                      Queued plans
-                      <select
-                        value={selectedPlan?.id ?? ''}
-                        onChange={(event) => setSelectedPlanRunId(event.target.value)}
-                        disabled={!planRuns.length}
-                      >
-                        {planRuns.map((run) => (
-                          <option key={run.id} value={run.id}>
-                            {planTitle(run)}
-                          </option>
-                        ))}
-                        {!planRuns.length && <option value="">No plans queued</option>}
-                      </select>
-                    </label>
+            {workbenchTab === 'two_button_reel_path' ? (
+              <>
+                <section
+                  className="generation-surface"
+                  aria-label="Two-button reel path"
+                  id="workbench-panel-two-button"
+                  role="tabpanel"
+                  aria-labelledby="workbench-tab-two-button"
+                >
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">Reel workflow</p>
+                      <h3>Two-button path</h3>
+                    </div>
                     <button
-                      className="danger-button"
+                      className="primary-button"
                       type="button"
-                      onClick={() => void discardSelectedPlan()}
-                      disabled={isWorkflowSaving || !selectedPlan}
+                      onClick={() => void triggerIdeaPlan()}
+                      disabled={isWorkflowSaving}
                     >
-                      Discard
+                      Create plan
                     </button>
                   </div>
-                  <PlanSummary plan={selectedPlanPayload} emptyLabel="No plans queued" />
-                </div>
 
-                <div className="action-zone">
-                  <button
-                    className="mode-button"
-                    type="button"
-                    onClick={() => void triggerVideoGeneration('smoke_test')}
-                    disabled={isWorkflowSaving || !selectedPlan}
-                  >
-                    Smoke
-                    <span>No paid AI</span>
-                  </button>
-                  <button
-                    className="mode-button"
-                    type="button"
-                    onClick={() => void triggerVideoGeneration('runway')}
-                    disabled={isWorkflowSaving || !selectedPlan}
-                  >
-                    Runway
-                    <span>Live video</span>
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className="output-surface" aria-label="Generated packages">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Outputs</p>
-                  <h3>Generated packages</h3>
-                </div>
-              </div>
-
-              {generationRuns.length ? (
-                <>
-                  <label className="field">
-                    Generated package
-                    <select
-                      value={selectedPackageRun?.id ?? ''}
-                      onChange={(event) => setSelectedPackageRunId(event.target.value)}
-                    >
-                      {generationRuns.map((run) => {
-                        const sourcePlanId = packagePlanRunId(run);
-                        const sourcePlan = sourcePlanId
-                          ? runs.find((candidate) => candidate.id === sourcePlanId)
-                          : null;
-                        return (
-                          <option key={run.id} value={run.id}>
-                            {sourcePlan ? planTitle(sourcePlan) : `Package ${run.id.slice(0, 8)}`} ·{' '}
-                            {generationMode(run) ?? 'package'} · {run.status}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </label>
-
-                  <PackageSummary
-                    run={selectedPackageRun}
-                    detail={packageDetail}
-                    notice={packageNotice}
-                    failures={failureMessages}
-                  />
-                  <LifecycleSteps run={selectedPackageRun} />
-
-                  {artifactTabs.length ? (
-                    <ArtifactViewer
-                      tabs={artifactTabs}
-                      activeTab={artifactTab}
-                      setActiveTab={setArtifactTab}
-                      packageDetail={packageDetail}
-                      run={selectedPackageRun}
-                      artifact={selectedArtifact}
-                      download={selectedDownload ?? null}
-                      artifactText={artifactText}
-                      artifactTextStatus={artifactTextStatus}
-                      copyArtifactText={() => void copyArtifactText()}
-                    />
-                  ) : (
-                    <div className="empty-state">
-                      {selectedPackageRun?.status === 'failed'
-                        ? runErrorMessage(selectedPackageRun) ?? 'Artifacts not written.'
-                        : packageNotice || 'Package still running.'}
+                  <div className="generation-grid">
+                    <div className="plan-zone">
+                      <div className="inline-controls">
+                        <label className="field">
+                          Queued plans
+                          <select
+                            value={selectedPlan?.id ?? ''}
+                            onChange={(event) => setSelectedPlanRunId(event.target.value)}
+                            disabled={!planRuns.length}
+                          >
+                            {planRuns.map((run) => (
+                              <option key={run.id} value={run.id}>
+                                {planTitle(run)}
+                              </option>
+                            ))}
+                            {!planRuns.length && <option value="">No plans queued</option>}
+                          </select>
+                        </label>
+                        <button
+                          className="danger-button"
+                          type="button"
+                          onClick={() => void discardSelectedPlan()}
+                          disabled={isWorkflowSaving || !selectedPlan}
+                        >
+                          Discard
+                        </button>
+                      </div>
+                      <PlanSummary plan={selectedPlanPayload} emptyLabel="No plans queued" />
                     </div>
+
+                    <div className="action-zone">
+                      <button
+                        className="mode-button"
+                        type="button"
+                        onClick={() => void triggerVideoGeneration('smoke_test')}
+                        disabled={isWorkflowSaving || !selectedPlan}
+                      >
+                        Smoke
+                        <span>No paid AI</span>
+                      </button>
+                      <button
+                        className="mode-button"
+                        type="button"
+                        onClick={() => void triggerVideoGeneration('runway')}
+                        disabled={isWorkflowSaving || !selectedPlan}
+                      >
+                        Runway
+                        <span>Live video</span>
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="output-surface" aria-label="Generated packages">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">Outputs</p>
+                      <h3>Generated packages</h3>
+                    </div>
+                  </div>
+
+                  {generationRuns.length ? (
+                    <>
+                      <label className="field">
+                        Generated package
+                        <select
+                          value={selectedPackageRun?.id ?? ''}
+                          onChange={(event) => setSelectedPackageRunId(event.target.value)}
+                        >
+                          {generationRuns.map((run) => {
+                            const sourcePlanId = packagePlanRunId(run);
+                            const sourcePlan = sourcePlanId
+                              ? runs.find((candidate) => candidate.id === sourcePlanId)
+                              : null;
+                            return (
+                              <option key={run.id} value={run.id}>
+                                {sourcePlan ? planTitle(sourcePlan) : `Package ${run.id.slice(0, 8)}`} ·{' '}
+                                {generationMode(run) ?? 'package'} · {run.status}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+
+                      <PackageSummary
+                        run={selectedPackageRun}
+                        detail={packageDetail}
+                        notice={packageNotice}
+                        failures={failureMessages}
+                      />
+                      <LifecycleSteps run={selectedPackageRun} />
+
+                      {artifactTabs.length ? (
+                        <ArtifactViewer
+                          tabs={artifactTabs}
+                          activeTab={artifactTab}
+                          setActiveTab={setArtifactTab}
+                          packageDetail={packageDetail}
+                          run={selectedPackageRun}
+                          artifact={selectedArtifact}
+                          download={selectedDownload ?? null}
+                          artifactText={artifactText}
+                          artifactTextStatus={artifactTextStatus}
+                          copyArtifactText={() => void copyArtifactText()}
+                        />
+                      ) : (
+                        <div className="empty-state">
+                          {selectedPackageRun?.status === 'failed'
+                            ? runErrorMessage(selectedPackageRun) ?? 'Artifacts not written.'
+                            : packageNotice || 'Package still running.'}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="empty-state">No packages yet</div>
                   )}
-                </>
-              ) : (
-                <div className="empty-state">No packages yet</div>
-              )}
-            </section>
+                </section>
+              </>
+            ) : (
+              <section
+                className="generation-surface workbench-blank-panel"
+                id="workbench-panel-asset-pack"
+                role="tabpanel"
+                aria-labelledby="workbench-tab-asset-pack"
+                aria-label="Asset pack based generation"
+              />
+            )}
           </>
         ) : (
           <section className="empty-page">
@@ -1291,25 +1337,29 @@ export function PageWorkspace() {
       </section>
 
       <aside className="inspector" aria-label="Inspector">
-        <section className="inspector-section">
-          <div className="section-heading is-compact">
-            <div>
-              <p className="eyebrow">Reel workflow</p>
-              <h3>Queued plan</h3>
-            </div>
-          </div>
-          <PlanSummary plan={selectedPlanPayload} emptyLabel="No plans queued" compact />
-        </section>
+        {(!selectedPage || workbenchTab === 'two_button_reel_path') ? (
+          <>
+            <section className="inspector-section">
+              <div className="section-heading is-compact">
+                <div>
+                  <p className="eyebrow">Reel workflow</p>
+                  <h3>Queued plan</h3>
+                </div>
+              </div>
+              <PlanSummary plan={selectedPlanPayload} emptyLabel="No plans queued" compact />
+            </section>
 
-        <section className="inspector-section">
-          <div className="section-heading is-compact">
-            <div>
-              <p className="eyebrow">Generated package</p>
-              <h3>Package plan</h3>
-            </div>
-          </div>
-          <PlanSummary plan={selectedPackagePlanPayload} emptyLabel="No package plan" compact />
-        </section>
+            <section className="inspector-section">
+              <div className="section-heading is-compact">
+                <div>
+                  <p className="eyebrow">Generated package</p>
+                  <h3>Package plan</h3>
+                </div>
+              </div>
+              <PlanSummary plan={selectedPackagePlanPayload} emptyLabel="No package plan" compact />
+            </section>
+          </>
+        ) : null}
 
         <section className="inspector-section">
           <button

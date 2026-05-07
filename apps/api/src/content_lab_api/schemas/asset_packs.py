@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
 
@@ -299,6 +300,103 @@ class AssetLedIdeasOut(BaseModel):
 
     asset_pack: AssetPackOut
     concepts: list[AssetLedConceptOut]
+
+
+class AssetPackCombinationsRequest(BaseModel):
+    """Generate reel composition candidates from ready pack assets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_reel_count: int = Field(default=5, ge=1, le=100)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    mode: Literal["balanced", "exploit", "explore", "mutation", "chaos"] = "balanced"
+
+    def format_filters(self) -> list[str] | None:
+        return _optional_filter_values(self.filters, "format", "formats", "format_filters")
+
+    def style_filters(self) -> list[str] | None:
+        return _optional_filter_values(self.filters, "style", "styles", "style_filters")
+
+
+class CandidateCompositionAssetOut(BaseModel):
+    """One asset assigned to a role in a composition candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: uuid.UUID
+    asset_kind: str
+    pack_role: str | None = None
+    title: str | None = None
+    compatibility: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    performance_score: float | None = None
+    usage_count: int = 0
+
+
+class CandidateCompositionOut(BaseModel):
+    """API-friendly composition candidate that can feed render workflows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    composition_id: str
+    roles: dict[str, CandidateCompositionAssetOut]
+    compatibility_score: float
+    diversity_score: float
+    performance_score: float
+    selection_score: float
+    reasons: list[str] = Field(default_factory=list)
+    composition_manifest: dict[str, Any]
+
+
+class AssetPackCombinationsOut(BaseModel):
+    """Candidate composition response for one asset pack."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_pack: AssetPackOut
+    candidate_compositions: list[CandidateCompositionOut]
+
+
+class AssetPackCompositionSubmitRequest(BaseModel):
+    """Submit a selected composition manifest for asynchronous process_reel work."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page_id: uuid.UUID
+    composition_manifest: dict[str, Any] = Field(default_factory=dict)
+    render_mode: Literal["preview", "final"] = "preview"
+    dry_run: bool = True
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=256)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssetPackCompositionSubmitOut(BaseModel):
+    """Queued render submission for a selected asset composition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: uuid.UUID
+    task_id: uuid.UUID
+    reel_id: uuid.UUID
+    reel_family_id: uuid.UUID
+    status: str
+    external_ref: str | None
+    accepted_for_rendering: bool = True
+
+
+def _optional_filter_values(
+    filters: Mapping[str, Any],
+    *keys: str,
+) -> list[str] | None:
+    for key in keys:
+        value = filters.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item).strip()]
+    return None
 
 
 class SourceAssetRegisterRequest(BaseModel):

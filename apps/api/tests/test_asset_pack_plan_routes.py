@@ -20,7 +20,12 @@ from content_lab_api.models import (
     AssetPackItem,
     AuditLog,
     Org,
+    OutboxEvent,
+    Page,
     PlannedAssetSpec,
+    Reel,
+    ReelFamily,
+    Run,
     Task,
 )
 from content_lab_api.schemas.asset_packs import SourceAssetRegisterRequest
@@ -153,6 +158,200 @@ def test_asset_pack_plan_route_persists_pack_specs_and_items(
     )
     assert persisted_spec is not None
     assert persisted_spec.required_traits["output_potential"]["score"] > 0
+
+
+def test_asset_pack_crud_routes_create_list_get_plan_and_items(
+    asset_pack_client: TestClient,
+    org_id: uuid.UUID,
+) -> None:
+    create_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs",
+        json={
+            "name": "Operator-defined pack",
+            "niche": "coffee shop marketing",
+            "requested_asset_count": 3,
+            "asset_mix_requested_json": {"hook_text": 1, "prop_image": 2},
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["status"] == "draft"
+    assert created["requested_asset_count"] == 3
+    pack_id = uuid.UUID(created["id"])
+
+    list_response = asset_pack_client.get(f"/orgs/{org_id}/asset-packs?status=draft")
+    assert list_response.status_code == 200
+    assert [row["id"] for row in list_response.json()] == [str(pack_id)]
+
+    get_response = asset_pack_client.get(f"/orgs/{org_id}/asset-packs/{pack_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["name"] == "Operator-defined pack"
+
+    plan_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{pack_id}/plan",
+        json={
+            "name": "Operator-defined pack",
+            "niche": "coffee shop marketing",
+            "requested_asset_count": 3,
+            "asset_mix": {"hook_text": 1, "prop_image": 2},
+        },
+    )
+    assert plan_response.status_code == 200
+    planned = plan_response.json()
+    assert planned["asset_pack"]["id"] == str(pack_id)
+    assert planned["asset_pack"]["status"] == "planned"
+    assert len(planned["planned_asset_specs"]) == 3
+
+    items_response = asset_pack_client.get(f"/orgs/{org_id}/asset-packs/{pack_id}/items")
+    assert items_response.status_code == 200
+    assert len(items_response.json()) == 3
+
+
+def test_asset_pack_combinations_route_returns_candidate_manifests(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    pack = AssetPack(
+        org_id=org_id,
+        name="Combination kit",
+        niche="pilates",
+        requested_asset_count=3,
+        status="ready",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    assets = {
+        "background": Asset(
+            org_id=org_id,
+            asset_class="component",
+            storage_uri="s3://content-lab/assets/bg.mp4",
+            status="ready",
+        ),
+        "hook": Asset(
+            org_id=org_id,
+            asset_class="component",
+            storage_uri="s3://content-lab/assets/hook.txt",
+            status="ready",
+        ),
+        "audio": Asset(
+            org_id=org_id,
+            asset_class="component",
+            storage_uri="s3://content-lab/assets/audio.mp3",
+            status="ready",
+        ),
+    }
+    db_session.add_all(assets.values())
+    db_session.flush()
+    for role, asset_kind in [
+        ("background", "background_video"),
+        ("hook", "hook_text"),
+        ("audio", "audio_track"),
+    ]:
+        db_session.add(
+            AssetPackItem(
+                asset_pack_id=pack.id,
+                asset_id=assets[role].id,
+                asset_kind=asset_kind,
+                pack_role=role,
+                status="selected",
+                metadata_json={"title": f"{role} asset"},
+                compatibility_metadata={
+                    "niche": ["pilates"],
+                    "visual_style": ["clean"],
+                    "format_type": ["hook-led tip"],
+                },
+            )
+        )
+    db_session.flush()
+
+    response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{pack.id}/combinations",
+        json={
+            "target_reel_count": 2,
+            "filters": {"formats": ["hook-led tip"], "styles": ["clean"]},
+            "mode": "balanced",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["asset_pack"]["id"] == str(pack.id)
+    candidates = payload["candidate_compositions"]
+    assert len(candidates) == 1
+    assert set(candidates[0]["roles"]) == {"audio", "background", "hook"}
+    assert candidates[0]["composition_manifest"]["asset_pack_id"] == str(pack.id)
+    assert candidates[0]["composition_manifest"]["roles"]["hook"]["asset_id"] == str(
+        assets["hook"].id
+    )
+
+
+def test_asset_pack_composition_render_submit_queues_process_reel_without_rendering(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    page = Page(
+        org_id=org_id,
+        platform="instagram",
+        display_name="Pilates Studio",
+        handle="pilates",
+    )
+    pack = AssetPack(
+        org_id=org_id,
+        name="Renderable kit",
+        niche="pilates",
+        requested_asset_count=1,
+        status="ready",
+    )
+    db_session.add_all([page, pack])
+    db_session.flush()
+    manifest = {
+        "schema_version": "asset_composition_manifest.v1",
+        "asset_pack_id": str(pack.id),
+        "composition_id": "composition-1",
+        "roles": {"hook": {"asset_id": str(uuid.uuid4()), "asset_kind": "hook_text"}},
+    }
+
+    response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{pack.id}/composition-renders",
+        json={
+            "page_id": str(page.id),
+            "composition_manifest": manifest,
+            "render_mode": "preview",
+            "dry_run": True,
+            "idempotency_key": f"composition-render:{pack.id}:composition-1",
+            "metadata": {"operator_note": "preview this"},
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    run = db_session.get(Run, uuid.UUID(payload["run_id"]))
+    task = db_session.get(Task, uuid.UUID(payload["task_id"]))
+    reel = db_session.get(Reel, uuid.UUID(payload["reel_id"]))
+    family = db_session.get(ReelFamily, uuid.UUID(payload["reel_family_id"]))
+    assert run is not None
+    assert task is not None
+    assert reel is not None
+    assert family is not None
+    assert payload["accepted_for_rendering"] is True
+    assert run.workflow_key == "process_reel"
+    assert run.status == "queued"
+    assert run.external_ref is not None and run.external_ref.startswith("outbox:")
+    assert run.input_params["composition_manifest"]["composition_id"] == "composition-1"
+    assert task.status == "queued"
+    assert task.payload["render_mode"] == "preview"
+    assert reel.status == "planning"
+    assert family.metadata_["composition_manifest"]["composition_id"] == "composition-1"
+    outbox = (
+        db_session.query(OutboxEvent)
+        .filter(OutboxEvent.aggregate_type == "run", OutboxEvent.aggregate_id == str(run.id))
+        .one()
+    )
+    assert outbox.event_type == "orchestration.flow.requested"
+    assert outbox.payload["workflow_key"] == "process_reel"
+    assert db_session.query(AuditLog).filter(AuditLog.resource_id == str(run.id)).count() == 1
 
 
 def test_asset_pack_plan_route_preserves_exact_operator_mix(
@@ -305,14 +504,11 @@ def test_asset_pack_reject_and_regenerate_plan_resets_review_state(
     assert regenerated["asset_mix"] == {"hook_text": 1, "prop_image": 2}
     assert len(regenerated["planned_asset_specs"]) == 3
     assert (
-        db_session.query(PlannedAssetSpec)
-        .filter(PlannedAssetSpec.asset_pack_id == pack_id)
-        .count()
+        db_session.query(PlannedAssetSpec).filter(PlannedAssetSpec.asset_pack_id == pack_id).count()
         == 3
     )
     assert (
-        db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack_id).count()
-        == 3
+        db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack_id).count() == 3
     )
     audit = (
         db_session.query(AuditLog)
@@ -540,7 +736,9 @@ def test_register_source_asset_for_pack_stores_png_and_attaches_item(
     assert item.asset_id == asset.id
     assert item.status == "uploaded"
     assert item.pack_role == "product_prop"
-    assert db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack.id).count() == 1
+    assert (
+        db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack.id).count() == 1
+    )
     assert storage.puts[0]["ref"] == StorageRef(
         bucket="content-lab",
         key=f"assets/raw/{asset.id}/product.png",
@@ -548,7 +746,10 @@ def test_register_source_asset_for_pack_stores_png_and_attaches_item(
 
     audit = (
         db_session.query(AuditLog)
-        .filter(AuditLog.resource_id == str(pack.id), AuditLog.action == "asset_pack.source_asset.registered")
+        .filter(
+            AuditLog.resource_id == str(pack.id),
+            AuditLog.action == "asset_pack.source_asset.registered",
+        )
         .one()
     )
     assert audit.actor_id == "operator:uploader"

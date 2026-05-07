@@ -14,8 +14,11 @@ from sqlalchemy import Table
 
 from content_lab_api.models import (
     Asset,
+    AssetCombinationPerformance,
     AssetPack,
     AssetPackItem,
+    AssetPerformanceSummary,
+    AssetUsageSummary,
     OutboxEvent,
     PlannedAssetSpec,
     Run,
@@ -24,12 +27,12 @@ from content_lab_api.models import (
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_alembic_single_head_is_0014() -> None:
-    """Migration smoke: revision graph loads and head is 0014."""
+def test_alembic_single_head_is_0015() -> None:
+    """Migration smoke: revision graph loads and head is 0015."""
     cfg = Config(str(API_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["0014"]
+    assert heads == ["0015"]
 
 
 def test_alembic_down_revision_chain() -> None:
@@ -53,6 +56,9 @@ def test_alembic_down_revision_chain() -> None:
     rev14 = script.get_revision("0014")
     assert rev14 is not None
     assert rev14.down_revision == "0013"
+    rev15 = script.get_revision("0015")
+    assert rev15 is not None
+    assert rev15.down_revision == "0014"
 
 
 def _partial_unique_index_names(table: Table) -> set[str]:
@@ -92,6 +98,46 @@ def test_asset_default_field_values() -> None:
     assert asset.asset_key is None
     assert asset.content_hash is None
     assert asset.phash is None
+
+
+def test_asset_usage_summary_default_field_values() -> None:
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    summary = AssetUsageSummary(org_id=org_id, asset_id=asset_id)
+    assert summary.reuse_count == 0
+    assert summary.used_in_reel_count == 0
+    assert summary.used_in_pack_count == 0
+    assert summary.used_as_component_role_counts == {}
+    assert summary.last_used_at is None
+
+
+def test_asset_performance_summary_default_field_values() -> None:
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    summary = AssetPerformanceSummary(
+        org_id=org_id,
+        asset_id=asset_id,
+        component_role="hook",
+    )
+    assert summary.sample_count == 0
+    assert summary.metric_totals == {}
+    assert summary.metric_averages == {}
+    assert summary.last_metric_at is None
+    assert summary.attribution_note == "correlational_not_causal"
+
+
+def test_asset_combination_performance_default_field_values() -> None:
+    org_id = uuid.uuid4()
+    summary = AssetCombinationPerformance(
+        org_id=org_id,
+        combination_key="hook:a|background:b",
+    )
+    assert summary.component_roles == []
+    assert summary.asset_ids == []
+    assert summary.sample_count == 0
+    assert summary.metric_totals == {}
+    assert summary.metric_averages == {}
+    assert summary.attribution_note == "correlational_not_causal"
 
 
 def test_asset_pack_default_field_values() -> None:
@@ -177,6 +223,7 @@ def test_outbox_default_field_values() -> None:
         "migrations.versions.0004_expand_operational_tables",
         "migrations.versions.0010_asset_packs",
         "migrations.versions.0011_planned_asset_specs",
+        "migrations.versions.0015_asset_usage_and_performance_summaries",
     ],
 )
 def test_migration_module_defines_expected_revisions(module_path: str) -> None:
@@ -195,6 +242,7 @@ def test_migration_module_defines_expected_revisions(module_path: str) -> None:
         "0004_expand_operational_tables": ("0004", "0003"),
         "0010_asset_packs": ("0010", "0009"),
         "0011_planned_asset_specs": ("0011", "0010"),
+        "0015_asset_usage_and_performance_summaries": ("0015", "0014"),
     }
     assert module.revision == expected[mod_name][0]
     assert module.down_revision == expected[mod_name][1]

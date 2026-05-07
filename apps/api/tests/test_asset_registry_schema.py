@@ -11,17 +11,26 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.models import (
     Asset,
+    AssetCombinationPerformance,
     AssetFamily,
     AssetGenParam,
     AssetPack,
     AssetPackItem,
+    AssetPerformanceSummary,
     AssetUsage,
+    AssetUsageSummary,
     Org,
     Page,
     PlannedAssetSpec,
     Reel,
     ReelFamily,
+    ReelMetric,
+    Run,
     validate_planned_asset_spec_status_transition,
+)
+from content_lab_api.services.asset_metrics import (
+    aggregate_reel_metric_asset_performance,
+    refresh_asset_usage_summaries,
 )
 
 
@@ -379,6 +388,148 @@ def test_asset_usage_rejects_unknown_reel(db_session: Session, org_id: uuid.UUID
                 usage_role="voiceover",
             ),
         )
+
+
+def test_asset_usage_summary_counts_reel_pack_and_component_roles(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    pid = uuid.uuid4()
+    fid = uuid.uuid4()
+    rid = uuid.uuid4()
+    aid = uuid.uuid4()
+    pack_id = uuid.uuid4()
+    db_session.execute(
+        insert(Page).values(id=pid, org_id=org_id, platform="instagram", display_name="Page")
+    )
+    db_session.execute(
+        insert(ReelFamily).values(id=fid, org_id=org_id, page_id=pid, name="Family")
+    )
+    db_session.execute(insert(Reel).values(id=rid, org_id=org_id, reel_family_id=fid))
+    db_session.execute(
+        insert(Asset).values(id=aid, org_id=org_id, asset_class="clip", storage_uri="s3://b/a")
+    )
+    db_session.execute(
+        insert(AssetPack).values(id=pack_id, org_id=org_id, name="Pack", niche="fitness")
+    )
+    db_session.execute(
+        insert(AssetPackItem).values(
+            id=uuid.uuid4(),
+            asset_pack_id=pack_id,
+            asset_id=aid,
+            asset_kind="generated_clip",
+            pack_role="background",
+            status="selected",
+        )
+    )
+    db_session.flush()
+    db_session.execute(
+        insert(AssetUsage).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            reel_id=rid,
+            asset_id=aid,
+            usage_role="background",
+            component_role="background",
+        )
+    )
+    db_session.flush()
+
+    summaries = refresh_asset_usage_summaries(db_session, org_id=org_id, asset_ids=[aid])
+
+    assert len(summaries) == 1
+    summary = db_session.scalars(
+        select(AssetUsageSummary).where(AssetUsageSummary.asset_id == aid)
+    ).one()
+    assert summary.reuse_count == 1
+    assert summary.used_in_reel_count == 1
+    assert summary.used_in_pack_count == 1
+    assert summary.used_as_component_role_counts == {"background": 1}
+    assert summary.last_used_at is not None
+
+
+def test_reel_metric_rolls_up_asset_and_combination_performance(
+    db_session: Session, org_id: uuid.UUID
+) -> None:
+    pid = uuid.uuid4()
+    fid = uuid.uuid4()
+    rid = uuid.uuid4()
+    run_id = uuid.uuid4()
+    hook_id = uuid.uuid4()
+    background_id = uuid.uuid4()
+    db_session.execute(
+        insert(Page).values(id=pid, org_id=org_id, platform="instagram", display_name="Page")
+    )
+    db_session.execute(
+        insert(ReelFamily).values(id=fid, org_id=org_id, page_id=pid, name="Family")
+    )
+    db_session.execute(insert(Reel).values(id=rid, org_id=org_id, reel_family_id=fid))
+    db_session.execute(
+        insert(Run).values(
+            id=run_id,
+            org_id=org_id,
+            workflow_key="process_reel",
+            input_params={"reel_id": str(rid)},
+        )
+    )
+    for asset_id, uri in ((hook_id, "s3://b/hook"), (background_id, "s3://b/bg")):
+        db_session.execute(
+            insert(Asset).values(
+                id=asset_id,
+                org_id=org_id,
+                asset_class="clip",
+                storage_uri=uri,
+            )
+        )
+    db_session.flush()
+    db_session.execute(
+        insert(AssetUsage).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            reel_id=rid,
+            asset_id=hook_id,
+            usage_role="hook",
+            component_role="hook",
+        )
+    )
+    db_session.execute(
+        insert(AssetUsage).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            reel_id=rid,
+            asset_id=background_id,
+            usage_role="background",
+            component_role="background",
+        )
+    )
+    db_session.flush()
+    metric = ReelMetric(
+        org_id=org_id,
+        run_id=run_id,
+        metrics={"engagement_score": 0.8, "views": 100, "sample": True},
+    )
+    db_session.add(metric)
+    db_session.flush()
+
+    counts = aggregate_reel_metric_asset_performance(
+        db_session,
+        reel_metric_id=metric.id,
+        combination_sizes=(2,),
+    )
+
+    assert counts == {"asset_summaries": 2, "combination_summaries": 1}
+    hook_summary = db_session.scalars(
+        select(AssetPerformanceSummary).where(
+            AssetPerformanceSummary.asset_id == hook_id,
+            AssetPerformanceSummary.component_role == "hook",
+        )
+    ).one()
+    assert hook_summary.sample_count == 1
+    assert hook_summary.metric_averages == {"engagement_score": 0.8, "views": 100.0}
+    assert hook_summary.attribution_note == "correlational_not_causal"
+    combo_summary = db_session.scalars(select(AssetCombinationPerformance)).one()
+    assert combo_summary.sample_count == 1
+    assert combo_summary.component_roles == ["background", "hook"]
+    assert set(combo_summary.asset_ids) == {str(hook_id), str(background_id)}
 
 
 def test_asset_family_fk_on_asset(db_session: Session, org_id: uuid.UUID) -> None:

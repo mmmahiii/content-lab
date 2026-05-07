@@ -11,7 +11,18 @@ from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
 from content_lab_api.main import app
-from content_lab_api.models import Asset, AssetGenParam, AuditLog, Org, ProviderJob, Task
+from content_lab_api.models import (
+    Asset,
+    AssetGenParam,
+    AssetPack,
+    AssetPackItem,
+    AssetPerformanceSummary,
+    AssetUsageSummary,
+    AuditLog,
+    Org,
+    ProviderJob,
+    Task,
+)
 from content_lab_assets.providers.runway.jobs import build_runway_job_external_ref
 from content_lab_assets.registry import build_asset_key
 
@@ -306,6 +317,98 @@ def test_asset_detail_returns_org_scoped_metadata_and_signed_download(
     assert payload["download"]["url"].startswith(
         "http://localhost:9000/content-lab/assets/derived/clip-123.mp4?"
     )
+
+
+def test_asset_library_lists_component_assets_with_filters(
+    assets_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    pack = AssetPack(
+        org_id=org_id,
+        name="Coffee pack",
+        niche="coffee shop marketing",
+        requested_asset_count=1,
+        status="planned",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    asset = Asset(
+        org_id=org_id,
+        asset_class="component",
+        storage_uri="s3://content-lab/assets/raw/cup.png",
+        source="uploaded",
+        status="ready",
+        metadata_={
+            "asset_kind": "transparent_cutout_png",
+            "media_type": "image",
+            "niche": "coffee shop marketing",
+            "tags": ["product", "cup"],
+            "transparency": {"has_transparency": True},
+        },
+    )
+    other = Asset(
+        org_id=org_id,
+        asset_class="component",
+        storage_uri="s3://content-lab/assets/raw/loop.mp4",
+        source="generated",
+        status="staged",
+        metadata_={"asset_kind": "background_video", "media_type": "video"},
+    )
+    db_session.add_all([asset, other])
+    db_session.flush()
+    db_session.add(
+        AssetPackItem(
+            asset_pack_id=pack.id,
+            asset_id=asset.id,
+            asset_kind="transparent_cutout_png",
+            pack_role="foreground_prop",
+            status="uploaded",
+        )
+    )
+    db_session.add(
+        AssetUsageSummary(
+            org_id=org_id,
+            asset_id=asset.id,
+            reuse_count=4,
+            used_in_reel_count=3,
+            used_in_pack_count=1,
+        )
+    )
+    db_session.add(
+        AssetPerformanceSummary(
+            org_id=org_id,
+            asset_id=asset.id,
+            component_role="foreground_prop",
+            sample_count=3,
+            metric_averages={"performance_score": 0.82},
+        )
+    )
+    db_session.flush()
+
+    response = assets_client.get(
+        f"/orgs/{org_id}/assets",
+        params={
+            "asset_kind": "transparent_cutout_png",
+            "media_type": "image",
+            "niche": "coffee shop marketing",
+            "tags": ["product", "cup"],
+            "asset_pack_id": str(pack.id),
+            "has_transparency": "true",
+            "ready_status": "ready",
+            "performance_score": "0.8",
+            "reuse_count": "4",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == str(asset.id)
+    assert payload[0]["asset_pack_ids"] == [str(pack.id)]
+    assert payload[0]["has_transparency"] is True
+    assert payload[0]["performance_score"] == 0.82
+    assert payload[0]["reuse_count"] == 4
 
 
 def test_asset_download_is_org_scoped(

@@ -19,6 +19,14 @@ from content_lab_editing.composition_manifest import (
     MotionTransform,
     SafeAreaConstraints,
 )
+from content_lab_editing.composition_preflight import (
+    CompositionPreflightError,
+    CompositionPreflightIssue,
+    SourceAssetReference,
+    ensure_composition_preflight,
+    validate_composition_manifest,
+    validate_source_asset_availability,
+)
 from content_lab_editing.composition_realism import (
     CompositionRealismFinding,
     CompositionRealismReport,
@@ -89,6 +97,8 @@ __all__ = [
     "CompositionExportPreset",
     "CompositionLayer",
     "CompositionManifest",
+    "CompositionPreflightError",
+    "CompositionPreflightIssue",
     "CompositionRealismFinding",
     "CompositionRealismReport",
     "BuiltReelPackage",
@@ -114,6 +124,7 @@ __all__ = [
     "SafeAreaConstraints",
     "SceneAwareEditPlan",
     "SceneEditPlanSegment",
+    "SourceAssetReference",
     "StoredLayeredCompositionResult",
     "TimelineAudioTrack",
     "TimelineEditSegment",
@@ -133,6 +144,7 @@ __all__ = [
     "build_timeline_render_trace",
     "compose_and_store_layered_reel",
     "compose_layered_reel",
+    "ensure_composition_preflight",
     "get_editorial_template",
     "layer_has_motion",
     "motion_preset_for_layer",
@@ -142,5 +154,7 @@ __all__ = [
     "select_editorial_template",
     "stage_composition_assets",
     "validate_composition_realism",
+    "validate_composition_manifest",
     "validate_media_timeline",
+    "validate_source_asset_availability",
 ]

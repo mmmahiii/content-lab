@@ -91,15 +91,19 @@ def validate_composition_realism(
     foreground_layers = [_layer for _layer in manifest.layers if _is_foreground_layer(_layer)]
     text_layers = [_layer for _layer in manifest.layers if _layer.media_type == "text"]
 
+    _check_background_presence(manifest, findings=findings)
+    _check_layer_count(manifest, findings=findings)
     for layer in foreground_layers:
         _check_foreground_size(manifest, layer, findings=findings)
         _check_layer_bounds(manifest, layer, findings=findings)
+        _check_unintentional_clipping(manifest, layer, findings=findings)
         _check_safe_area(manifest, layer, findings=findings)
         _check_static_motion(layer, findings=findings)
         _check_alpha_edges(layer, metadata=metadata.get(layer.asset_id, {}), findings=findings)
         _check_layer_duration(layer, findings=findings)
 
     for layer in text_layers:
+        _check_text_readability(manifest, layer, findings=findings)
         _check_layer_bounds(manifest, layer, findings=findings)
         _check_safe_area(manifest, layer, findings=findings)
         _check_layer_duration(layer, findings=findings)
@@ -117,6 +121,121 @@ def validate_composition_realism(
         findings=findings,
     )
     return CompositionRealismReport(findings=tuple(findings))
+
+
+def _check_background_presence(
+    manifest: CompositionManifest,
+    *,
+    findings: list[CompositionRealismFinding],
+) -> None:
+    background = manifest.background_layer
+    if background is None or background.media_type not in {"image", "video"}:
+        findings.append(
+            _finding(
+                "background_missing",
+                "fail",
+                "Composition is missing an image or video background layer.",
+                None,
+            )
+        )
+        return
+    if background.opacity <= 0:
+        findings.append(
+            _finding(
+                "background_invisible",
+                "fail",
+                "Background layer is fully transparent.",
+                background,
+            )
+        )
+
+
+def _check_layer_count(
+    manifest: CompositionManifest,
+    *,
+    findings: list[CompositionRealismFinding],
+) -> None:
+    visual_layer_count = len(manifest.layers) + 1
+    active_text_layers = sum(1 for layer in manifest.layers if layer.media_type == "text")
+    if visual_layer_count > 9:
+        findings.append(
+            _finding(
+                "too_many_visual_layers",
+                "warn",
+                "Composition has enough visual layers to risk cluttering the frame.",
+                None,
+                visual_layer_count=visual_layer_count,
+            )
+        )
+    if active_text_layers > 3:
+        findings.append(
+            _finding(
+                "too_many_text_layers",
+                "warn",
+                "Composition has many text layers competing for attention.",
+                None,
+                text_layer_count=active_text_layers,
+            )
+        )
+
+
+def _check_text_readability(
+    manifest: CompositionManifest,
+    layer: CompositionLayer,
+    *,
+    findings: list[CompositionRealismFinding],
+) -> None:
+    height = float(layer.height or 0)
+    minimum_height = max(32.0, manifest.canvas_height * 0.025)
+    if height <= 0:
+        findings.append(
+            _finding(
+                "text_missing_dimensions",
+                "warn",
+                "Text layer dimensions are missing, so readability cannot be verified.",
+                layer,
+            )
+        )
+        return
+    if height < minimum_height:
+        findings.append(
+            _finding(
+                "text_too_small",
+                "warn",
+                "Text layer may be too small to read on a vertical reel.",
+                layer,
+                height=height,
+                minimum_height=minimum_height,
+            )
+        )
+
+
+def _check_unintentional_clipping(
+    manifest: CompositionManifest,
+    layer: CompositionLayer,
+    *,
+    findings: list[CompositionRealismFinding],
+) -> None:
+    if _allows_clipping(layer):
+        return
+    x, y, width, height = _estimated_layer_box(manifest, layer)
+    clipped_width = max(0.0, -x) + max(0.0, x + width - manifest.canvas_width)
+    clipped_height = max(0.0, -y) + max(0.0, y + height - manifest.canvas_height)
+    clipped_area_estimate = min(width, clipped_width) * height + min(height, clipped_height) * width
+    layer_area = width * height
+    if layer_area <= 0:
+        return
+    clipped_ratio = min(1.0, clipped_area_estimate / layer_area)
+    if clipped_ratio > 0.02:
+        findings.append(
+            _finding(
+                "object_clipped_unintentionally",
+                "warn",
+                "Foreground object appears clipped without an intentional crop or mask.",
+                layer,
+                clipped_ratio=clipped_ratio,
+            )
+        )
 
 
 def _check_foreground_size(
@@ -291,6 +410,26 @@ def _check_alpha_edges(
                 layer,
             )
         )
+    has_alpha = _first_optional_bool(
+        metadata.get("has_alpha"),
+        metadata.get("alpha_channel_present"),
+        metadata.get("transparency_present"),
+    )
+    transparency = metadata.get("transparency")
+    if has_alpha is None and isinstance(transparency, Mapping):
+        has_alpha = _first_optional_bool(
+            transparency.get("has_alpha"),
+            transparency.get("alpha_channel_present"),
+        )
+    if has_alpha is False:
+        findings.append(
+            _finding(
+                "expected_transparency_missing",
+                "fail",
+                "Layer expects transparency, but asset metadata reports no alpha channel.",
+                layer,
+            )
+        )
     edge_score = _edge_quality_score(metadata)
     if edge_score is None:
         return
@@ -394,6 +533,16 @@ def _is_alpha_like_layer(layer: CompositionLayer) -> bool:
     }
 
 
+def _allows_clipping(layer: CompositionLayer) -> bool:
+    metadata = layer.motion_transform.params if layer.motion_transform is not None else {}
+    return (
+        layer.crop is not None
+        or layer.mask_mode in {"luma", "chroma_key"}
+        or bool(metadata.get("intentional_clipping"))
+        or bool(metadata.get("allow_clipping"))
+    )
+
+
 def _layer_box(layer: CompositionLayer) -> tuple[float, float, float, float] | None:
     if layer.width is None or layer.height is None:
         return None
@@ -475,6 +624,28 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _first_optional_bool(*values: Any) -> bool | None:
+    for value in values:
+        parsed = _optional_bool(value)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _normalize_tag(value: Any) -> str:

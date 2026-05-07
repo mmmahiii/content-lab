@@ -32,6 +32,7 @@ from content_lab_api.schemas.asset_packs import (
     ApprovedAssetPackGenerateRequest,
     AssetPackBatchOut,
     AssetPackBatchRequest,
+    AssetPackCreate,
     AssetPackItemOut,
     AssetPackOut,
     AssetPackPlanOut,
@@ -624,6 +625,114 @@ def import_approved_external_asset(
         settings=resolved_settings,
     )
     return asset, None, reused, list(warning_codes), licence_complete
+
+
+def create_asset_pack(
+    db: Session,
+    request: Request,
+    *,
+    org_id: uuid.UUID,
+    body: AssetPackCreate,
+) -> AssetPackOut:
+    """Create a draft asset pack before planning."""
+
+    _get_org_or_404(db, org_id)
+    asset_pack = AssetPack(
+        org_id=org_id,
+        name=body.name,
+        niche=body.niche,
+        purpose=body.purpose,
+        target_audience=body.target_audience,
+        requested_asset_count=body.requested_asset_count,
+        asset_mix_requested_json=body.asset_mix_requested_json,
+        strategy_summary=body.strategy_summary,
+        status=AssetPackStatus.DRAFT.value,
+    )
+    db.add(asset_pack)
+    db.flush()
+    _record_asset_pack_audit(
+        db,
+        request,
+        org_id=org_id,
+        asset_pack=asset_pack,
+        action="asset_pack.created",
+        payload={
+            "requested_asset_count": asset_pack.requested_asset_count,
+            "asset_mix_requested_json": asset_pack.asset_mix_requested_json,
+            "status": asset_pack.status,
+        },
+    )
+    db.commit()
+    db.refresh(asset_pack)
+    return AssetPackOut.model_validate(asset_pack)
+
+
+def plan_existing_asset_pack(
+    db: Session,
+    request: Request,
+    *,
+    org_id: uuid.UUID,
+    asset_pack_id: uuid.UUID,
+    body: AssetPackPlanRequest,
+) -> AssetPackPlanOut:
+    """Generate or replace the plan for an existing draft/reviewable asset pack."""
+
+    _get_org_or_404(db, org_id)
+    asset_pack = _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
+    if asset_pack.status not in {
+        AssetPackStatus.DRAFT.value,
+        AssetPackStatus.PLANNED.value,
+        AssetPackStatus.APPROVED.value,
+        AssetPackStatus.REJECTED.value,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only draft or ungenerated asset packs can be planned",
+        )
+
+    plan = generate_asset_pack_plan(
+        niche=body.niche,
+        target_audience=body.target_audience,
+        requested_asset_count=body.requested_asset_count,
+        asset_mix=body.asset_mix,
+        target_reel_types=body.target_reel_types,
+        style_persona_constraints=body.style_persona_constraints,
+    )
+    _replace_plan_rows(db, asset_pack=asset_pack, body=body, plan=plan)
+    persisted_specs = _planned_specs_for_pack(db, asset_pack_id=asset_pack.id)
+    items_by_spec = _items_by_planned_spec(db, asset_pack_id=asset_pack.id)
+    _attach_existing_assets(
+        db,
+        org_id=org_id,
+        asset_pack=asset_pack,
+        persisted_specs=persisted_specs,
+        items_by_spec=items_by_spec,
+    )
+    _annotate_acquisition_for_pre_fulfilled_items(
+        db,
+        org_id=org_id,
+        persisted_specs=persisted_specs,
+        items_by_spec=items_by_spec,
+    )
+    refresh_asset_pack_readiness(db, asset_pack=asset_pack)
+    planning_summary = _resolution_summary(db, asset_pack_id=asset_pack.id)
+    _record_plan_audit(
+        db,
+        request,
+        org_id=org_id,
+        asset_pack=asset_pack,
+        plan=plan,
+        action="asset_pack.plan.created",
+    )
+    db.commit()
+    db.refresh(asset_pack)
+    persisted_specs = _planned_specs_for_pack(db, asset_pack_id=asset_pack.id)
+    return _plan_out(
+        asset_pack=asset_pack,
+        plan=plan,
+        persisted_specs=persisted_specs,
+        planning_resolution_summary=planning_summary,
+    )
 
 
 def create_asset_pack_plan(
@@ -1465,7 +1574,7 @@ def _replace_plan_rows(
     db: Session,
     *,
     asset_pack: AssetPack,
-    body: AssetPackRegeneratePlanRequest,
+    body: AssetPackPlanRequest | AssetPackRegeneratePlanRequest,
     plan: AssetPackPlan,
 ) -> None:
     db.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == asset_pack.id).delete(
@@ -1881,6 +1990,32 @@ def _record_plan_audit(
                 "strategy_summary": plan.strategy_summary,
                 "pack_strategy": plan.asset_pack_plan.get("pack_strategy"),
             },
+        )
+    )
+
+
+def _record_asset_pack_audit(
+    db: Session,
+    request: Request,
+    *,
+    org_id: uuid.UUID,
+    asset_pack: AssetPack,
+    action: str,
+    payload: dict[str, Any],
+) -> None:
+    actor = getattr(request.state, "actor", ANONYMOUS_ACTOR)
+    actor_id = None if actor == ANONYMOUS_ACTOR else actor
+    actor_type = "anonymous" if actor_id is None else "request_header"
+    db.execute(
+        insert(AuditLog).values(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            action=action,
+            resource_type="asset_pack",
+            actor_type=actor_type,
+            actor_id=actor_id,
+            resource_id=str(asset_pack.id),
+            payload=payload,
         )
     )
 

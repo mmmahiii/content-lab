@@ -6,9 +6,15 @@ import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from content_lab_editing.composition_manifest import CompositionLayer, CompositionManifest
+from content_lab_editing.composition_preflight import (
+    SourceAssetInput,
+    StorageObjectProbe,
+    ensure_composition_preflight,
+    source_value,
+)
 from content_lab_editing.ffmpeg import FFmpegRunner, FFmpegRunResult
 from content_lab_editing.motion_transforms import layer_has_motion, motion_spec_for_layer
 from content_lab_storage import CanonicalStorageLayout, S3StorageClient, StoredAssetBytes
@@ -44,7 +50,7 @@ class StoredLayeredCompositionResult:
 def compose_layered_reel(
     manifest: CompositionManifest,
     *,
-    asset_sources: Mapping[str, str | Path],
+    asset_sources: Mapping[str, SourceAssetInput],
     output_path: str | Path,
     runner: FFmpegRunner | None = None,
     storage_client: StorageDownloader | None = None,
@@ -56,6 +62,12 @@ def compose_layered_reel(
     resolved_runner = runner or FFmpegRunner()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
+    ensure_composition_preflight(
+        manifest,
+        asset_sources=asset_sources,
+        storage_client=cast(StorageObjectProbe | None, storage_client),
+        require_content_hash=False,
+    )
     staged_assets = stage_composition_assets(
         manifest,
         asset_sources=asset_sources,
@@ -80,7 +92,7 @@ def compose_layered_reel(
 def compose_and_store_layered_reel(
     manifest: CompositionManifest,
     *,
-    asset_sources: Mapping[str, str | Path],
+    asset_sources: Mapping[str, SourceAssetInput],
     output_path: str | Path,
     client: S3StorageClient,
     layout: CanonicalStorageLayout,
@@ -121,7 +133,7 @@ def compose_and_store_layered_reel(
 def stage_composition_assets(
     manifest: CompositionManifest,
     *,
-    asset_sources: Mapping[str, str | Path],
+    asset_sources: Mapping[str, SourceAssetInput],
     staging_dir: str | Path,
     storage_client: StorageDownloader | None = None,
 ) -> dict[str, Path]:
@@ -133,9 +145,10 @@ def stage_composition_assets(
     for layer in [manifest.background_layer, *manifest.layers, *manifest.audio_layers]:
         if layer.asset_id in staged:
             continue
-        source = asset_sources.get(layer.asset_id)
-        if source is None:
+        raw_source = asset_sources.get(layer.asset_id)
+        if raw_source is None:
             raise KeyError(f"missing asset source for asset_id {layer.asset_id!r}")
+        source = source_value(raw_source)
         source_text = str(source)
         if source_text.startswith("s3://"):
             if storage_client is None:
