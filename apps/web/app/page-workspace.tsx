@@ -3487,7 +3487,7 @@ function mapAssetLibraryItemOut(row: AssetLibraryItemOut): AssetLibraryItem {
     reuseCount: row.reuse_count,
     performanceScore: Math.round((row.performance_score ?? numericValue(metadata.performance_score) ?? 0.72) * 100),
     previewTone: previewToneForAsset(row.id, row.asset_kind, title),
-    imageUrl: row.download?.url,
+    imageUrl: proxiedDownloadUrl(row.download?.url),
   };
 }
 
@@ -3635,6 +3635,21 @@ function assetPreviewTone(asset: Record<string, unknown> | null, fallback: strin
 function assetImageUrl(asset: Record<string, unknown> | null): string | null {
   const metadata = asRecord(asset?.metadata);
   return textValue(metadata?.image_url);
+}
+
+function proxiedDownloadUrl(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(url);
+    if (['127.0.0.1', 'localhost'].includes(parsed.hostname)) {
+      return `/api/artifact-proxy?url=${encodeURIComponent(url)}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
 }
 
 function buildAssetPackPlan(planner: AssetPackPlannerState) {
