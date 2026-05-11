@@ -10,16 +10,15 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from urllib.error import HTTPError, URLError
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.error import HTTPError, URLError
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 for path in (
@@ -50,7 +49,6 @@ from content_lab_assets.types import (  # noqa: E402
     detect_png_visual_metadata,
 )
 from content_lab_shared.settings import Settings  # noqa: E402
-
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "ContentLabAssetSeeder/1.0 (local operator seed; Wikimedia Commons API)"
@@ -267,6 +265,71 @@ ASSET_SEEDS: tuple[CommonsAssetSeed, ...] = (
         performance_score=0.73,
         priority=14,
     ),
+    CommonsAssetSeed(
+        title="File:Avocado.png",
+        local_name="avocado.png",
+        asset_kind=AssetKind.TRANSPARENT_CUTOUT_PNG,
+        pack_role="foreground ingredient avocado",
+        working_title="Avocado foreground",
+        purpose="Layerable avocado cut-out for healthy bowls, toast, and ingredient-swap reels.",
+        prompt_or_description="Imported transparent PNG avocado cut-out for faceless cooking overlays.",
+        category="layerable_cutout",
+        tags=("avocado", "ingredient", "healthy"),
+        performance_score=0.8,
+        priority=15,
+    ),
+    CommonsAssetSeed(
+        title="File:Brussels sprout.png",
+        local_name="brussels_sprout.png",
+        asset_kind=AssetKind.TRANSPARENT_CUTOUT_PNG,
+        pack_role="foreground ingredient brussels sprout",
+        working_title="Brussels sprout foreground",
+        purpose="Layerable vegetable cut-out for roasting, prep-list, and seasonal recipe reels.",
+        prompt_or_description="Imported transparent PNG Brussels sprout cut-out for cooking overlays.",
+        category="layerable_cutout",
+        tags=("brussels_sprout", "vegetable", "roasting"),
+        performance_score=0.74,
+        priority=16,
+    ),
+    CommonsAssetSeed(
+        title="File:Lettuce.png",
+        local_name="lettuce.png",
+        asset_kind=AssetKind.TRANSPARENT_CUTOUT_PNG,
+        pack_role="foreground ingredient lettuce",
+        working_title="Lettuce foreground",
+        purpose="Layerable lettuce cut-out for salad, wrap, and freshness cue compositions.",
+        prompt_or_description="Imported transparent PNG lettuce cut-out for faceless cooking overlays.",
+        category="layerable_cutout",
+        tags=("lettuce", "salad", "fresh"),
+        performance_score=0.76,
+        priority=17,
+    ),
+    CommonsAssetSeed(
+        title="File:Leek on transparent background - 0947.png",
+        local_name="leek.png",
+        asset_kind=AssetKind.TRANSPARENT_CUTOUT_PNG,
+        pack_role="foreground ingredient leek",
+        working_title="Leek foreground",
+        purpose="Layerable leek cut-out for soup, prep, and aromatic base recipe reels.",
+        prompt_or_description="Imported transparent PNG leek cut-out for faceless cooking overlays.",
+        category="layerable_cutout",
+        tags=("leek", "aromatic", "soup"),
+        performance_score=0.75,
+        priority=18,
+    ),
+    CommonsAssetSeed(
+        title="File:Bowl of melted butter no bg.png",
+        local_name="bowl_melted_butter.png",
+        asset_kind=AssetKind.PROP_IMAGE,
+        pack_role="foreground prep bowl",
+        working_title="Melted butter prep bowl",
+        purpose="Layerable bowl prop for baking, sauce-building, and gloss finish recipe steps.",
+        prompt_or_description="Imported transparent PNG prep bowl of melted butter for cooking overlays.",
+        category="detail_prop",
+        tags=("butter", "bowl", "baking"),
+        performance_score=0.72,
+        priority=19,
+    ),
 )
 
 
@@ -373,8 +436,8 @@ def get_org(db: Session, slug: str) -> Org:
 def create_pack(db: Session, *, org_id: uuid.UUID, pack_name: str) -> AssetPack:
     asset_mix = {
         AssetKind.BACKGROUND_IMAGE.value: 3,
-        AssetKind.TRANSPARENT_CUTOUT_PNG.value: 11,
-        AssetKind.PROP_IMAGE.value: 1,
+        AssetKind.TRANSPARENT_CUTOUT_PNG.value: 15,
+        AssetKind.PROP_IMAGE.value: 2,
     }
     pack = AssetPack(
         org_id=org_id,
@@ -471,6 +534,7 @@ def source_register_request(
 ) -> SourceAssetRegisterRequest:
     visual = detect_png_visual_metadata(data)
     transparency = detect_png_transparency(data)
+    validate_seed_png(seed=seed, data=data, transparency=transparency)
     source_meta = AssetSourceMetadata(
         source_type=AssetSourceType.APPROVED_EXTERNAL_SOURCE,
         source_provider="Wikimedia Commons",
@@ -618,15 +682,28 @@ def download_assets(run_dir: Path, infos: dict[str, dict[str, Any]]) -> dict[str
     for seed in ASSET_SEEDS:
         info = infos[seed.title]
         path = run_dir / seed.local_name
-        if path.exists():
-            data = path.read_bytes()
-        else:
-            data = download_with_retry(info["url"])
+        data = path.read_bytes() if path.exists() else download_with_retry(info["url"])
         if not data.startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeError(f"{seed.title} did not download as a PNG")
         path.write_bytes(data)
         downloads[seed.title] = path
     return downloads
+
+
+def validate_seed_png(
+    *,
+    seed: CommonsAssetSeed,
+    data: bytes,
+    transparency: Any,
+) -> None:
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError(f"{seed.title} is not a PNG")
+    if seed.asset_kind is AssetKind.BACKGROUND_IMAGE:
+        return
+    if not bool(transparency.has_transparency):
+        raise RuntimeError(
+            f"{seed.title} is not layerable: non-background pack assets must have PNG transparency"
+        )
 
 
 def download_with_retry(url: str) -> bytes:
