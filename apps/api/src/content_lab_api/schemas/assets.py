@@ -9,6 +9,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from content_lab_api.schemas.asset import SignedDownloadOut
 from content_lab_assets.registry import (
     AssetKind,
     AssetSource,
@@ -266,5 +267,6 @@ class AssetLibraryItemOut(BaseModel):
     reuse_count: int = 0
     source: str
     storage_uri: str
+    download: SignedDownloadOut | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
