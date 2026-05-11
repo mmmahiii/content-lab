@@ -60,6 +60,8 @@ type RunRecord = {
 
 type SignedDownload = {
   url: string;
+  storage_uri?: string;
+  expires_at?: string;
 };
 
 type PackageArtifact = {
@@ -131,6 +133,7 @@ type AssetLibraryItem = {
   reuseCount: number;
   performanceScore: number;
   previewTone: string;
+  imageUrl?: string;
 };
 
 type AssetLibraryItemOut = {
@@ -146,6 +149,7 @@ type AssetLibraryItemOut = {
   reuse_count: number;
   source: string;
   storage_uri: string;
+  download: SignedDownload | null;
   metadata: Record<string, unknown>;
 };
 
@@ -2930,7 +2934,12 @@ function AssetLibraryCard({ asset, compact = false }: { asset: AssetLibraryItem;
   return (
     <article className={`asset-card ${compact ? 'is-compact' : ''}`}>
       <div className="asset-preview" style={{ background: asset.previewTone }}>
-        <span>{asset.kind.replace('_', ' ')}</span>
+        {asset.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={asset.imageUrl} alt={asset.title} />
+        ) : (
+          <span>{asset.kind.replace('_', ' ')}</span>
+        )}
       </div>
       <div className="asset-card-body">
         <div>
@@ -3083,6 +3092,8 @@ function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
   const hook = textValue(cover.hook) ?? textValue(cover.title) ?? 'Hook cover';
   const backgroundTone = assetPreviewTone(background, 'linear-gradient(160deg, #101827, #334155)');
   const foregroundTone = assetPreviewTone(foreground, 'linear-gradient(135deg, #5eead4, #f8fafc)');
+  const backgroundImageUrl = assetImageUrl(background);
+  const foregroundImageUrl = assetImageUrl(foreground);
   const variant = hashString(textValue(cover.composition_id) ?? textValue(cover.title) ?? hook);
   const objectStyle = {
     background: foregroundTone,
@@ -3099,8 +3110,22 @@ function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
   return (
     <section className="hook-cover-output" aria-label="Generated hook cover preview">
       <div className="hook-cover-preview" style={{ background: backgroundTone }}>
+        {backgroundImageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="hook-cover-background-image" src={backgroundImageUrl} alt="Selected background asset" />
+        ) : null}
         <div className="hook-cover-shine" />
-        <div className="hook-cover-object" style={objectStyle} />
+        {foregroundImageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            className="hook-cover-object-image"
+            src={foregroundImageUrl}
+            alt="Selected foreground asset"
+            style={objectStyle}
+          />
+        ) : (
+          <div className="hook-cover-object" style={objectStyle} />
+        )}
         <div className="hook-cover-copy" style={copyStyle}>
           <span>Hook / cover</span>
           <strong>{hook}</strong>
@@ -3462,6 +3487,7 @@ function mapAssetLibraryItemOut(row: AssetLibraryItemOut): AssetLibraryItem {
     reuseCount: row.reuse_count,
     performanceScore: Math.round((row.performance_score ?? numericValue(metadata.performance_score) ?? 0.72) * 100),
     previewTone: previewToneForAsset(row.id, row.asset_kind, title),
+    imageUrl: row.download?.url,
   };
 }
 
@@ -3481,6 +3507,7 @@ function mapCandidateAssetToLibraryItem(
     reuseCount: asset.usage_count,
     performanceScore: Math.round((asset.performance_score ?? 0.72) * 100),
     previewTone: previewToneForAsset(asset.asset_id, asset.asset_kind, asset.title ?? role),
+    imageUrl: textValue(asset.metadata.image_url) ?? undefined,
   };
 }
 
@@ -3603,6 +3630,11 @@ function hookCoverPayload(run: RunRecord | null): Record<string, unknown> | null
 function assetPreviewTone(asset: Record<string, unknown> | null, fallback: string): string {
   const metadata = asRecord(asset?.metadata);
   return textValue(metadata?.preview_tone) ?? fallback;
+}
+
+function assetImageUrl(asset: Record<string, unknown> | null): string | null {
+  const metadata = asRecord(asset?.metadata);
+  return textValue(metadata?.image_url);
 }
 
 function buildAssetPackPlan(planner: AssetPackPlannerState) {
@@ -3743,6 +3775,7 @@ function localAssetForManifest(asset: AssetLibraryItem): Record<string, unknown>
       reuse_count: asset.reuseCount,
       performance_score: asset.performanceScore / 100,
       preview_tone: asset.previewTone,
+      image_url: asset.imageUrl,
     },
   };
 }

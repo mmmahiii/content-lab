@@ -179,6 +179,7 @@ def _asset_library_item_out(
         reuse_count=0 if usage_summary is None else usage_summary.reuse_count,
         source=asset.source,
         storage_uri=asset.storage_uri,
+        download=build_signed_download(storage_uri=asset.storage_uri),
         metadata=dict(asset.metadata_ or {}),
         created_at=asset.created_at,
     )
