@@ -3101,6 +3101,11 @@ function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
     bottom: `${8 + (variant % 24)}%`,
     width: `${48 + (variant % 18)}%`,
   };
+  const objectImageStyle = {
+    right: objectStyle.right,
+    bottom: objectStyle.bottom,
+    width: objectStyle.width,
+  };
   const copyStyle =
     variant % 3 === 0
       ? { top: '9%', bottom: 'auto' }
@@ -3121,7 +3126,7 @@ function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
             className="hook-cover-object-image"
             src={foregroundImageUrl}
             alt="Selected foreground asset"
-            style={objectStyle}
+            style={objectImageStyle}
           />
         ) : (
           <div className="hook-cover-object" style={objectStyle} />

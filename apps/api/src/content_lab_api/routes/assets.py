@@ -234,21 +234,28 @@ def list_assets(
     query = db.query(Asset).filter(Asset.org_id == org_id)
     if ready_status is not None:
         query = query.filter(Asset.status == ready_status)
+    ordered_pack_asset_ids: list[uuid.UUID] | None = None
     if asset_pack_id is not None:
-        pack_asset_ids = [
-            item.asset_id
-            for item in db.query(AssetPackItem.asset_id)
+        pack_items = (
+            db.query(AssetPackItem)
             .filter(
                 AssetPackItem.asset_pack_id == asset_pack_id,
                 AssetPackItem.asset_id.isnot(None),
             )
+            .order_by(AssetPackItem.priority, AssetPackItem.created_at, AssetPackItem.id)
             .all()
-        ]
+        )
+        pack_asset_ids = [item.asset_id for item in pack_items if item.asset_id is not None]
         if not pack_asset_ids:
             return []
+        ordered_pack_asset_ids = pack_asset_ids
         query = query.filter(Asset.id.in_(pack_asset_ids))
 
-    assets = query.order_by(Asset.created_at.desc(), Asset.id.desc()).all()
+    if ordered_pack_asset_ids is None:
+        assets = query.order_by(Asset.created_at.desc(), Asset.id.desc()).all()
+    else:
+        assets_by_id = {asset.id: asset for asset in query.all()}
+        assets = [assets_by_id[asset_id] for asset_id in ordered_pack_asset_ids if asset_id in assets_by_id]
     asset_ids = [asset.id for asset in assets]
     pack_ids_by_asset: dict[uuid.UUID, list[uuid.UUID]] = {asset_id: [] for asset_id in asset_ids}
     if asset_ids:
