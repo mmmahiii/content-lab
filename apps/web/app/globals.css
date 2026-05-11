@@ -803,6 +803,24 @@ dd {
   background: rgba(94, 234, 212, 0.075);
 }
 
+.pack-asset-browser {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.asset-card.is-compact {
+  padding: 8px;
+}
+
+.asset-card.is-compact .asset-preview {
+  min-height: 74px;
+}
+
+.asset-card.is-compact .asset-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .saved-pack-card-heading {
   display: flex;
   align-items: flex-start;
