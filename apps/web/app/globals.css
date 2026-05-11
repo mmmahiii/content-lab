@@ -632,6 +632,8 @@ dd {
 }
 
 .asset-preview {
+  position: relative;
+  overflow: hidden;
   display: grid;
   place-items: end start;
   min-height: 100%;
@@ -640,6 +642,22 @@ dd {
   font-size: 10px;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.asset-preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 7px;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.08) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.08) 75%);
+  background-position:
+    0 0,
+    8px 8px;
+  background-size: 16px 16px;
 }
 
 .asset-preview.is-small {
@@ -803,6 +821,24 @@ dd {
   background: rgba(94, 234, 212, 0.075);
 }
 
+.pack-asset-browser {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.asset-card.is-compact {
+  padding: 8px;
+}
+
+.asset-card.is-compact .asset-preview {
+  min-height: 74px;
+}
+
+.asset-card.is-compact .asset-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .saved-pack-card-heading {
   display: flex;
   align-items: flex-start;
@@ -899,6 +935,16 @@ dd {
   box-shadow: var(--shadow);
 }
 
+.hook-cover-background-image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.95;
+}
+
 .hook-cover-shine {
   position: absolute;
   inset: 0;
@@ -918,6 +964,15 @@ dd {
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 50%;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.hook-cover-object-image {
+  position: absolute;
+  z-index: 2;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  filter: drop-shadow(0 24px 38px rgba(0, 0, 0, 0.42));
 }
 
 .hook-cover-copy {

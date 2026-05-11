@@ -27,10 +27,11 @@ export async function GET(request: Request) {
     cache: 'no-store',
   });
 
-  return new NextResponse(await response.text(), {
+  return new NextResponse(await response.arrayBuffer(), {
     status: response.status,
     headers: {
-      'Content-Type': response.headers.get('content-type') ?? 'text/plain',
+      'Cache-Control': 'no-store',
+      'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
     },
   });
 }
