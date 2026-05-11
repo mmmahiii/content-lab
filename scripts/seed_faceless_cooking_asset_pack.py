@@ -33,6 +33,8 @@ from content_lab_api.models import (  # noqa: E402
     AssetPack,
     AssetPackStatus,
     Org,
+    Page,
+    PageKind,
     PlannedAssetSpec,
     PlannedAssetSpecStatus,
 )
@@ -349,6 +351,7 @@ def main() -> None:
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     with SessionLocal() as db:
         org = get_org(db, args.org_slug)
+        demo_page = ensure_demo_page(db, org_id=org.id) if args.create_demo_page else None
         pack = create_pack(db, org_id=org.id, pack_name=args.pack_name)
         summary_assets: list[dict[str, Any]] = []
         request = SimpleNamespace(state=SimpleNamespace(actor="seed_faceless_cooking_asset_pack"))
@@ -394,6 +397,8 @@ def main() -> None:
             "status": "seeded",
             "org_id": str(org.id),
             "org_slug": org.slug,
+            "demo_page_id": None if demo_page is None else str(demo_page.id),
+            "demo_page_name": None if demo_page is None else demo_page.display_name,
             "asset_pack_id": str(pack.id),
             "asset_pack_name": pack.name,
             "niche": pack.niche,
@@ -415,12 +420,18 @@ def parse_args() -> argparse.Namespace:
         description="Seed a faceless-cooking asset pack with real online PNG assets."
     )
     parser.add_argument("--database-url", default=None)
-    parser.add_argument("--org-slug", default="local-test-org")
+    parser.add_argument("--org-slug", default="default")
     parser.add_argument(
         "--pack-name",
-        default=f"Faceless Cooking Real PNG Pack {time.strftime('%Y%m%d-%H%M%S')}",
+        default="faceless cooking png test pack online",
     )
     parser.add_argument("--artifact-dir", default=None)
+    parser.add_argument(
+        "--create-demo-page",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Create or update the Faceless Cooking Demo page for the local web UI.",
+    )
     return parser.parse_args()
 
 
@@ -431,6 +442,54 @@ def get_org(db: Session, slug: str) -> Org:
     if org is None:
         raise RuntimeError("No target org found; create an org before seeding assets")
     return org
+
+
+def ensure_demo_page(db: Session, *, org_id: uuid.UUID) -> Page:
+    page = (
+        db.query(Page)
+        .filter(Page.org_id == org_id, Page.handle == "@faceless_cooking_demo")
+        .one_or_none()
+    )
+    metadata: dict[str, object] = {
+        "persona": {
+            "label": "Faceless cooking",
+            "audience": "Home cooks who want clear, saveable recipe prep tips.",
+            "brand_tone": ["useful", "clear", "calm"],
+            "content_pillars": ["recipe prep", "ingredient prep", "kitchen shortcuts"],
+            "differentiators": ["faceless", "ingredient-first", "no generation assets"],
+            "primary_call_to_action": "Save this recipe prep tip.",
+            "extensions": {},
+        },
+        "constraints": {
+            "banned_topics": [],
+            "blocked_phrases": [],
+            "required_disclosures": [],
+            "prohibited_claims": [],
+            "preferred_languages": ["en"],
+            "allow_direct_cta": True,
+            "max_script_words": 80,
+            "max_hashtags": 4,
+        },
+    }
+    if page is None:
+        page = Page(
+            org_id=org_id,
+            platform="instagram",
+            display_name="Faceless Cooking Demo",
+            external_page_id=None,
+            handle="@faceless_cooking_demo",
+            kind=PageKind.OWNED.value,
+            metadata_=metadata,
+        )
+        db.add(page)
+    else:
+        page.platform = "instagram"
+        page.display_name = "Faceless Cooking Demo"
+        page.kind = PageKind.OWNED.value
+        page.metadata_ = metadata
+    db.commit()
+    db.refresh(page)
+    return page
 
 
 def create_pack(db: Session, *, org_id: uuid.UUID, pack_name: str) -> AssetPack:
