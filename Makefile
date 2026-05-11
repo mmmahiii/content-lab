@@ -1,4 +1,4 @@
-.PHONY: help infra-up infra-down infra-app migrate py-install api worker orch web py-check py-check-smoke api-health-smoke orch-smoke
+.PHONY: help infra-up infra-down infra-app migrate seed-faceless-cooking-online py-install api worker orch web py-check py-check-smoke api-health-smoke orch-smoke
 
 POWERSHELL ?= powershell
 
@@ -20,6 +20,9 @@ infra-app: ## Start infra + app services (Docker build)
 
 migrate: ## Run Alembic migrations (apps/api)
 	cd apps/api && poetry run alembic upgrade head
+
+seed-faceless-cooking-online: ## Seed local Faceless Cooking Demo page + online PNG test pack
+	cd apps/api && poetry run python ../../scripts/seed_faceless_cooking_asset_pack.py --pack-name "faceless cooking png test pack online" --create-demo-page
 
 # ── Python install ───────────────────────────────────────────────────
 
