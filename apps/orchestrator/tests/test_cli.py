@@ -20,7 +20,9 @@ def test_cli_lists_registered_flows(capsys: pytest.CaptureFixture[str]) -> None:
 
     captured = capsys.readouterr()
     assert captured.out.splitlines() == [
+        "asset_pack_to_reels",
         "daily_reel_factory",
+        "generate_asset_pack",
         "outbox_drain",
         "process_reel",
         "provider_job_sweeper",

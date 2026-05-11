@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import uuid
+from collections import Counter
 from collections.abc import Generator
 from types import SimpleNamespace
 from typing import cast
@@ -30,6 +31,7 @@ from content_lab_api.models import (
 )
 from content_lab_api.schemas.asset_packs import SourceAssetRegisterRequest
 from content_lab_api.services.asset_packs import register_source_asset_for_pack
+from content_lab_assets.registry import validate_asset_kind_media_type
 from content_lab_shared.settings import Settings
 from content_lab_storage import StorageRef, StoredObject
 
@@ -87,7 +89,7 @@ def org_id(db_session: Session) -> uuid.UUID:
     org = Org(name="Asset Pack Org", slug=f"asset-pack-org-{uuid.uuid4().hex[:8]}")
     db_session.add(org)
     db_session.flush()
-    return org.id
+    return cast(uuid.UUID, org.id)
 
 
 def test_asset_pack_plan_route_persists_pack_specs_and_items(
@@ -158,6 +160,59 @@ def test_asset_pack_plan_route_persists_pack_specs_and_items(
     )
     assert persisted_spec is not None
     assert persisted_spec.required_traits["output_potential"]["score"] > 0
+
+
+def test_asset_pack_planning_smoke_honors_requested_asset_count_thirty(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/plan",
+        json={
+            "name": "Luxury mindset asset bank",
+            "niche": "luxury mindset",
+            "requested_asset_count": 30,
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    pack_id = uuid.UUID(payload["asset_pack"]["id"])
+    planned_specs = payload["planned_asset_specs"]
+    asset_mix = payload["asset_mix"]
+
+    assert payload["asset_pack"]["status"] == "planned"
+    assert payload["asset_pack"]["niche"] == "luxury mindset"
+    assert payload["asset_pack"]["requested_asset_count"] == 30
+    assert payload["asset_pack_plan"]
+    assert payload["reuse_rationale"]
+    assert payload["strategy_summary"]
+    assert len(planned_specs) == 30
+    assert sum(asset_mix.values()) == 30
+    assert all(count > 0 for count in asset_mix.values())
+
+    planned_counts: dict[str, int] = {}
+    for spec in planned_specs:
+        planned_counts[spec["asset_kind"]] = planned_counts.get(spec["asset_kind"], 0) + 1
+        validate_asset_kind_media_type(
+            asset_kind=spec["asset_kind"],
+            media_type=spec["media_type"],
+        )
+        assert spec["rationale"]
+        assert spec["output_potential_rationale"]
+        assert spec["priority"] >= 0
+
+    assert planned_counts == asset_mix
+    assert db_session.query(AssetPack).filter(AssetPack.id == pack_id).count() == 1
+    assert (
+        db_session.query(PlannedAssetSpec).filter(PlannedAssetSpec.asset_pack_id == pack_id).count()
+        == 30
+    )
+    assert (
+        db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack_id).count()
+        == 30
+    )
 
 
 def test_asset_pack_crud_routes_create_list_get_plan_and_items(
@@ -286,7 +341,91 @@ def test_asset_pack_combinations_route_returns_candidate_manifests(
     )
 
 
-def test_asset_pack_composition_render_submit_queues_process_reel_without_rendering(
+def test_asset_pack_to_multiple_reels_smoke_returns_overlapping_candidates(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    pack = AssetPack(
+        org_id=org_id,
+        name="Reusable luxury reel kit",
+        niche="luxury mindset",
+        requested_asset_count=8,
+        status="ready",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    component_specs = [
+        ("background_a", "background_image", "background", 0),
+        ("background_b", "background_image", "background", 1),
+        ("object_a", "transparent_cutout_png", "foreground", 2),
+        ("object_b", "transparent_cutout_png", "foreground", 3),
+        ("hook_a", "hook_text", "hook", 4),
+        ("hook_b", "hook_text", "hook", 5),
+        ("audio_a", "audio_track", "audio", 6),
+        ("audio_b", "audio_track", "audio", 7),
+    ]
+    assets: dict[str, Asset] = {}
+    for label, asset_kind, role, priority in component_specs:
+        asset = Asset(
+            org_id=org_id,
+            asset_class="component",
+            storage_uri=f"s3://content-lab/assets/{label}",
+            status="ready",
+        )
+        db_session.add(asset)
+        db_session.flush()
+        assets[label] = asset
+        db_session.add(
+            AssetPackItem(
+                asset_pack_id=pack.id,
+                asset_id=asset.id,
+                asset_kind=asset_kind,
+                pack_role=role,
+                status="selected",
+                priority=priority,
+                metadata_json={"title": label.replace("_", " ")},
+                compatibility_metadata={
+                    "niche": ["luxury_mindset"],
+                    "visual_style": ["cinematic"],
+                    "format_type": ["hook_led_tip"],
+                    "emotion": ["aspirational"],
+                },
+            )
+        )
+    db_session.flush()
+
+    response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{pack.id}/combinations",
+        json={
+            "target_reel_count": 5,
+            "filters": {"formats": ["hook_led_tip"], "styles": ["cinematic"]},
+            "mode": "balanced",
+        },
+    )
+
+    assert response.status_code == 200
+    candidates = response.json()["candidate_compositions"]
+    assert len(candidates) == 5
+    assert len({candidate["composition_id"] for candidate in candidates}) == 5
+    assert all(
+        set(candidate["roles"]) == {"audio", "background", "foreground", "hook"}
+        for candidate in candidates
+    )
+    role_asset_counts = Counter(
+        role_payload["asset_id"]
+        for candidate in candidates
+        for role_payload in candidate["roles"].values()
+    )
+    assert max(role_asset_counts.values()) > 1
+    assert any(
+        candidate["composition_manifest"]["roles"]["background"]["asset_id"]
+        in {str(assets["background_a"].id), str(assets["background_b"].id)}
+        for candidate in candidates
+    )
+
+
+def test_asset_pack_composition_render_submit_creates_local_hook_cover_output(
     asset_pack_client: TestClient,
     db_session: Session,
     org_id: uuid.UUID,
@@ -312,7 +451,6 @@ def test_asset_pack_composition_render_submit_queues_process_reel_without_render
         "composition_id": "composition-1",
         "roles": {"hook": {"asset_id": str(uuid.uuid4()), "asset_kind": "hook_text"}},
     }
-
     response = asset_pack_client.post(
         f"/orgs/{org_id}/asset-packs/{pack.id}/composition-renders",
         json={
@@ -337,13 +475,17 @@ def test_asset_pack_composition_render_submit_queues_process_reel_without_render
     assert family is not None
     assert payload["accepted_for_rendering"] is True
     assert run.workflow_key == "process_reel"
-    assert run.status == "queued"
+    assert run.status == "succeeded"
     assert run.external_ref is not None and run.external_ref.startswith("outbox:")
     assert run.input_params["composition_manifest"]["composition_id"] == "composition-1"
-    assert task.status == "queued"
+    assert task.status == "succeeded"
     assert task.payload["render_mode"] == "preview"
-    assert reel.status == "planning"
+    assert reel.status == "ready"
+    assert reel.metadata_["idea_plan"]["composition_manifest"]["composition_id"] == "composition-1"
     assert family.metadata_["composition_manifest"]["composition_id"] == "composition-1"
+    assert family.metadata_["idea_plan"]["hook"] == "hook_text"
+    assert run.output_payload["output_type"] == "hook_cover_image"
+    assert run.output_payload["package"]["hook_cover"]["hook"] == "hook_text"
     outbox = (
         db_session.query(OutboxEvent)
         .filter(OutboxEvent.aggregate_type == "run", OutboxEvent.aggregate_id == str(run.id))
@@ -754,6 +896,205 @@ def test_register_source_asset_for_pack_stores_png_and_attaches_item(
     )
     assert audit.actor_id == "operator:uploader"
     assert audit.payload["asset_id"] == str(asset.id)
+
+
+def test_asset_pack_registration_smoke_moves_pack_ready_with_linked_assets(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/plan",
+        json={
+            "name": "Registered source kit",
+            "niche": "luxury mindset",
+            "requested_asset_count": 2,
+            "asset_mix": {"object_image": 1, "hook_text": 1},
+        },
+    )
+    assert response.status_code == 201
+    pack_id = uuid.UUID(response.json()["asset_pack"]["id"])
+    pack = db_session.get(AssetPack, pack_id)
+    assert pack is not None
+    pack.status = "generating"
+    db_session.flush()
+    specs = (
+        db_session.query(PlannedAssetSpec)
+        .filter(PlannedAssetSpec.asset_pack_id == pack_id)
+        .order_by(PlannedAssetSpec.priority)
+        .all()
+    )
+    specs_by_kind = {spec.asset_kind: spec for spec in specs}
+    assert set(specs_by_kind) == {"hook_text", "object_image"}
+
+    request = cast(Request, SimpleNamespace(state=SimpleNamespace(actor="operator:uploader")))
+    storage = _FakeStorageClient()
+    image_asset, image_item, image_reused = register_source_asset_for_pack(
+        db_session,
+        request,
+        org_id=org_id,
+        asset_pack_id=pack_id,
+        body=SourceAssetRegisterRequest(
+            asset_class="component",
+            asset_kind="object_image",
+            asset_source="uploaded",
+            pack_role="product_prop",
+            priority=0,
+            planned_asset_spec_id=specs_by_kind["object_image"].id,
+            filename="product.png",
+            content_type="image/png",
+            data_base64=base64.b64encode(_PNG_1X1_TRANSPARENT).decode("ascii"),
+            metadata={"niche": "luxury mindset"},
+        ),
+        storage_client=storage,
+        settings=Settings(minio_bucket="content-lab"),
+    )
+    text_asset, text_item, text_reused = register_source_asset_for_pack(
+        db_session,
+        request,
+        org_id=org_id,
+        asset_pack_id=pack_id,
+        body=SourceAssetRegisterRequest(
+            asset_class="component",
+            asset_kind="hook_text",
+            asset_source="uploaded",
+            pack_role="hook_copy",
+            priority=1,
+            planned_asset_spec_id=specs_by_kind["hook_text"].id,
+            filename="hook.txt",
+            content_type="text/plain",
+            data_base64=base64.b64encode(
+                b"Luxury is a decision before it is a result."
+            ).decode("ascii"),
+            metadata={"niche": "luxury mindset"},
+        ),
+        storage_client=storage,
+        settings=Settings(minio_bucket="content-lab"),
+    )
+
+    db_session.expire_all()
+    pack = db_session.get(AssetPack, pack_id)
+    assert pack is not None
+    assert pack.status == "ready"
+    assert image_reused is False
+    assert text_reused is False
+    assert {image_asset.status, text_asset.status} == {"ready"}
+    assert image_asset.storage_uri.startswith(f"s3://content-lab/assets/raw/{image_asset.id}/")
+    assert text_asset.storage_uri.startswith(f"s3://content-lab/assets/raw/{text_asset.id}/")
+    assert image_item.asset_id == image_asset.id
+    assert text_item.asset_id == text_asset.id
+
+    items = (
+        db_session.query(AssetPackItem)
+        .filter(AssetPackItem.asset_pack_id == pack_id)
+        .order_by(AssetPackItem.priority)
+        .all()
+    )
+    assert len(items) == 2
+    assert {item.asset_id for item in items} == {image_asset.id, text_asset.id}
+    assert all(item.asset_id is not None for item in items)
+    assert db_session.query(Asset).filter(Asset.org_id == org_id).count() == 2
+    assert len(storage.puts) == 2
+    assert all(isinstance(put["ref"], StorageRef) for put in storage.puts)
+    assert all(str(cast(StorageRef, put["ref"]).uri).startswith("s3://") for put in storage.puts)
+
+
+def test_component_asset_registration_regression_not_full_video_only(
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    pack = AssetPack(
+        org_id=org_id,
+        name="Component-first source kit",
+        niche="luxury mindset",
+        requested_asset_count=5,
+        status="generating",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    request = cast(Request, SimpleNamespace(state=SimpleNamespace(actor="operator:uploader")))
+    storage = _FakeStorageClient()
+    source_assets = [
+        (
+            "object_image",
+            "hero_object",
+            "object.png",
+            "image/png",
+            _PNG_1X1_TRANSPARENT,
+        ),
+        (
+            "transparent_cutout_png",
+            "transparent_object",
+            "cutout.png",
+            "image/png",
+            _PNG_1X1_TRANSPARENT,
+        ),
+        (
+            "background_image",
+            "background",
+            "background.png",
+            "image/png",
+            _PNG_1X1_TRANSPARENT,
+        ),
+        (
+            "hook_text",
+            "hook",
+            "hook.txt",
+            "text/plain",
+            b"Luxury starts before anyone can see it.",
+        ),
+        (
+            "audio_track",
+            "audio",
+            "audio.wav",
+            "audio/wav",
+            b"RIFF\x24\x00\x00\x00WAVEfmt ",
+        ),
+    ]
+
+    registered: list[tuple[Asset, AssetPackItem]] = []
+    for priority, (asset_kind, pack_role, filename, content_type, data) in enumerate(source_assets):
+        asset, item, reused = register_source_asset_for_pack(
+            db_session,
+            request,
+            org_id=org_id,
+            asset_pack_id=pack.id,
+            body=SourceAssetRegisterRequest(
+                asset_class="component",
+                asset_kind=asset_kind,
+                asset_source="uploaded",
+                pack_role=pack_role,
+                priority=priority,
+                filename=filename,
+                content_type=content_type,
+                data_base64=base64.b64encode(data).decode("ascii"),
+                metadata={"niche": "luxury mindset"},
+            ),
+            storage_client=storage,
+            settings=Settings(minio_bucket="content-lab"),
+        )
+        assert reused is False
+        registered.append((asset, item))
+
+    db_session.expire_all()
+    pack = db_session.get(AssetPack, pack.id)
+    assert pack is not None
+    assert pack.status == "ready"
+    assert db_session.query(Asset).filter(Asset.org_id == org_id).count() == 5
+    assert len(storage.puts) == 5
+    assert {asset.metadata_["asset_kind"] for asset, _ in registered} == {
+        "audio_track",
+        "background_image",
+        "hook_text",
+        "object_image",
+        "transparent_cutout_png",
+    }
+    assert all(asset.asset_class == "component" for asset, _ in registered)
+    assert all(asset.storage_uri.startswith(f"s3://content-lab/assets/raw/{asset.id}/") for asset, _ in registered)
+    assert all(item.asset_id == asset.id for asset, item in registered)
+    assert all(item.status == "uploaded" for _, item in registered)
+    assert "final_render" not in {asset.metadata_["asset_kind"] for asset, _ in registered}
+    assert "generated_clip" not in {asset.metadata_["asset_kind"] for asset, _ in registered}
 
 
 def test_register_source_asset_for_pack_reuses_existing_source_asset_by_key(

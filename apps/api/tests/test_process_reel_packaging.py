@@ -352,6 +352,9 @@ def test_process_reel_service_fails_packaging_for_invalid_provenance() -> None:
 
     packaging_result = repository.tasks[(execution.run_id, "packaging")].result
     assert packaging_result is not None
-    assert packaging_result["package_qa"]["checks"][4]["message"] == (
+    checks_by_gate = {
+        check["gate_name"]: check for check in packaging_result["package_qa"]["checks"]
+    }
+    assert checks_by_gate["package_provenance"]["message"] == (
         "Package provenance must include at least one provider lineage entry."
     )

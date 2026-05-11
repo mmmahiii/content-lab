@@ -639,7 +639,7 @@ def _mapping_get(value: object, key: str) -> object:
 
 def _requires_layered_output_check(package_payload: Mapping[str, Any]) -> bool:
     return any(
-        key in package_payload
+        _has_payload(package_payload.get(key))
         for key in (
             "composition_manifest",
             "layered_composition",
@@ -647,6 +647,12 @@ def _requires_layered_output_check(package_payload: Mapping[str, Any]) -> bool:
             "final_video_metadata",
         )
     )
+
+
+def _has_payload(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return bool(value)
+    return value not in (None, "")
 
 
 def _layered_output_metadata(package_payload: Mapping[str, Any]) -> Mapping[str, Any]:

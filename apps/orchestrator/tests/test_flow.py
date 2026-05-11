@@ -1081,7 +1081,9 @@ def test_example_flow_alias_uses_default_phase1_flow() -> None:
 
 def test_flow_discovery_lists_phase1_flows() -> None:
     assert list_flow_names() == (
+        "asset_pack_to_reels",
         "daily_reel_factory",
+        "generate_asset_pack",
         "outbox_drain",
         "process_reel",
         "provider_job_sweeper",

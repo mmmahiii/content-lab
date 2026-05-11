@@ -252,6 +252,16 @@ def test_validate_layered_output_format_passes_for_valid_reel_output() -> None:
     assert result.details["findings"] == []
 
 
+def test_validate_layered_output_format_skips_empty_composition_manifest() -> None:
+    payload = _valid_package_payload()
+    payload["composition_manifest"] = {}
+
+    result = validate_layered_output_format(payload)
+
+    assert result.passed
+    assert result.verdict.value == "skip"
+
+
 def test_validate_layered_output_format_blocks_broken_render_package() -> None:
     payload = _valid_package_payload()
     payload["composition_manifest"] = {"schema_version": "composition_manifest_v1"}

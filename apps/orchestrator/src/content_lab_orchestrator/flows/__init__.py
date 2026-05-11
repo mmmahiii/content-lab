@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .asset_pack_generation import generate_asset_pack
+from .asset_pack_to_reels import asset_pack_to_reels
 from .daily_reel_factory import (
     DEFAULT_FACTORY_DISPATCH_MODE,
     daily_reel_factory,
@@ -35,8 +37,10 @@ __all__ = [
     "FlowDefinition",
     "FlowNotFoundError",
     "FlowRegistryError",
+    "asset_pack_to_reels",
     "daily_reel_factory",
     "example_flow",
+    "generate_asset_pack",
     "get_flow_definition",
     "list_flow_definitions",
     "list_flow_names",

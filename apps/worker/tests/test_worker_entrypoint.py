@@ -1,5 +1,6 @@
 from content_lab_worker.actors import discover_actor_module_names
 from content_lab_worker.actors._shared import build_queue_name
+from content_lab_worker.actors.editing import render_layered_composition
 from content_lab_worker.actors.outbox_dispatcher import dispatch_outbox
 from content_lab_worker.worker import ACTOR_REGISTRATION, ping
 
@@ -27,6 +28,7 @@ def test_discover_actor_module_names_is_stable() -> None:
 def test_entrypoint_registers_all_actor_modules() -> None:
     assert ACTOR_REGISTRATION.module_names == discover_actor_module_names()
     assert ping in ACTOR_REGISTRATION.actors
+    assert render_layered_composition in ACTOR_REGISTRATION.actors
     assert dispatch_outbox in ACTOR_REGISTRATION.actors
     assert [module.__name__ for module in ACTOR_REGISTRATION.modules] == list(
         ACTOR_REGISTRATION.module_names

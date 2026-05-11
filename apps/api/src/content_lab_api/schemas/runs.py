@@ -37,6 +37,8 @@ class WorkflowKey(StrEnum):
     """Named phase-1 flows operators can trigger through the API."""
 
     DAILY_REEL_FACTORY = "daily_reel_factory"
+    GENERATE_ASSET_PACK = "generate_asset_pack"
+    ASSET_PACK_TO_REELS = "asset_pack_to_reels"
     PROCESS_REEL = "process_reel"
 
 

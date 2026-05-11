@@ -1334,6 +1334,7 @@ class PhaseOneProcessReelExecutor:
             overlay_render_trace=overlay_render_trace_payload,
             timeline=timeline_payload,
             timeline_render_trace=timeline_render_trace_payload,
+            composition_manifest=_composition_manifest_from_creative_output(creative_output),
             temp_root=workdir,
             upload_metadata={
                 "reel-id": execution.reel_id,
@@ -1341,6 +1342,10 @@ class PhaseOneProcessReelExecutor:
             },
         )
         package_payload = dict(built.package_payload)
+        layered_output = _layered_output_from_editing_output(editing_output)
+        if layered_output:
+            package_payload["layered_output"] = layered_output
+            package_payload["final_video_metadata"] = layered_output
         package_payload["ready_for_publish"] = True
         package_payload["local_package_path"] = str(built.local_package.directory)
         return package_payload
@@ -1653,6 +1658,57 @@ def _step_output(execution: ProcessReelExecution, step: str) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise ValueError(f"Missing step output for {step!r}")
     return dict(payload)
+
+
+def _composition_manifest_from_creative_output(
+    creative_output: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    source_plan = _mapping(_mapping(creative_output.get("brief")).get("source_plan"))
+    manifest = _mapping(source_plan.get("composition_manifest"))
+    return manifest or None
+
+
+def _layered_output_from_editing_output(
+    editing_output: Mapping[str, Any],
+) -> dict[str, Any]:
+    width = _optional_float(editing_output.get("width"))
+    height = _optional_float(editing_output.get("height"))
+    duration = _optional_float(editing_output.get("duration_seconds"))
+    output: dict[str, Any] = {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "container": "mp4",
+    }
+    if width is not None:
+        output["width"] = width
+    if height is not None:
+        output["height"] = height
+    if duration is not None:
+        output["duration_seconds"] = duration
+
+    streams: list[dict[str, Any]] = []
+    if width is not None and height is not None:
+        video_stream: dict[str, Any] = {
+            "codec_type": "video",
+            "width": width,
+            "height": height,
+        }
+        video_codec = _optional_text(editing_output.get("final_video_codec"))
+        if video_codec:
+            video_stream["codec_name"] = video_codec
+        streams.append(video_stream)
+
+    has_audio = bool(editing_output.get("has_audio_track"))
+    audio_codec = _optional_text(editing_output.get("final_audio_codec"))
+    if has_audio or audio_codec:
+        audio_stream = {"codec_type": "audio"}
+        if audio_codec:
+            audio_stream["codec_name"] = audio_codec
+        streams.append(audio_stream)
+    if streams:
+        output["streams"] = streams
+    if not has_audio and not audio_codec:
+        output["intentional_silence"] = bool(editing_output.get("intentional_silence"))
+    return output
 
 
 def _build_primary_asset_prompt(

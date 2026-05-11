@@ -45,6 +45,16 @@ def _build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--reel-id", default="demo-reel")
     run_cmd.add_argument("--run-id", default=None)
     run_cmd.add_argument("--dry-run", action="store_true")
+    run_cmd.add_argument("--org-id", default="")
+    run_cmd.add_argument("--asset-pack-id", default=None)
+    run_cmd.add_argument("--asset-pack-name", default=None)
+    run_cmd.add_argument("--niche", default="")
+    run_cmd.add_argument("--requested-asset-count", type=int, default=1)
+    run_cmd.add_argument("--auto-approve", action="store_true")
+    run_cmd.add_argument("--target-reel-count", type=int, default=5)
+    run_cmd.add_argument("--render-selected", action="store_true")
+    run_cmd.add_argument("--render-limit", type=int, default=1)
+    run_cmd.add_argument("--page-id", default=None)
     run_cmd.add_argument(
         "--batch-size",
         type=int,

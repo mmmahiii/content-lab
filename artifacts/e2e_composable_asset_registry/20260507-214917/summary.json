@@ -1,0 +1,56 @@
+{
+  "artifact_dir": "C:\\Users\\islam\\OneDrive\\Documents\\content-lab\\artifacts\\e2e_composable_asset_registry\\20260507-214917",
+  "asset_pack_id": "2e8f5ba7-91a6-4078-aba3-47dd1af56b7b",
+  "candidate_count": 5,
+  "lineage": {
+    "asset_usage_count": 10,
+    "roles": [
+      "audio",
+      "background",
+      "final_render",
+      "hook",
+      "object"
+    ]
+  },
+  "registration": {
+    "asset_count": 10,
+    "by_kind": {
+      "audio_track": 2,
+      "background_image": 2,
+      "hook_text": 3,
+      "object_image": 1,
+      "transparent_cutout_png": 2
+    }
+  },
+  "rendered_reels": [
+    {
+      "candidate_index": 1,
+      "component_asset_ids": [
+        "db988597-97ad-4bf6-bca7-db4155a1b836",
+        "f3080b4c-8e5f-477a-9e99-52b38771c855",
+        "3c0a3eda-dffc-4634-a2bb-d50f4df0daf8",
+        "810756ab-c2ad-4ea5-b6df-563f705aad04"
+      ],
+      "composition_id": "6c8bbe585c0cf1c02349d077",
+      "final_render_asset_id": "a524ad92-255e-4000-8844-9fc90f1739c4",
+      "path": "C:\\Users\\islam\\OneDrive\\Documents\\content-lab\\artifacts\\e2e_composable_asset_registry\\20260507-214917\\candidate_1.mp4",
+      "reel_id": "8f92c39c-a42e-4d4c-978c-4bf51ca6beff",
+      "sha256": "80795bab75702af11512ee72b64ffab29780cfaae9b9f62f836ef3f8479f1408"
+    },
+    {
+      "candidate_index": 2,
+      "component_asset_ids": [
+        "db988597-97ad-4bf6-bca7-db4155a1b836",
+        "f3080b4c-8e5f-477a-9e99-52b38771c855",
+        "3c0a3eda-dffc-4634-a2bb-d50f4df0daf8",
+        "42b9a5fb-9c6b-4c5e-9a7d-c54344fca4e7"
+      ],
+      "composition_id": "ff59231052b73a7162d3b0f6",
+      "final_render_asset_id": "f7583cfc-9c52-43f7-8866-4bc7bba75d23",
+      "path": "C:\\Users\\islam\\OneDrive\\Documents\\content-lab\\artifacts\\e2e_composable_asset_registry\\20260507-214917\\candidate_2.mp4",
+      "reel_id": "6f5edf8a-711d-4eef-ba00-4065e5b994a0",
+      "sha256": "0d2be1ade616004a402fa79e135a91306dfaf4d33731411ba6e2db0ec4d5c22a"
+    }
+  ],
+  "status": "passed"
+}

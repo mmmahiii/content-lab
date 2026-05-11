@@ -189,6 +189,81 @@ def test_key001_different_asset_kinds_do_not_collide() -> None:
     assert len(set(hashes.values())) == len(hashes), hashes
 
 
+def test_component_asset_key_regression_component_roles_do_not_collide() -> None:
+    shared_text = {
+        "canonical_text": "Luxury is a decision before it is a result.",
+        "timing": {"start": 0, "end": 2.5},
+        "layout": {"anchor": "top", "x": 0.5, "y": 0.12},
+        "safe_area": {"top": 0.08, "bottom": 0.12, "left": 0.05, "right": 0.05},
+        "template_version": "text-component-v1",
+        "style": {"font": "Inter Bold", "size": 72},
+    }
+    hook_text = build_overlay_text_asset_key(asset_kind="hook_text", **shared_text)
+    caption_text = build_overlay_text_asset_key(asset_kind="caption_text", **shared_text)
+
+    shared_prompt = _shared_kwargs(
+        asset_class="component",
+        prompt="Luxury morning desk ritual, cinematic natural light",
+        seed=11,
+        ratio="9:16",
+    )
+    background_image = build_asset_key(
+        **{**shared_prompt, "asset_kind": "background_image", "media_type": "image"}
+    )
+    object_image = build_asset_key(
+        **{**shared_prompt, "asset_kind": "object_image", "media_type": "image"}
+    )
+
+    generated_clip = build_asset_key(
+        **{
+            **shared_prompt,
+            "asset_kind": "generated_clip",
+            "media_type": "video",
+            "duration_seconds": 6,
+            "fps": 24,
+        }
+    )
+    final_render = build_final_render_asset_key(
+        ordered_source_asset_ids_or_hashes=[uuid.uuid4(), "hookhash"],
+        composition_manifest_hash="manifesthash",
+        edit_template_version="edit-v1",
+        export_preset={"container": "mp4", "codec": "h264"},
+        render_parameters={"width": 1080, "height": 1920, "fps": 24},
+    )
+
+    source_asset_id = uuid.uuid4()
+    cutout_recipe = {
+        "operation": "remove_background",
+        "model": "rembg-u2net",
+        "alpha_mode": "alpha",
+    }
+    transparent_cutout_png = build_derived_asset_key(
+        asset_kind="transparent_cutout_png",
+        source_asset_id=source_asset_id,
+        transform_recipe=cutout_recipe,
+        transform_recipe_version="cutout-v1",
+        output_parameters={"format": "png", "background": "transparent"},
+    )
+    source_image = build_derived_asset_key(
+        asset_kind="object_image",
+        source_asset_id=source_asset_id,
+        transform_recipe=cutout_recipe,
+        transform_recipe_version="cutout-v1",
+        output_parameters={"format": "png", "background": "transparent"},
+    )
+
+    pairs = [
+        (hook_text, caption_text),
+        (background_image, object_image),
+        (generated_clip, final_render),
+        (transparent_cutout_png, source_image),
+    ]
+    for left, right in pairs:
+        assert left.asset_key_hash != right.asset_key_hash
+        assert left.asset_key != right.asset_key
+        assert left.canonical_params["asset_kind"] != right.canonical_params["asset_kind"]
+
+
 def test_key001_same_inputs_with_default_asset_kind_are_stable() -> None:
     first = build_asset_key(**_shared_kwargs(prompt="Hero launch shot"))
     second = build_asset_key(
