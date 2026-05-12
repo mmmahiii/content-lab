@@ -935,6 +935,10 @@ dd {
   box-shadow: var(--shadow);
 }
 
+.hook-cover-preview.is-steak-hook {
+  background: #0d1113;
+}
+
 .hook-cover-background-image {
   position: absolute;
   inset: 0;
@@ -1180,6 +1184,312 @@ dd {
   box-shadow: 0 14px 28px rgba(0, 0, 0, 0.26);
   touch-action: none;
   user-select: none;
+}
+
+.hook-canvas-background-image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.steak-hook-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 38%),
+    linear-gradient(180deg, #d8c4a6 0 36%, #f1e4cb 36% 38%, #14191b 38% 87%, #05070a 87%);
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.steak-hook-countertop {
+  position: absolute;
+  inset: 0 0 38%;
+  background:
+    radial-gradient(circle at 21% 4%, rgba(255, 255, 255, 0.8), transparent 13%),
+    linear-gradient(90deg, rgba(119, 86, 58, 0.24), transparent 36%),
+    #d9c1a0;
+}
+
+.steak-hook-tray {
+  position: absolute;
+  top: 7%;
+  left: -8%;
+  width: 48%;
+  height: 18%;
+  border-radius: 50%;
+  background: rgba(196, 157, 102, 0.58);
+  box-shadow: inset 0 0 0 8px rgba(228, 199, 150, 0.44);
+}
+
+.steak-hook-tray span {
+  position: absolute;
+  bottom: 22%;
+  width: 8%;
+  height: 78%;
+  border: 3px solid rgba(255, 255, 255, 0.72);
+  border-radius: 45% 45% 12% 12%;
+}
+
+.steak-hook-tray span:nth-child(1) {
+  left: 48%;
+  height: 92%;
+}
+
+.steak-hook-tray span:nth-child(2) {
+  left: 61%;
+}
+
+.steak-hook-tray span:nth-child(3) {
+  left: 74%;
+  height: 62%;
+}
+
+.steak-hook-planter {
+  position: absolute;
+  top: 22%;
+  right: -2%;
+  width: 60%;
+  height: 24%;
+  border-radius: 3px;
+  background:
+    radial-gradient(circle at 12% 88%, #2d2117 0 12%, transparent 13%),
+    radial-gradient(circle at 38% 82%, #352215 0 14%, transparent 15%),
+    radial-gradient(circle at 72% 84%, #2a1e15 0 16%, transparent 17%),
+    #eee4d1;
+  box-shadow: 0 8px 22px rgba(59, 37, 22, 0.2);
+}
+
+.steak-hook-planter::before,
+.steak-hook-planter::after,
+.steak-hook-planter span {
+  position: absolute;
+  bottom: 28%;
+  width: 18%;
+  height: 62%;
+  border-radius: 999px 999px 30% 30%;
+  background:
+    radial-gradient(ellipse at 35% 25%, #7caf51 0 13%, transparent 14%),
+    radial-gradient(ellipse at 68% 38%, #5e8f3d 0 15%, transparent 16%),
+    radial-gradient(ellipse at 46% 58%, #6fa14b 0 17%, transparent 18%),
+    linear-gradient(90deg, transparent 47%, #406329 48% 52%, transparent 53%);
+  content: "";
+}
+
+.steak-hook-planter::before {
+  left: 12%;
+}
+
+.steak-hook-planter span {
+  left: 39%;
+  transform: scale(1.08);
+}
+
+.steak-hook-planter::after {
+  right: 8%;
+  transform: scale(1.2);
+}
+
+.steak-hook-hob {
+  position: absolute;
+  inset: 38% 0 12%;
+  background:
+    radial-gradient(circle at 88% 33%, transparent 0 17%, rgba(255, 255, 255, 0.18) 18% 19%, transparent 20%),
+    linear-gradient(160deg, #202525, #080b0d 66%);
+}
+
+.steak-hook-pan {
+  position: absolute;
+  top: 11%;
+  left: -12%;
+  width: 72%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 55% 44%, rgba(255, 224, 167, 0.28), transparent 34%),
+    radial-gradient(circle at 50% 50%, #252a2b 0 60%, #07090a 61% 68%, transparent 69%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.58);
+}
+
+.steak-hook-pan::after {
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  width: 10%;
+  height: 56%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d3d7d9, #606568 55%, #171a1c);
+  content: "";
+  transform: rotate(72deg);
+  transform-origin: top;
+}
+
+.steak-hook-steak {
+  position: absolute;
+  top: 39%;
+  width: 26%;
+  height: 18%;
+  border-radius: 18% 24% 18% 24%;
+  background:
+    linear-gradient(35deg, rgba(255, 255, 255, 0.2), transparent 52%),
+    #b17b60;
+  box-shadow:
+    inset 0 -6px 0 rgba(81, 35, 27, 0.38),
+    0 3px 7px rgba(0, 0, 0, 0.42);
+}
+
+.steak-hook-steak.is-left {
+  left: 19%;
+  transform: rotate(8deg);
+}
+
+.steak-hook-steak.is-right {
+  left: 51%;
+  transform: rotate(4deg);
+}
+
+.steak-hook-fat {
+  position: absolute;
+  right: 25%;
+  bottom: 29%;
+  width: 26%;
+  height: 8%;
+  border-radius: 999px;
+  background: rgba(248, 232, 185, 0.58);
+  filter: blur(2px);
+}
+
+.steak-hook-vent {
+  position: absolute;
+  right: 0;
+  top: 24%;
+  width: 27%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 6px, rgba(255, 255, 255, 0.12) 7px 8px),
+    #050607;
+}
+
+.instagram-status-bar,
+.instagram-actions,
+.instagram-caption-strip,
+.instagram-tabbar {
+  position: absolute;
+  z-index: 4;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+}
+
+.instagram-status-bar {
+  top: 2.8%;
+  left: 6%;
+  right: 6%;
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.instagram-phone-icons {
+  letter-spacing: 2px;
+}
+
+.instagram-actions {
+  right: 4%;
+  bottom: 17%;
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  font-size: 30px;
+  font-weight: 500;
+}
+
+.instagram-actions span {
+  display: grid;
+  justify-items: center;
+}
+
+.instagram-actions small {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.instagram-caption-strip {
+  left: 4%;
+  right: 4%;
+  bottom: 8%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.instagram-avatar,
+.instagram-page-badge {
+  display: grid;
+  place-items: center;
+  width: 39px;
+  height: 39px;
+  border: 2px solid #c028a6;
+  border-radius: 50%;
+  background: #4c2344;
+  font-size: 6px;
+  font-weight: 900;
+}
+
+.instagram-follow {
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.instagram-caption-strip p {
+  grid-column: 1 / 3;
+  margin: 0;
+  font-size: 13px;
+}
+
+.instagram-page-badge {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  width: 30px;
+  height: 30px;
+}
+
+.instagram-tabbar {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: 7%;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: #080b0f;
+  font-size: 26px;
+}
+
+.instagram-tabbar span {
+  position: relative;
+}
+
+.instagram-tabbar i {
+  position: absolute;
+  right: -4px;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e53343;
 }
 
 .hook-canvas-item.is-selected {

@@ -295,6 +295,45 @@ const assetKindTabs: { kind: AssetLibraryKind; label: string }[] = [
 
 const assetLibrarySeed: AssetLibraryItem[] = [
   {
+    id: 'steak-hook-bg',
+    title: 'Steakpagetest pan hook plate',
+    kind: 'background',
+    mediaType: 'image/jpeg',
+    pack: 'steakpagetest screenshot recreation',
+    tags: ['steakpagetest', 'steak', 'pan', 'instagram-hook'],
+    layerSuitability: 'Vertical reel background, native UI chrome',
+    reuseCount: 12,
+    performanceScore: 97,
+    previewTone: 'linear-gradient(180deg, #d9c4a1 0%, #f3ead8 38%, #161b1d 39%, #0d1113 100%)',
+    imageUrl:
+      'https://commons.wikimedia.org/wiki/Special:Redirect/file/Beef_round_top_round_steak_in_pan,_raw.jpg',
+  },
+  {
+    id: 'steak-hook-herbs',
+    title: 'Countertop herb planter cue',
+    kind: 'object',
+    mediaType: 'image/png',
+    pack: 'steakpagetest screenshot recreation',
+    tags: ['steakpagetest', 'herbs', 'countertop', 'foreground'],
+    layerSuitability: 'Upper-right herb planter foreground cue',
+    reuseCount: 9,
+    performanceScore: 92,
+    previewTone: 'radial-gradient(circle at 50% 40%, #86a85e 0 23%, #36522b 24% 45%, #2c2118 46%)',
+    imageUrl: 'https://commons.wikimedia.org/wiki/Special:Redirect/file/Basil.png',
+  },
+  {
+    id: 'steak-hook-copy',
+    title: 'Verse kruiden binnen handbereik',
+    kind: 'hook',
+    mediaType: 'text/plain',
+    pack: 'steakpagetest screenshot recreation',
+    tags: ['steakpagetest', 'dutch-caption', 'native-ui'],
+    layerSuitability: 'Native Instagram lower caption hook',
+    reuseCount: 14,
+    performanceScore: 95,
+    previewTone: 'linear-gradient(135deg, #0f172a, #f97316)',
+  },
+  {
     id: 'bg-01',
     title: 'Desk gradient loop',
     kind: 'background',
@@ -401,6 +440,28 @@ const assetLibrarySeed: AssetLibraryItem[] = [
     reuseCount: 3,
     performanceScore: 92,
     previewTone: 'linear-gradient(135deg, #111827, #e2e8f0 50%, #5eead4)',
+  },
+];
+
+const steakHookAssets = {
+  herbs: assetLibrarySeed.find((asset) => asset.id === 'steak-hook-herbs') ?? assetLibrarySeed[0],
+  copy: assetLibrarySeed.find((asset) => asset.id === 'steak-hook-copy') ?? assetLibrarySeed[0],
+};
+
+const steakPresetItems: HookCanvasItem[] = [
+  {
+    id: 'steak-hook-herbs-preset',
+    asset: steakHookAssets.herbs,
+    x: 69,
+    y: 31,
+    size: 40,
+  },
+  {
+    id: 'steak-hook-copy-preset',
+    asset: steakHookAssets.copy,
+    x: 36,
+    y: 93,
+    size: 46,
   },
 ];
 
@@ -3094,6 +3155,58 @@ function GeneratedCompositionOutputBox({
   );
 }
 
+function SteakHookScene() {
+  return (
+    <div className="steak-hook-scene" aria-hidden="true">
+      <div className="steak-hook-countertop">
+        <div className="steak-hook-tray">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="steak-hook-planter">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+      <div className="steak-hook-hob">
+        <div className="steak-hook-pan">
+          <span className="steak-hook-steak is-left" />
+          <span className="steak-hook-steak is-right" />
+          <span className="steak-hook-fat" />
+        </div>
+        <div className="steak-hook-vent" />
+      </div>
+      <div className="instagram-status-bar">
+        <span>17:12</span>
+        <span className="instagram-phone-icons">▮▮▮ ◔ ▰</span>
+      </div>
+      <div className="instagram-actions">
+        <span>♡<small>222K</small></span>
+        <span>◉<small>1,063</small></span>
+        <span>↪<small>4,623</small></span>
+        <span>⌁<small>121K</small></span>
+        <span>⋯</span>
+      </div>
+      <div className="instagram-caption-strip">
+        <span className="instagram-avatar">GRANDO</span>
+        <strong>grandohazerswoudedorp</strong>
+        <span className="instagram-follow">Follow</span>
+        <p>Verse kruiden binnen handbereik 🌿 ...</p>
+        <span className="instagram-page-badge">GRANDO</span>
+      </div>
+      <div className="instagram-tabbar">
+        <span>⌂</span>
+        <span>▶</span>
+        <span>♡<i /></span>
+        <span>⌕</span>
+        <span>●<i /></span>
+      </div>
+    </div>
+  );
+}
+
 function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
   const cover = hookCoverPayload(run);
   if (!cover) {
@@ -3101,6 +3214,19 @@ function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
       <div className="empty-state">
         Queue a new hook / cover run to see the asset-pack image preview here.
       </div>
+    );
+  }
+  if (isSteakHookCover(cover)) {
+    return (
+      <section className="hook-cover-output" aria-label="Generated hook cover preview">
+        <div className="hook-cover-preview is-steak-hook">
+          <SteakHookScene />
+        </div>
+        <div className="hook-cover-meta">
+          <span className="status-pill success">Local image</span>
+          <span>{textValue(cover.title) ?? 'steakpagetest Instagram hook recreation'}</span>
+        </div>
+      </section>
     );
   }
   const roles = asRecord(cover.roles) ?? {};
@@ -3166,15 +3292,16 @@ export function HookImageCreator() {
   const placeableAssets = assetLibrarySeed.filter(
     (asset) => asset.kind === 'object' || asset.kind === 'hook',
   );
-  const [selectedBackgroundId, setSelectedBackgroundId] = useState(bestAsset('background').id);
-  const [items, setItems] = useState<HookCanvasItem[]>([]);
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [selectedBackgroundId, setSelectedBackgroundId] = useState('steak-hook-bg');
+  const [items, setItems] = useState<HookCanvasItem[]>(steakPresetItems);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>('steak-hook-copy-preset');
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<HookCanvasDragState | null>(null);
 
   const selectedBackground =
     backgrounds.find((asset) => asset.id === selectedBackgroundId) ?? backgrounds[0];
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
+  const isSteakCanvas = selectedBackground.id === 'steak-hook-bg';
 
   function addItem(asset: AssetLibraryItem) {
     const siblingCount = items.filter((item) => item.asset.id === asset.id).length;
@@ -3211,6 +3338,12 @@ export function HookImageCreator() {
   function resetCanvas() {
     setItems([]);
     setSelectedItemId(null);
+  }
+
+  function loadSteakPreset() {
+    setSelectedBackgroundId('steak-hook-bg');
+    setItems(steakPresetItems);
+    setSelectedItemId('steak-hook-copy-preset');
   }
 
   function beginMove(event: React.PointerEvent<HTMLButtonElement>, item: HookCanvasItem) {
@@ -3289,6 +3422,9 @@ export function HookImageCreator() {
         </div>
         <span className="status-pill">Local only</span>
       </div>
+      <button className="utility-button" type="button" onClick={loadSteakPreset}>
+        Load steakpagetest screenshot preset
+      </button>
 
       <div className="hook-creator-layout">
         <div className="hook-controls">
@@ -3398,11 +3534,20 @@ export function HookImageCreator() {
             onPointerCancel={endPointer}
             onPointerLeave={endPointer}
           >
+            {isSteakCanvas ? <SteakHookScene /> : null}
+            {selectedBackground.imageUrl && !isSteakCanvas ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className="hook-canvas-background-image"
+                src={selectedBackground.imageUrl}
+                alt={selectedBackground.title}
+              />
+            ) : null}
             <div className="hook-safe-area" />
             {items.length === 0 ? (
               <div className="hook-empty-state">Choose assets to place on this reel template.</div>
             ) : null}
-            {items.map((item) => (
+            {!isSteakCanvas ? items.map((item) => (
               <button
                 className={
                   item.id === selectedItemId
@@ -3432,7 +3577,7 @@ export function HookImageCreator() {
                   />
                 ) : null}
               </button>
-            ))}
+            )) : null}
           </div>
         </div>
       </div>
@@ -3508,8 +3653,8 @@ function mapAssetLibraryItemOut(row: AssetLibraryItemOut): AssetLibraryItem {
     layerSuitability: row.has_transparency ? 'Transparent overlay' : 'Reusable source asset',
     reuseCount: row.reuse_count,
     performanceScore: Math.round((row.performance_score ?? numericValue(metadata.performance_score) ?? 0.72) * 100),
-    previewTone: previewToneForAsset(row.id, row.asset_kind, title),
-    imageUrl: proxiedDownloadUrl(row.download?.url),
+    previewTone: textValue(metadata.preview_tone) ?? previewToneForAsset(row.id, row.asset_kind, title),
+    imageUrl: proxiedDownloadUrl(row.download?.url) ?? textValue(metadata.image_url) ?? undefined,
   };
 }
 
@@ -3659,6 +3804,21 @@ function assetImageUrl(asset: Record<string, unknown> | null): string | null {
   return textValue(metadata?.image_url);
 }
 
+function isSteakHookCover(cover: Record<string, unknown>): boolean {
+  const sourcePlan = asRecord(cover.source_plan);
+  const manifest = asRecord(sourcePlan?.composition_manifest);
+  const metadata = asRecord(manifest?.metadata);
+  if (textValue(metadata?.template) === 'instagram_steak_hook') {
+    return true;
+  }
+  const roles = asRecord(cover.roles) ?? {};
+  return Object.values(roles).some((role) => {
+    const roleRecord = asRecord(role);
+    const roleMetadata = asRecord(roleRecord?.metadata);
+    return stringList(roleMetadata?.tags).includes('steakpagetest');
+  });
+}
+
 function proxiedDownloadUrl(url: string | undefined): string | undefined {
   if (!url) {
     return undefined;
@@ -3796,8 +3956,26 @@ function buildCompositionManifest({
       style_constraints: planner.styleConstraints,
       quality_level: planner.qualityLevel,
     },
+    metadata: selectedCombinationHasTag(
+      [selectedBackground, selectedObject, selectedHook, selectedAudio, selectedVideo],
+      'steakpagetest',
+    )
+      ? {
+          template: 'instagram_steak_hook',
+          page_slug: 'steakpagetest',
+          reference: 'uploaded Instagram steak hook screenshot recreation',
+        }
+      : {},
   };
 }
+
+function selectedCombinationHasTag(
+  assets: (AssetLibraryItem | null)[],
+  tag: string,
+): boolean {
+  return assets.some((asset) => asset?.tags.includes(tag));
+}
+
 function localAssetForManifest(asset: AssetLibraryItem): Record<string, unknown> {
   return {
     asset_id: asset.id,
