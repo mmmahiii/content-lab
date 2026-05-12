@@ -25,11 +25,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 for path in (
     REPO_ROOT / "apps" / "api" / "src",
     REPO_ROOT / "packages" / "assets" / "src",
-    REPO_ROOT / "packages" / "shared" / "py",
+    REPO_ROOT / "packages" / "shared" / "py" / "src",
+    REPO_ROOT / "packages" / "storage" / "src",
 ):
     sys.path.insert(0, str(path))
 
-from content_lab_api.config import Settings  # noqa: E402
 from content_lab_api.models import (  # noqa: E402
     AssetPack,
     AssetPackStatus,
@@ -49,6 +49,7 @@ from content_lab_assets.types import (  # noqa: E402
     AssetSourceType,
     MediaType,
 )
+from content_lab_shared.settings import Settings  # noqa: E402
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 ORG_SLUG = "testorg1"
