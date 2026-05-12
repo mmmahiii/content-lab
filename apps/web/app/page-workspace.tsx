@@ -2353,20 +2353,20 @@ export function AssetPackGenerationWorkspace({
       ? candidateCompositions[compositionPickIndex % candidateCompositions.length]
       : null;
   const selectedBackground =
-    assetFromCandidateRole(selectedCandidate, 'background') ??
+    assetFromCandidateRole(selectedCandidate, 'background', activeOrgId()) ??
     pickAsset('background', compositionSeed, 0, activeAssetLibrary);
   const selectedObject =
-    assetFromCandidateRole(selectedCandidate, 'foreground') ??
-    assetFromCandidateRole(selectedCandidate, 'object') ??
+    assetFromCandidateRole(selectedCandidate, 'foreground', activeOrgId()) ??
+    assetFromCandidateRole(selectedCandidate, 'object', activeOrgId()) ??
     pickAsset('object', compositionSeed, 1, activeAssetLibrary);
   const selectedHook =
-    assetFromCandidateRole(selectedCandidate, 'hook') ??
+    assetFromCandidateRole(selectedCandidate, 'hook', activeOrgId()) ??
     syntheticHookAsset(selectedSavedPack, selectedObject);
   const selectedAudio =
-    assetFromCandidateRole(selectedCandidate, 'audio') ??
+    assetFromCandidateRole(selectedCandidate, 'audio', activeOrgId()) ??
     pickOptionalAsset('audio', compositionSeed, 3, activeAssetLibrary);
   const selectedVideo =
-    assetFromCandidateRole(selectedCandidate, 'format') ??
+    assetFromCandidateRole(selectedCandidate, 'format', activeOrgId()) ??
     pickOptionalAsset('video', compositionSeed, 4, activeAssetLibrary);
   const selectedCombinationAssets = [
     selectedBackground,
@@ -3206,20 +3206,20 @@ export function HookImageCreator({
       ? candidateCompositions[compositionPickIndex % candidateCompositions.length]
       : null;
   const combinatorBackground =
-    assetFromCandidateRole(selectedCandidate, 'background') ??
+    assetFromCandidateRole(selectedCandidate, 'background', orgId) ??
     pickAsset('background', compositionSeed, 0, combinatorLibrary);
   const combinatorObject =
-    assetFromCandidateRole(selectedCandidate, 'foreground') ??
-    assetFromCandidateRole(selectedCandidate, 'object') ??
+    assetFromCandidateRole(selectedCandidate, 'foreground', orgId) ??
+    assetFromCandidateRole(selectedCandidate, 'object', orgId) ??
     pickAsset('object', compositionSeed, 1, combinatorLibrary);
   const combinatorHook =
-    assetFromCandidateRole(selectedCandidate, 'hook') ??
+    assetFromCandidateRole(selectedCandidate, 'hook', orgId) ??
     syntheticHookAsset(selectedCombinatorPack, combinatorObject);
   const combinatorAudio =
-    assetFromCandidateRole(selectedCandidate, 'audio') ??
+    assetFromCandidateRole(selectedCandidate, 'audio', orgId) ??
     pickOptionalAsset('audio', compositionSeed, 3, combinatorLibrary);
   const combinatorVideo =
-    assetFromCandidateRole(selectedCandidate, 'format') ??
+    assetFromCandidateRole(selectedCandidate, 'format', orgId) ??
     pickOptionalAsset('video', compositionSeed, 4, combinatorLibrary);
   const combinatorAssets = [
     combinatorBackground,
@@ -4356,12 +4356,13 @@ function pickOptionalAsset(
 function assetFromCandidateRole(
   candidate: CandidateComposition | null,
   role: string,
+  orgId: string,
 ): AssetLibraryItem | null {
   const asset = candidate?.roles[role];
   if (!asset) {
     return null;
   }
-  return mapCandidateAssetToLibraryItem(asset, role);
+  return mapCandidateAssetToLibraryItem(asset, role, orgId);
 }
 
 function mapAssetLibraryItemOut(row: AssetLibraryItemOut, orgId: string = DEFAULT_ORG_ID): AssetLibraryItem {
@@ -4396,6 +4397,7 @@ function mapAssetLibraryItemOut(row: AssetLibraryItemOut, orgId: string = DEFAUL
 function mapCandidateAssetToLibraryItem(
   asset: CandidateCompositionAsset,
   role: string,
+  orgId: string = DEFAULT_ORG_ID,
 ): AssetLibraryItem {
   const tags = stringList(asset.metadata.tags);
   return {
@@ -4409,7 +4411,7 @@ function mapCandidateAssetToLibraryItem(
     reuseCount: asset.usage_count,
     performanceScore: Math.round((asset.performance_score ?? 0.72) * 100),
     previewTone: previewToneForAsset(asset.asset_id, asset.asset_kind, asset.title ?? role),
-    imageUrl: stableAssetImageUrl(DEFAULT_ORG_ID, asset.asset_id) ?? textValue(asset.metadata.image_url) ?? undefined,
+    imageUrl: stableAssetImageUrl(orgId, asset.asset_id) ?? textValue(asset.metadata.image_url) ?? undefined,
     storageUri: textValue(asset.metadata.storage_uri) ?? undefined,
   };
 }

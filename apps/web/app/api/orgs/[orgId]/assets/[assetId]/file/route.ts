@@ -46,5 +46,49 @@ export async function GET(
   if (!body.url) {
     return NextResponse.json({ detail: 'Asset download URL is unavailable.' }, { status: 404 });
   }
-  return NextResponse.redirect(body.url, 307);
+
+  let assetResponse: Response;
+  try {
+    assetResponse = await fetch(body.url, {
+      method: 'GET',
+      headers: {
+        ...(request.headers.get('range') ? { Range: request.headers.get('range') ?? '' } : {}),
+      },
+      cache: 'no-store',
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: 'Asset storage is not reachable. Start MinIO, then try again.' },
+      { status: 503 },
+    );
+  }
+
+  const headers = new Headers({
+    'Cache-Control': 'no-store',
+    'Content-Type': assetResponse.headers.get('content-type') ?? 'application/octet-stream',
+  });
+  const contentLength = assetResponse.headers.get('content-length');
+  const contentRange = assetResponse.headers.get('content-range');
+  const acceptRanges = assetResponse.headers.get('accept-ranges');
+  if (contentLength) {
+    headers.set('Content-Length', contentLength);
+  }
+  if (contentRange) {
+    headers.set('Content-Range', contentRange);
+  }
+  if (acceptRanges) {
+    headers.set('Accept-Ranges', acceptRanges);
+  }
+
+  if (!assetResponse.body) {
+    return new NextResponse(null, {
+      status: assetResponse.status,
+      headers,
+    });
+  }
+
+  return new NextResponse(assetResponse.body, {
+    status: assetResponse.status,
+    headers,
+  });
 }
