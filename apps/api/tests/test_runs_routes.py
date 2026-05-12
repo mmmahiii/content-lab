@@ -519,6 +519,58 @@ def test_run_detail_includes_outbox_counts_for_run_aggregate(
     assert "pending dispatch" in (ob["summary"] or "")
 
 
+def test_update_run_hook_cover_persists_editor_state(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+) -> None:
+    org_id = seeded_run_scope["org_id"]
+    page_id = seeded_run_scope["page_id"]
+    run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="manual",
+        status="succeeded",
+        input_params={
+            "page_id": str(page_id),
+            "workflow_stage": "asset_composition_render",
+        },
+        output_payload={"hook_cover": {"title": "Original hook"}},
+        run_metadata={"target": {"page_id": str(page_id)}},
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = Task(
+        org_id=org_id,
+        task_type="process_reel",
+        idempotency_key=f"task:{run.id}",
+        status="succeeded",
+        run_id=run.id,
+        payload={},
+        result=dict(run.output_payload or {}),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    response = runs_client.patch(
+        f"/orgs/{org_id}/runs/{run.id}/hook-cover",
+        json={
+            "title": "Edited hook",
+            "editor_state": {
+                "selected_background_id": "bg-01",
+                "items": [{"id": "copy-1"}],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["output_payload"]["hook_cover"]["title"] == "Edited hook"
+    assert payload["output_payload"]["hook_cover"]["editor_state"]["items"] == [{"id": "copy-1"}]
+    db_session.refresh(task)
+    assert task.result["hook_cover"]["title"] == "Edited hook"
+
+
 def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(
     runs_client: TestClient,
     db_session: Session,

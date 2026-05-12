@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, insert, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -133,6 +133,15 @@ class PackageGenerationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     generation_mode: Literal["runway", "smoke_test"]
+
+
+class HookCoverUpdate(BaseModel):
+    """Operator edits for an asset-composition hook image."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = None
+    editor_state: dict[str, Any] = Field(default_factory=dict)
 
 
 def _get_org_or_404(db: Session, org_id: uuid.UUID) -> Org:
@@ -593,6 +602,73 @@ def get_run(
         outbox=outbox_for_run(outbox_rows),
         expand_debug=expand_debug,
     )
+
+
+@router.patch("/orgs/{org_id}/runs/{run_id}/hook-cover", response_model=RunOut)
+def update_run_hook_cover(
+    org_id: uuid.UUID,
+    run_id: uuid.UUID,
+    body: HookCoverUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RunOut:
+    run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
+    if _workflow_stage(run) != "asset_composition_render":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Run is not an asset composition render",
+        )
+
+    payload = dict(run.output_payload or {})
+    existing_cover = dict(payload.get("hook_cover") or {})
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="title must not be blank",
+            )
+        existing_cover["title"] = title
+    existing_cover["editor_state"] = dict(body.editor_state or {})
+    payload["hook_cover"] = existing_cover
+
+    package_payload = dict(payload.get("package") or {})
+    if package_payload:
+        package_cover = dict(package_payload.get("hook_cover") or {})
+        package_cover.update(existing_cover)
+        package_payload["hook_cover"] = package_cover
+        payload["package"] = package_payload
+
+    run.output_payload = payload
+    metadata = dict(run.run_metadata or {})
+    metadata["hook_cover_editor"] = {
+        "updated_at": _now().isoformat(),
+        "actor": request.headers.get("x-actor-id") or ANONYMOUS_ACTOR,
+        "title": existing_cover.get("title"),
+    }
+    run.run_metadata = metadata
+
+    task = (
+        db.query(Task)
+        .filter(Task.org_id == org_id, Task.run_id == run.id)
+        .order_by(Task.updated_at.desc(), Task.id.desc())
+        .first()
+    )
+    if task is not None:
+        task.result = payload
+
+    _record_audit(
+        db,
+        request,
+        org_id=org_id,
+        action="run.hook_cover.updated",
+        resource_type="run",
+        resource_id=str(run.id),
+        payload={"title": existing_cover.get("title")},
+    )
+    db.commit()
+    db.refresh(run)
+    return run_to_out(run)
 
 
 @router.get("/orgs/{org_id}/pages/{page_id}/runs", response_model=list[RunOut])

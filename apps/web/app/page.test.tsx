@@ -16,7 +16,7 @@ describe('HomePage', () => {
     expect(markup).not.toContain('Inspector');
   });
 
-  it('renders the collapsible reusable asset library inside asset pack generation', () => {
+  it('renders the compact pack browser inside asset pack generation', () => {
     const markup = renderToStaticMarkup(
       <AssetPackGenerationWorkspace
         selectedPage={{
@@ -34,17 +34,33 @@ describe('HomePage', () => {
       />,
     );
 
-    expect(markup).toContain('Asset combinator');
-    expect(markup).toContain('Reusable assets');
+    expect(markup).toContain('Saved packs and asset library');
     expect(markup).toContain('Collapse');
-    expect(markup).toContain('Asset pack planner');
-    expect(markup).toContain('Pack plan outbox');
+    expect(markup).toContain('Planner + creator');
     expect(markup).toContain('Pack browser');
-    expect(markup).toContain('View pack');
-    expect(markup).toContain('Combinator output');
-    expect(markup).toContain('Generated hook / cover');
-    expect(markup).toContain('Saved pack');
-    expect(markup).toContain('No saved packs loaded');
+    expect(markup).toContain('Pack');
+    expect(markup).toContain('Asset');
+    expect(markup).toContain('Name');
+    expect(markup).toContain('Total asset count');
+    expect(markup).toContain('Create pack');
+    expect(markup).toContain('Delete pack');
+    expect(markup).toContain('Quality');
+    expect(markup).toContain('Format');
+    expect(markup).toContain('Style');
+    expect(markup).toContain('Provider');
+    expect(markup).toContain('Model');
+    expect(markup).toContain('All backgrounds and objects');
+    expect(markup).toContain('All');
+    expect(markup).toContain('Backgrounds');
+    expect(markup).toContain('Objects');
+    expect(markup).toContain('backgrounds');
+    expect(markup).toContain('objects');
+    expect(markup).not.toContain('Asset library categories');
+    expect(markup).not.toContain('No saved packs loaded');
+    expect(markup).not.toContain('Save pack plan');
+    expect(markup).not.toContain('Approve pack plan');
+    expect(markup).not.toContain('Pack plan outbox');
+    expect(markup).not.toContain('Optional asset split');
   });
 
   it('renders the local hook image creator as a standalone workspace', () => {
@@ -52,6 +68,21 @@ describe('HomePage', () => {
 
     expect(markup).toContain('Live hook image creator');
     expect(markup).toContain('Reel hook image');
+    expect(markup).toContain('Live asset browser');
+    expect(markup).toContain('Existing saved image');
+    expect(markup).toContain('Asset combinator');
+    expect(markup).toContain('Saved pack');
+    expect(markup).toContain('Score');
+    expect(markup).toContain('Canvas contents');
+    expect(markup).toContain('All backgrounds and objects');
+    expect(markup).toContain('Refresh packs');
+    expect(markup).toContain('Create on canvas');
     expect(markup).toContain('Reset local image');
+    expect(markup).toContain('Save image');
+    expect(markup).toContain('Create blank/new');
+    expect(markup).not.toContain('<h4>Generation</h4>');
+    expect(markup).not.toContain('<h4>Background</h4>');
+    expect(markup).not.toContain('<h4>Assets</h4>');
+    expect(markup).not.toContain('Foreground object');
   });
 });

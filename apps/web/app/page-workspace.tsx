@@ -3,9 +3,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
-const ORG_ID =
+const DEFAULT_ORG_ID =
   process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID ??
   '00000000-0000-4000-8000-000000000001';
+
+type OrgRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+  page_count: number;
+};
 
 type PageRecord = {
   id: string;
@@ -134,6 +142,7 @@ type AssetLibraryItem = {
   performanceScore: number;
   previewTone: string;
   imageUrl?: string;
+  storageUri?: string;
 };
 
 type AssetLibraryItemOut = {
@@ -154,12 +163,16 @@ type AssetLibraryItemOut = {
 };
 
 type AssetPackPlannerState = {
-  niche: string;
+  name: string;
   totalAssetCount: number;
-  split: string;
-  targetReelTypes: string;
-  styleConstraints: string;
+  backgroundCount: number;
+  objectCount: number;
   qualityLevel: 'lean' | 'balanced' | 'premium';
+  format: 'proof reel' | 'listicle' | 'product demo' | 'objection handling';
+  style: 'clean product' | 'ugc' | 'cinematic' | 'high contrast';
+  provider: 'runway';
+  model: 'gen4.5';
+  ratio: '9:16' | '1:1' | '16:9';
 };
 
 type AssetPackRecord = {
@@ -237,6 +250,16 @@ type HookCanvasItem = {
   size: number;
 };
 
+type SavedHookImageGeneration = {
+  id: string;
+  sourceRunId: string | null;
+  name: string;
+  selectedBackgroundId: string;
+  background: AssetLibraryItem;
+  items: HookCanvasItem[];
+  updatedAt: string;
+};
+
 type HookCanvasDragState =
   | {
       itemId: string;
@@ -280,15 +303,6 @@ const workflowSteps = [
   { key: 'editing', label: 'Editing' },
   { key: 'qa', label: 'QA' },
   { key: 'packaging', label: 'Packaging' },
-];
-
-const assetKindTabs: { kind: AssetLibraryKind; label: string }[] = [
-  { kind: 'background', label: 'Backgrounds' },
-  { kind: 'object', label: 'PNG objects' },
-  { kind: 'video', label: 'Videos' },
-  { kind: 'hook', label: 'Hooks' },
-  { kind: 'audio', label: 'Audio' },
-  { kind: 'final_output', label: 'Final outputs' },
 ];
 
 const assetLibrarySeed: AssetLibraryItem[] = [
@@ -914,6 +928,115 @@ function runTextForTab(run: RunRecord | null, tab: ArtifactTab): string | null {
   return null;
 }
 
+function hookImageStorageKey(orgId: string, pageId: string): string {
+  return `content-lab:hook-images:${orgId}:${pageId}`;
+}
+
+function readSavedHookGenerations(orgId: string, pageId: string): SavedHookImageGeneration[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(hookImageStorageKey(orgId, pageId)) ?? '[]',
+    );
+    return Array.isArray(parsed)
+      ? parsed.map(asSavedHookGeneration).filter((item) => item !== null)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function asSavedHookGeneration(value: unknown): SavedHookImageGeneration | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const id = textValue(record.id);
+  const name = textValue(record.name);
+  const background = asAssetLibraryItem(record.background);
+  if (!id || !name || !background) {
+    return null;
+  }
+  const items = Array.isArray(record.items)
+    ? record.items.map(asHookCanvasItem).filter((item) => item !== null)
+    : [];
+  return {
+    id,
+    sourceRunId: textValue(record.sourceRunId),
+    name,
+    selectedBackgroundId: textValue(record.selectedBackgroundId) ?? background.id,
+    background,
+    items,
+    updatedAt: textValue(record.updatedAt) ?? new Date().toISOString(),
+  };
+}
+
+function asHookCanvasItem(value: unknown): HookCanvasItem | null {
+  const record = asRecord(value);
+  const asset = asAssetLibraryItem(record?.asset);
+  const id = textValue(record?.id);
+  const x = numericValue(record?.x);
+  const y = numericValue(record?.y);
+  const size = numericValue(record?.size);
+  if (!record || !asset || !id || x === null || y === null || size === null) {
+    return null;
+  }
+  return { id, asset, x, y, size };
+}
+
+function asAssetLibraryItem(value: unknown): AssetLibraryItem | null {
+  const record = asRecord(value);
+  const id = textValue(record?.id);
+  const title = textValue(record?.title);
+  const kind = textValue(record?.kind);
+  if (
+    !record ||
+    !id ||
+    !title ||
+    !kind ||
+    !['background', 'object', 'video', 'hook', 'audio', 'final_output'].includes(kind)
+  ) {
+    return null;
+  }
+  return {
+    id,
+    title,
+    kind: kind as AssetLibraryKind,
+    mediaType: textValue(record.mediaType) ?? 'asset',
+    pack: textValue(record.pack) ?? 'Saved generation',
+    tags: stringList(record.tags),
+    layerSuitability: textValue(record.layerSuitability) ?? 'Saved layer',
+    reuseCount: numericValue(record.reuseCount) ?? 0,
+    performanceScore: numericValue(record.performanceScore) ?? 75,
+    previewTone: textValue(record.previewTone) ?? previewToneForAsset(id, kind, title),
+    imageUrl: textValue(record.imageUrl) ?? undefined,
+    storageUri: textValue(record.storageUri) ?? undefined,
+  };
+}
+
+function saveHookGenerationsToStorage(
+  orgId: string,
+  pageId: string,
+  generations: SavedHookImageGeneration[],
+) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(hookImageStorageKey(orgId, pageId), JSON.stringify(generations));
+}
+
+function upsertHookGeneration(
+  generations: SavedHookImageGeneration[],
+  nextGeneration: SavedHookImageGeneration,
+): SavedHookImageGeneration[] {
+  const withoutCurrent = generations.filter((generation) => generation.id !== nextGeneration.id);
+  return [nextGeneration, ...withoutCurrent].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
 function stepStatus(run: RunRecord | null, stepKey: string): string {
   const statuses = asRecord(run?.output_payload?.task_statuses);
   const value = statuses?.[stepKey];
@@ -921,6 +1044,8 @@ function stepStatus(run: RunRecord | null, stepKey: string): string {
 }
 
 export function PageWorkspace() {
+  const [orgs, setOrgs] = useState<OrgRecord[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(DEFAULT_ORG_ID);
   const [pages, setPages] = useState<PageRecord[]>([]);
   const [selectedPageId, setSelectedPageId] = useState<string>('');
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -943,6 +1068,7 @@ export function PageWorkspace() {
   const [isWorkflowSaving, setIsWorkflowSaving] = useState(false);
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   const [message, setMessage] = useState('Loading saved pages...');
+  const [savedHookGenerations, setSavedHookGenerations] = useState<SavedHookImageGeneration[]>([]);
   const selectedPackageRunRef = useRef<RunRecord | null>(null);
 
   const selectedPage = useMemo(
@@ -992,11 +1118,47 @@ export function PageWorkspace() {
   const hasActiveGeneration = runs.some((run) =>
     isGeneratedOutputRun(run) && ['queued', 'running'].includes(run.status),
   );
+  const selectedOrg = useMemo(
+    () => orgs.find((org) => org.id === selectedOrgId) ?? null,
+    [orgs, selectedOrgId],
+  );
+
+  async function saveOperatorOrg(orgId: string) {
+    await fetch('/api/operator-context', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgId }),
+    }).catch(() => undefined);
+  }
+
+  function handleOrgChange(orgId: string) {
+    setSelectedOrgId(orgId);
+    void saveOperatorOrg(orgId);
+  }
+
+  async function loadOrgs() {
+    try {
+      const response = await fetch('/api/orgs', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const nextOrgs = (await response.json()) as OrgRecord[];
+      setOrgs(nextOrgs);
+      setSelectedOrgId((current) => {
+        if (nextOrgs.some((org) => org.id === current)) {
+          return current;
+        }
+        return nextOrgs[0]?.id ?? current;
+      });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load orgs.');
+    }
+  }
 
   async function loadPages() {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/pages`, { cache: 'no-store' });
+      const response = await fetch(`/api/orgs/${selectedOrgId}/pages`, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -1023,7 +1185,7 @@ export function PageWorkspace() {
     setPolicy(null);
     setPolicyDraft(null);
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/policy/page/${pageId}`, {
+      const response = await fetch(`/api/orgs/${selectedOrgId}/policy/page/${pageId}`, {
         cache: 'no-store',
       });
       if (!response.ok) {
@@ -1039,7 +1201,7 @@ export function PageWorkspace() {
 
   async function loadRuns(pageId: string) {
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/pages/${pageId}/runs`, {
+      const response = await fetch(`/api/orgs/${selectedOrgId}/pages/${pageId}/runs`, {
         cache: 'no-store',
       });
       if (!response.ok) {
@@ -1076,7 +1238,7 @@ export function PageWorkspace() {
   async function loadPackage(run: RunRecord) {
     setPackageNotice('');
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/packages/${run.id}`, { cache: 'no-store' });
+      const response = await fetch(`/api/orgs/${selectedOrgId}/packages/${run.id}`, { cache: 'no-store' });
       if (!response.ok) {
         if (response.status === 404) {
           setPackageDetail((current) => (current?.run_id === run.id ? current : null));
@@ -1096,11 +1258,27 @@ export function PageWorkspace() {
   }
 
   useEffect(() => {
-    void loadPages();
+    void loadOrgs();
   }, []);
 
   useEffect(() => {
+    setPages([]);
+    setSelectedPageId('');
+    setPolicy(null);
+    setPolicyDraft(null);
+    setRuns([]);
+    setSelectedPlanRunId('');
+    setSelectedPackageRunId('');
+    setSelectedCompositionRunId('');
+    setPackageDetail(null);
+    setPackageNotice('');
+    setMessage('Loading saved pages...');
+    void loadPages();
+  }, [selectedOrgId]);
+
+  useEffect(() => {
     if (selectedPage?.id) {
+      setSavedHookGenerations(readSavedHookGenerations(selectedOrgId, selectedPage.id));
       void loadPolicy(selectedPage.id);
       void loadRuns(selectedPage.id);
     } else {
@@ -1112,8 +1290,20 @@ export function PageWorkspace() {
       setSelectedCompositionRunId('');
       setPackageDetail(null);
       setPackageNotice('');
+      setSavedHookGenerations([]);
     }
-  }, [selectedPage?.id]);
+  }, [selectedOrgId, selectedPage?.id]);
+
+  function persistHookGeneration(nextGeneration: SavedHookImageGeneration) {
+    if (!selectedPage) {
+      return;
+    }
+    setSavedHookGenerations((current) => {
+      const nextGenerations = upsertHookGeneration(current, nextGeneration);
+      saveHookGenerationsToStorage(selectedOrgId, selectedPage.id, nextGenerations);
+      return nextGenerations;
+    });
+  }
 
   useEffect(() => {
     const run = selectedPackageRunRef.current;
@@ -1123,7 +1313,7 @@ export function PageWorkspace() {
       setPackageDetail(null);
       setPackageNotice('');
     }
-  }, [selectedPackageRunLoadKey]);
+  }, [selectedOrgId, selectedPackageRunLoadKey]);
 
   useEffect(() => {
     if (!selectedPage?.id) {
@@ -1136,7 +1326,7 @@ export function PageWorkspace() {
       hasActiveGeneration ? 2500 : 4000,
     );
     return () => window.clearInterval(intervalId);
-  }, [selectedPage?.id, hasActiveGeneration]);
+  }, [selectedOrgId, selectedPage?.id, hasActiveGeneration]);
 
   useEffect(() => {
     const tabs = availableArtifactTabs(packageDetail, selectedPackageRunRef.current);
@@ -1209,7 +1399,7 @@ export function PageWorkspace() {
         throw new Error('Page name is required.');
       }
       const handle = normalizeHandle(form.handle);
-      const response = await fetch(`/api/orgs/${ORG_ID}/pages`, {
+      const response = await fetch(`/api/orgs/${selectedOrgId}/pages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1247,7 +1437,7 @@ export function PageWorkspace() {
     setIsSaving(true);
     setMessage('Deleting page...');
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/pages/${selectedPage.id}`, {
+      const response = await fetch(`/api/orgs/${selectedOrgId}/pages/${selectedPage.id}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -1274,7 +1464,7 @@ export function PageWorkspace() {
     setIsPolicySaving(true);
     setMessage('Saving policy...');
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/policy/page/${selectedPage.id}`, {
+      const response = await fetch(`/api/orgs/${selectedOrgId}/policy/page/${selectedPage.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1303,7 +1493,7 @@ export function PageWorkspace() {
     setIsWorkflowSaving(true);
     setMessage('Creating plan...');
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/pages/${selectedPage.id}/idea-plans`, {
+      const response = await fetch(`/api/orgs/${selectedOrgId}/pages/${selectedPage.id}/idea-plans`, {
         method: 'POST',
         headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
       });
@@ -1330,7 +1520,7 @@ export function PageWorkspace() {
     setMessage(mode === 'runway' ? 'Creating Runway package...' : 'Creating smoke package...');
     try {
       const response = await fetch(
-        `/api/orgs/${ORG_ID}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/generate-package`,
+        `/api/orgs/${selectedOrgId}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/generate-package`,
         {
           method: 'POST',
           headers: {
@@ -1366,7 +1556,7 @@ export function PageWorkspace() {
     setMessage('Discarding plan...');
     try {
       const response = await fetch(
-        `/api/orgs/${ORG_ID}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/discard`,
+        `/api/orgs/${selectedOrgId}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/discard`,
         {
           method: 'POST',
           headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
@@ -1417,6 +1607,26 @@ export function PageWorkspace() {
             Refresh
           </button>
         </div>
+
+        <label className="field">
+          Select org
+          <select
+            value={selectedOrgId}
+            onChange={(event) => handleOrgChange(event.target.value)}
+            disabled={!orgs.length}
+          >
+            {orgs.map((org) => (
+              <option key={org.id} value={org.id}>
+                {formatOrgOption(org)}
+              </option>
+            ))}
+            {!orgs.length && (
+              <option value={selectedOrgId}>
+                {selectedOrg ? formatOrgOption(selectedOrg) : `Org ${selectedOrgId.slice(0, 8)}`}
+              </option>
+            )}
+          </select>
+        </label>
 
         <label className="field">
           Select page
@@ -1767,6 +1977,8 @@ export function PageWorkspace() {
                 aria-label="Asset pack based generation"
               >
                 <AssetPackGenerationWorkspace
+                  key={`${selectedOrgId}:${selectedPage.id}`}
+                  orgId={selectedOrgId}
                   selectedPage={selectedPage}
                   onRunsChanged={() => void loadRuns(selectedPage.id)}
                   setWorkspaceMessage={setMessage}
@@ -1784,6 +1996,8 @@ export function PageWorkspace() {
                   artifactText={artifactText}
                   artifactTextStatus={artifactTextStatus}
                   copyArtifactText={() => void copyArtifactText()}
+                  savedHookGenerations={savedHookGenerations}
+                  onSaveHookGeneration={persistHookGeneration}
                 />
               </section>
             ) : (
@@ -1794,7 +2008,17 @@ export function PageWorkspace() {
                 aria-labelledby="workbench-tab-hook-image"
                 aria-label="Live hook image creator"
               >
-                <HookImageCreator />
+                <HookImageCreator
+                  orgId={selectedOrgId}
+                  selectedPage={selectedPage}
+                  onRunsChanged={() => void loadRuns(selectedPage.id)}
+                  compositionRuns={assetCompositionRuns}
+                  selectedRun={selectedCompositionRun}
+                  setSelectedRunId={setSelectedCompositionRunId}
+                  savedHookGenerations={savedHookGenerations}
+                  onSaveGeneration={persistHookGeneration}
+                  setWorkspaceMessage={setMessage}
+                />
               </section>
             )}
           </>
@@ -2009,6 +2233,7 @@ function ArtifactViewer({
 }
 
 export function AssetPackGenerationWorkspace({
+  orgId,
   selectedPage,
   onRunsChanged,
   setWorkspaceMessage,
@@ -2026,7 +2251,10 @@ export function AssetPackGenerationWorkspace({
   artifactText = '',
   artifactTextStatus = '',
   copyArtifactText = () => undefined,
+  savedHookGenerations = [],
+  onSaveHookGeneration = () => undefined,
 }: {
+  orgId?: string;
   selectedPage: PageRecord;
   onRunsChanged: () => void;
   setWorkspaceMessage: (message: string) => void;
@@ -2044,36 +2272,59 @@ export function AssetPackGenerationWorkspace({
   artifactText?: string;
   artifactTextStatus?: string;
   copyArtifactText?: () => void;
+  savedHookGenerations?: SavedHookImageGeneration[];
+  onSaveHookGeneration?: (generation: SavedHookImageGeneration) => void;
 }) {
-  const [assetKind, setAssetKind] = useState<AssetLibraryKind>('background');
+  const effectiveOrgId = orgId ?? DEFAULT_ORG_ID;
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(true);
-  const [isSavedPackBrowserOpen, setIsSavedPackBrowserOpen] = useState(true);
+  const [selectedBrowserAssetId, setSelectedBrowserAssetId] = useState('');
+  const [assetBrowserFilter, setAssetBrowserFilter] = useState<'all' | 'background' | 'object'>('all');
   const [planner, setPlanner] = useState<AssetPackPlannerState>({
-    niche: selectedPage.handle ?? selectedPage.display_name,
+    name: `${selectedPage.display_name} asset pack`,
     totalAssetCount: 24,
-    split: '6 backgrounds, 6 transparent objects, 4 clips, 4 hooks, 2 audio, 2 reference outputs',
-    targetReelTypes: 'proof reel, listicle, product demo, objection handling',
-    styleConstraints: 'High contrast captions, clean product cutouts, mobile-first safe areas',
+    backgroundCount: 12,
+    objectCount: 12,
     qualityLevel: 'balanced',
+    format: 'proof reel',
+    style: 'clean product',
+    provider: 'runway',
+    model: 'gen4.5',
+    ratio: '9:16',
   });
-  const [assetPackPlan, setAssetPackPlan] = useState<AssetPackPlanResponse | null>(null);
   const [assetPack, setAssetPack] = useState<AssetPackRecord | null>(null);
   const [savedAssetPacks, setSavedAssetPacks] = useState<AssetPackRecord[]>([]);
   const [selectedAssetPackId, setSelectedAssetPackId] = useState('');
   const [packAssets, setPackAssets] = useState<AssetLibraryItem[]>([]);
-  const [packAssetMessage, setPackAssetMessage] = useState('Select a saved pack to load its assets.');
   const [candidateCompositions, setCandidateCompositions] = useState<CandidateComposition[]>([]);
-  const [packOutboxMessage, setPackOutboxMessage] = useState('No pack plan saved yet.');
+  const [packBrowserMessage, setPackBrowserMessage] = useState('Create or select a pack.');
   const [combinatorOutboxMessage, setCombinatorOutboxMessage] = useState(
     'Choose a saved pack, then queue a composition render.',
   );
-  const [lastRender, setLastRender] = useState<AssetPackRenderResponse | null>(null);
   const [compositionPickIndex, setCompositionPickIndex] = useState(0);
   const [isPackActionRunning, setIsPackActionRunning] = useState(false);
+  const assetBrowserItemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const activeAssetLibrary = packAssets.length ? packAssets : assetLibrarySeed;
-  const filteredAssets = activeAssetLibrary.filter((asset) => asset.kind === assetKind);
-  const plan = buildAssetPackPlan(planner);
+  const browserAssetPool = useMemo(
+    () =>
+      activeAssetLibrary.filter(
+        (asset) => asset.kind === 'background' || asset.kind === 'object',
+      ),
+    [activeAssetLibrary],
+  );
+  const visiblePackAssets = useMemo(
+    () =>
+      assetBrowserFilter === 'all'
+        ? browserAssetPool
+        : browserAssetPool.filter((asset) => asset.kind === assetBrowserFilter),
+    [assetBrowserFilter, browserAssetPool],
+  );
+  const visiblePackAssetIds = useMemo(
+    () => visiblePackAssets.map((asset) => asset.id).join('|'),
+    [visiblePackAssets],
+  );
+  const visibleBackgroundCount = browserAssetPool.filter((asset) => asset.kind === 'background').length;
+  const visibleObjectCount = browserAssetPool.filter((asset) => asset.kind === 'object').length;
   const combinatorAssetPacks = savedAssetPacks.filter(isCombinatorEligibleAssetPack);
   const selectedSavedPack =
     savedAssetPacks.find((pack) => pack.id === selectedAssetPackId) ?? assetPack ?? null;
@@ -2126,36 +2377,54 @@ export function AssetPackGenerationWorkspace({
     if (!selectedAssetPackId) {
       setPackAssets([]);
       setCandidateCompositions([]);
-      setPackAssetMessage('Select a saved pack to load its assets.');
       return;
     }
     void loadSelectedPackAssets(selectedAssetPackId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAssetPackId]);
 
+  useEffect(() => {
+    if (
+      selectedBrowserAssetId &&
+      !visiblePackAssets.some((asset) => asset.id === selectedBrowserAssetId)
+    ) {
+      setSelectedBrowserAssetId('');
+    }
+  }, [selectedBrowserAssetId, visiblePackAssetIds, visiblePackAssets]);
+
+  useEffect(() => {
+    if (!selectedBrowserAssetId) {
+      return;
+    }
+    assetBrowserItemRefs.current[selectedBrowserAssetId]?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    });
+  }, [selectedBrowserAssetId]);
+
   async function loadSavedAssetPacks(preferredPackId?: string): Promise<AssetPackRecord[]> {
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/asset-packs?limit=50`, {
+      const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs?limit=50`, {
         cache: 'no-store',
         headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
       });
       if (!response.ok) {
         throw new Error(await apiErrorMessage(response));
       }
-      const packs = (await response.json()) as AssetPackRecord[];
+      const packs = ((await response.json()) as AssetPackRecord[]).filter(
+        (pack) => pack.status !== 'rejected' && pack.status !== 'archived',
+      );
       setSavedAssetPacks(packs);
       const fallbackPackId =
-        packs.find((pack) => pack.status !== 'rejected' && pack.status !== 'archived')?.id ??
-        packs[0]?.id ??
-        '';
+        packs.find((pack) => pack.id === selectedAssetPackId)?.id ?? packs[0]?.id ?? '';
       const nextSelected =
         preferredPackId ||
-        selectedAssetPackId ||
+        packs.find((pack) => pack.id === selectedAssetPackId)?.id ||
         fallbackPackId;
       setSelectedAssetPackId(nextSelected);
       return packs;
     } catch (error) {
-      setPackOutboxMessage(
+      setPackBrowserMessage(
         error instanceof Error ? error.message : 'Could not load saved asset packs.',
       );
       return [];
@@ -2164,9 +2433,8 @@ export function AssetPackGenerationWorkspace({
 
   async function loadSelectedPackAssets(assetPackId: string): Promise<AssetLibraryItem[]> {
     try {
-      setPackAssetMessage('Loading selected pack assets...');
       const assetsResponse = await fetch(
-        `/api/orgs/${ORG_ID}/assets?asset_pack_id=${assetPackId}&ready_status=ready&limit=200`,
+        `/api/orgs/${effectiveOrgId}/assets?asset_pack_id=${assetPackId}&ready_status=ready&limit=200`,
         {
           cache: 'no-store',
           headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
@@ -2176,16 +2444,11 @@ export function AssetPackGenerationWorkspace({
         throw new Error(await apiErrorMessage(assetsResponse));
       }
       const assetRows = (await assetsResponse.json()) as AssetLibraryItemOut[];
-      const mappedAssets = assetRows.map(mapAssetLibraryItemOut);
+      const mappedAssets = assetRows.map((row) => mapAssetLibraryItemOut(row, effectiveOrgId));
       setPackAssets(mappedAssets);
-      setPackAssetMessage(
-        mappedAssets.length
-          ? `Loaded ${mappedAssets.length} real assets from the selected pack.`
-          : 'Selected pack has no ready assets yet.',
-      );
 
       const combinationsResponse = await fetch(
-        `/api/orgs/${ORG_ID}/asset-packs/${assetPackId}/combinations`,
+        `/api/orgs/${effectiveOrgId}/asset-packs/${assetPackId}/combinations`,
         {
           method: 'POST',
           headers: {
@@ -2220,29 +2483,34 @@ export function AssetPackGenerationWorkspace({
       const message = error instanceof Error ? error.message : 'Could not load pack assets.';
       setPackAssets([]);
       setCandidateCompositions([]);
-      setPackAssetMessage(message);
       setCombinatorOutboxMessage(message);
       return [];
     }
   }
 
   async function createBackendPackPlan(): Promise<AssetPackPlanResponse> {
-    const response = await fetch(`/api/orgs/${ORG_ID}/asset-packs/plan`, {
+    const backgroundCount = Math.max(0, Math.floor(planner.backgroundCount));
+    const objectCount = Math.max(0, Math.floor(planner.objectCount));
+    const requestedAssetCount = Math.max(1, backgroundCount + objectCount);
+    const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/plan`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Actor-Id': 'operator:ui-rebuild',
       },
       body: JSON.stringify({
-        name: `${planner.niche || selectedPage.display_name} asset pack`,
-        niche: planner.niche || selectedPage.display_name,
-        requested_asset_count: Math.max(1, planner.totalAssetCount),
-        asset_mix: null,
-        target_reel_types: plan.formats,
+        name: planner.name.trim() || `${selectedPage.display_name} asset pack`,
+        niche: selectedPage.handle ?? selectedPage.display_name,
+        requested_asset_count: requestedAssetCount,
+        asset_mix: {
+          background_image: backgroundCount,
+          transparent_cutout_png: objectCount,
+        },
+        target_reel_types: [planner.format],
         style_persona_constraints: {
           quality_level: planner.qualityLevel,
-          notes: planner.styleConstraints,
-          requested_split: planner.split,
+          style: planner.style,
+          ratio: planner.ratio,
         },
         purpose: 'Reusable component pack for asset-led reel generation.',
         target_audience: selectedPage.handle ?? selectedPage.display_name,
@@ -2252,44 +2520,10 @@ export function AssetPackGenerationWorkspace({
       throw new Error(await apiErrorMessage(response));
     }
     const created = (await response.json()) as AssetPackPlanResponse;
-    setAssetPackPlan(created);
     setAssetPack(created.asset_pack);
     setSelectedAssetPackId(created.asset_pack.id);
-    setPackOutboxMessage(`Saved ${created.asset_pack.name} as a backend pack plan.`);
-    await loadSavedAssetPacks(created.asset_pack.id);
+    setPackBrowserMessage(`Planned ${created.asset_pack.name}.`);
     return created;
-  }
-
-  async function savePackPlan() {
-    setIsPackActionRunning(true);
-    setWorkspaceMessage('Saving asset pack plan...');
-    setPackOutboxMessage('Saving pack plan to the backend...');
-    try {
-      const created = await createBackendPackPlan();
-      setWorkspaceMessage(`Saved ${created.asset_pack.name}.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not save asset pack plan.';
-      setPackOutboxMessage(message);
-      setWorkspaceMessage(message);
-    } finally {
-      setIsPackActionRunning(false);
-    }
-  }
-
-  async function ensurePackPlan(): Promise<AssetPackRecord> {
-    if (assetPack && assetPack.status !== 'rejected') {
-      return assetPack;
-    }
-    const created = await createBackendPackPlan();
-    return created.asset_pack;
-  }
-
-  async function ensureApprovedPack(): Promise<AssetPackRecord> {
-    const pack = await ensurePackPlan();
-    if (pack.status === 'approved' || pack.status === 'ready' || pack.status === 'generating') {
-      return pack;
-    }
-    return approveSavedPack(pack);
   }
 
   async function approveSavedPack(pack: AssetPackRecord): Promise<AssetPackRecord> {
@@ -2299,7 +2533,7 @@ export function AssetPackGenerationWorkspace({
     if (pack.status !== 'planned') {
       throw new Error(`Asset pack is ${pack.status}; create a new planned pack before approving.`);
     }
-    const response = await fetch(`/api/orgs/${ORG_ID}/asset-packs/${pack.id}/approve`, {
+    const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/${pack.id}/approve`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2313,137 +2547,109 @@ export function AssetPackGenerationWorkspace({
     if (!response.ok) {
       throw new Error(await apiErrorMessage(response));
     }
-      const approved = (await response.json()) as AssetPackRecord;
-      setAssetPack(approved);
-      setSelectedAssetPackId(approved.id);
-      setPackOutboxMessage(`Approved ${approved.name}. It is now available for the combinator.`);
-      await loadSavedAssetPacks(approved.id);
-      return approved;
+    const approved = (await response.json()) as AssetPackRecord;
+    setAssetPack(approved);
+    setSelectedAssetPackId(approved.id);
+    setPackBrowserMessage(`Approved ${approved.name}.`);
+    return approved;
   }
 
-  async function approvePackPlan() {
+  async function generateApprovedPack(pack: AssetPackRecord): Promise<AssetPackPlanResponse> {
+    const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/${pack.id}/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Actor-Id': 'operator:ui-rebuild',
+      },
+      body: JSON.stringify({
+        provider: planner.provider,
+        model: planner.model,
+        asset_class: 'component',
+        ratio: planner.ratio,
+        allow_existing_reuse: true,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await apiErrorMessage(response));
+    }
+    return (await response.json()) as AssetPackPlanResponse;
+  }
+
+  async function createPack() {
     setIsPackActionRunning(true);
-    setWorkspaceMessage('Approving asset pack plan...');
+    setWorkspaceMessage('Creating asset pack...');
+    setPackBrowserMessage('Planning asset pack...');
     try {
-      const pack = selectedSavedPack ?? (await ensurePackPlan());
-      const approved = await approveSavedPack(pack);
-      setWorkspaceMessage(`Approved ${approved.name}.`);
+      const created = await createBackendPackPlan();
+      setPackBrowserMessage('Approving asset pack...');
+      const approved = await approveSavedPack(created.asset_pack);
+      setPackBrowserMessage('Generating asset pack...');
+      const generated = await generateApprovedPack(approved);
+      const generatedPack = generated.asset_pack;
+      setAssetPack(generatedPack);
+      setSelectedAssetPackId(generatedPack.id);
+      setSelectedBrowserAssetId('');
+      setAssetBrowserFilter('all');
+      await loadSavedAssetPacks(generatedPack.id);
+      await loadSelectedPackAssets(generatedPack.id);
+      setPackBrowserMessage(`Created ${generatedPack.name}.`);
+      setWorkspaceMessage(`Created ${generatedPack.name}.`);
     } catch (error) {
-      setWorkspaceMessage(
-        error instanceof Error ? error.message : 'Could not approve asset pack plan.',
-      );
+      const message = error instanceof Error ? error.message : 'Could not create asset pack.';
+      setPackBrowserMessage(message);
+      setWorkspaceMessage(message);
     } finally {
       setIsPackActionRunning(false);
     }
   }
 
-  async function stopPackPlan() {
-    const packToStop = selectedSavedPack ?? assetPack;
-    if (!packToStop || packToStop.status === 'rejected') {
-      setAssetPack(null);
-      setAssetPackPlan(null);
-      setLastRender(null);
-      setSelectedAssetPackId('');
-      setWorkspaceMessage('No active asset pack plan to stop.');
+  async function deleteSelectedPack() {
+    const packToDelete = selectedSavedPack;
+    if (!packToDelete) {
+      setPackBrowserMessage('No pack selected.');
       return;
     }
-    const confirmed = window.confirm(`Stop ${packToStop.name}?`);
+    const confirmed = window.confirm(`Delete ${packToDelete.name} from the pack browser?`);
     if (!confirmed) {
       return;
     }
     setIsPackActionRunning(true);
-    setWorkspaceMessage('Stopping asset pack plan...');
+    setWorkspaceMessage('Deleting asset pack...');
+    setPackBrowserMessage(`Deleting ${packToDelete.name}...`);
     try {
-      const response = await fetch(`/api/orgs/${ORG_ID}/asset-packs/${packToStop.id}/reject`, {
+      const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/${packToDelete.id}/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Actor-Id': 'operator:ui-rebuild',
         },
         body: JSON.stringify({
-          note: 'Stopped from asset pack workspace.',
+          note: 'Deleted from asset pack browser.',
           metadata: { source: 'web_asset_pack_workspace' },
         }),
       });
       if (!response.ok) {
         throw new Error(await apiErrorMessage(response));
       }
-      const rejected = (await response.json()) as AssetPackRecord;
-      setAssetPack(rejected);
-      setSelectedAssetPackId(rejected.id);
-      setPackOutboxMessage(`Stopped ${rejected.name}.`);
-      await loadSavedAssetPacks(rejected.id);
-      setWorkspaceMessage(`Stopped ${rejected.name}.`);
-    } catch (error) {
-      setWorkspaceMessage(
-        error instanceof Error ? error.message : 'Could not stop asset pack plan.',
-      );
-    } finally {
-      setIsPackActionRunning(false);
-    }
-  }
-
-  async function queueRender() {
-    setIsPackActionRunning(true);
-    setWorkspaceMessage('Creating asset-led hook / cover...');
-    setCombinatorOutboxMessage('Creating selected hook / cover composition...');
-    try {
-      const selectedPack = selectedCombinatorPack ?? (await ensurePackPlan());
-      if (!isCombinatorEligibleAssetPack(selectedPack)) {
-        throw new Error('Choose an active saved pack before queueing a render.');
+      await response.json();
+      const remainingPacks = savedAssetPacks.filter((pack) => pack.id !== packToDelete.id);
+      setSavedAssetPacks(remainingPacks);
+      const nextPack = remainingPacks[0] ?? null;
+      setAssetPack(nextPack);
+      setSelectedAssetPackId(nextPack?.id ?? '');
+      setSelectedBrowserAssetId('');
+      setAssetBrowserFilter('all');
+      if (nextPack) {
+        await loadSelectedPackAssets(nextPack.id);
+      } else {
+        setPackAssets([]);
+        setCandidateCompositions([]);
       }
-      const approved = await approveSavedPack(selectedPack);
-      const compositionManifest =
-        selectedCandidate?.composition_manifest ??
-        buildCompositionManifest({
-          assetPackId: approved.id,
-          assetPackName: approved.name,
-          planner,
-          selectedBackground,
-          selectedObject,
-          selectedHook,
-          selectedAudio,
-          selectedVideo,
-          outputScore,
-        });
-      const response = await fetch(
-        `/api/orgs/${ORG_ID}/asset-packs/${approved.id}/composition-renders`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Actor-Id': 'operator:ui-rebuild',
-          },
-          body: JSON.stringify({
-            page_id: selectedPage.id,
-            composition_manifest: compositionManifest,
-            render_mode: 'preview',
-            dry_run: true,
-            idempotency_key: `asset-pack-ui:${approved.id}:${Date.now()}`,
-            metadata: {
-              source: 'web_asset_pack_workspace',
-              page_id: selectedPage.id,
-            },
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(await apiErrorMessage(response));
-      }
-      const submitted = (await response.json()) as AssetPackRenderResponse;
-      setLastRender(submitted);
-      setCombinatorOutboxMessage(
-        selectedCandidate
-          ? `Created a backend-selected hook / cover from ${approved.name}. The preview is ready below.`
-          : `Created a hook / cover from ${approved.name}'s real pack assets. The preview is ready below.`,
-      );
-      onRunsChanged();
-      setSelectedOutputRunId(submitted.run_id);
-      setCompositionPickIndex((current) => current + 1);
-      setWorkspaceMessage(`Created asset-led hook / cover ${submitted.run_id.slice(0, 8)}.`);
+      setPackBrowserMessage(`Deleted ${packToDelete.name}.`);
+      setWorkspaceMessage(`Deleted ${packToDelete.name}.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not queue asset-led render.';
-      setCombinatorOutboxMessage(message);
+      const message = error instanceof Error ? error.message : 'Could not delete asset pack.';
+      setPackBrowserMessage(message);
       setWorkspaceMessage(
         message,
       );
@@ -2462,11 +2668,12 @@ export function AssetPackGenerationWorkspace({
           onClick={() => setIsAssetLibraryOpen((current) => !current)}
         >
           <div>
-            <p className="eyebrow">Asset library</p>
-            <h3>Reusable assets</h3>
+            <p className="eyebrow">Saved packs and asset library</p>
+            <h3>Pack browser</h3>
           </div>
           <span>
             <span className="status-pill">
+              {savedAssetPacks.length} saved /{' '}
               {packAssets.length ? `${packAssets.length} pack assets` : `${assetLibrarySeed.length} demo assets`}
             </span>
             <strong>{isAssetLibraryOpen ? 'Collapse' : 'Expand'}</strong>
@@ -2474,54 +2681,164 @@ export function AssetPackGenerationWorkspace({
         </button>
 
         {isAssetLibraryOpen ? (
-          <>
-            <p className="muted">{packAssetMessage}</p>
-            <div className="tabs asset-kind-tabs" role="tablist" aria-label="Asset library categories">
-              {assetKindTabs.map((tab) => (
-                <button
-                  className={assetKind === tab.kind ? 'is-active' : ''}
-                  type="button"
-                  role="tab"
-                  aria-selected={assetKind === tab.kind}
-                  key={tab.kind}
-                  onClick={() => setAssetKind(tab.kind)}
+          <div className="pack-browser-shell">
+            <aside className="pack-browser-controls" aria-label="Pack browser controls">
+              <label className="field">
+                Pack
+                <select
+                  value={selectedAssetPackId}
+                  onChange={(event) => {
+                    const pack = savedAssetPacks.find(
+                      (candidate) => candidate.id === event.target.value,
+                    );
+                    setSelectedAssetPackId(event.target.value);
+                    setSelectedBrowserAssetId('');
+                    if (pack) {
+                      setAssetPack(pack);
+                      setPackBrowserMessage(`Selected ${pack.name}.`);
+                      setCombinatorOutboxMessage(`${pack.name} is selected for the combinator.`);
+                    }
+                  }}
+                  disabled={!savedAssetPacks.length}
                 >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+                  {savedAssetPacks.map((pack) => (
+                    <option key={pack.id} value={pack.id}>
+                      {formatAssetPackOption(pack)}
+                    </option>
+                  ))}
+                  {!savedAssetPacks.length ? <option value="">No saved packs yet</option> : null}
+                </select>
+              </label>
 
-            {filteredAssets.length ? (
-              <div className="asset-library-grid">
-                {filteredAssets.map((asset) => (
-                  <AssetLibraryCard asset={asset} key={asset.id} />
-                ))}
+              <label className="field">
+                Asset
+                <select
+                  value={selectedBrowserAssetId}
+                  onChange={(event) => setSelectedBrowserAssetId(event.target.value)}
+                  disabled={!visiblePackAssets.length}
+                >
+                  <option value="">All backgrounds and objects</option>
+                  {visiblePackAssets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="asset-browser-filter" role="group" aria-label="Asset type filter">
+                <button
+                  className={assetBrowserFilter === 'all' ? 'is-active' : ''}
+                  type="button"
+                  onClick={() => setAssetBrowserFilter('all')}
+                >
+                  All
+                </button>
+                <button
+                  className={assetBrowserFilter === 'background' ? 'is-active' : ''}
+                  type="button"
+                  onClick={() => setAssetBrowserFilter('background')}
+                >
+                  Backgrounds
+                </button>
+                <button
+                  className={assetBrowserFilter === 'object' ? 'is-active' : ''}
+                  type="button"
+                  onClick={() => setAssetBrowserFilter('object')}
+                >
+                  Objects
+                </button>
               </div>
-            ) : (
-              <div className="empty-state">No {assetKind.replace('_', ' ')} assets in this pack.</div>
-            )}
-          </>
+
+              <div className="pack-browser-counts" aria-label="Visible asset counts">
+                <span>{visibleBackgroundCount} backgrounds</span>
+                <span>{visibleObjectCount} objects</span>
+              </div>
+
+              <button
+                className="utility-button"
+                type="button"
+                onClick={() => void loadSavedAssetPacks()}
+              >
+                Refresh packs
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={() => void deleteSelectedPack()}
+                disabled={!selectedSavedPack || isPackActionRunning}
+              >
+                Delete pack
+              </button>
+              <p className="pack-browser-message">{packBrowserMessage}</p>
+            </aside>
+
+            <div className="pack-browser-scroll" aria-label="Background and object assets">
+              {visiblePackAssets.length ? (
+                visiblePackAssets.map((asset) => (
+                  <button
+                    className={
+                      asset.id === selectedBrowserAssetId
+                        ? 'pack-browser-asset is-selected'
+                        : 'pack-browser-asset'
+                    }
+                    type="button"
+                    key={asset.id}
+                    ref={(element) => {
+                      assetBrowserItemRefs.current[asset.id] = element;
+                    }}
+                    onClick={() => setSelectedBrowserAssetId(asset.id)}
+                  >
+                    <span className="asset-preview is-small" style={{ background: asset.previewTone }}>
+                      {asset.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={asset.imageUrl} alt="" />
+                      ) : null}
+                    </span>
+                    <span className="pack-browser-asset-name">{asset.title}</span>
+                    <span className="pack-browser-kind">
+                      {asset.kind === 'background' ? 'Background' : 'Object'}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="empty-state">No background or object assets ready for this pack.</div>
+              )}
+            </div>
+          </div>
         ) : (
-          <p className="muted">Asset previews are hidden. Expand to browse reusable assets.</p>
+          <p className="muted">
+            {selectedSavedPack
+              ? `${selectedSavedPack.name} is selected. Expand to browse saved pack assets.`
+              : 'Pack details and asset previews are hidden.'}
+          </p>
         )}
       </section>
 
       <div className="asset-pack-grid">
-        <section className="generation-surface">
+        <section className="generation-surface asset-pack-creator">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Asset pack planner</p>
-              <h3>User-defined pack</h3>
+              <h3>Planner + creator</h3>
             </div>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void createPack()}
+              disabled={actionDisabled}
+            >
+              {isPackActionRunning ? 'Working...' : 'Create pack'}
+            </button>
           </div>
 
           <div className="planner-form">
             <label className="field">
-              Niche
+              Name
               <input
-                value={planner.niche}
+                value={planner.name}
                 onChange={(event) =>
-                  setPlanner((current) => ({ ...current, niche: event.target.value }))
+                  setPlanner((current) => ({ ...current, name: event.target.value }))
                 }
               />
             </label>
@@ -2533,42 +2850,68 @@ export function AssetPackGenerationWorkspace({
                 type="number"
                 value={planner.totalAssetCount}
                 onChange={(event) =>
-                  setPlanner((current) => ({
-                    ...current,
-                    totalAssetCount: Number.parseInt(event.target.value || '0', 10),
-                  }))
+                  setPlanner((current) => {
+                    const totalAssetCount = Math.max(
+                      1,
+                      Number.parseInt(event.target.value || '0', 10),
+                    );
+                    const backgroundCount = Math.min(current.backgroundCount, totalAssetCount);
+                    return {
+                      ...current,
+                      totalAssetCount,
+                      backgroundCount,
+                      objectCount: Math.max(0, totalAssetCount - backgroundCount),
+                    };
+                  })
                 }
               />
             </label>
             <label className="field">
-              Optional asset split
-              <textarea
-                value={planner.split}
+              Backgrounds
+              <input
+                min="0"
+                max="80"
+                type="number"
+                value={planner.backgroundCount}
                 onChange={(event) =>
-                  setPlanner((current) => ({ ...current, split: event.target.value }))
+                  setPlanner((current) => {
+                    const backgroundCount = Math.max(
+                      0,
+                      Number.parseInt(event.target.value || '0', 10),
+                    );
+                    return {
+                      ...current,
+                      backgroundCount,
+                      totalAssetCount: backgroundCount + current.objectCount,
+                    };
+                  })
                 }
               />
             </label>
             <label className="field">
-              Target reel types
-              <textarea
-                value={planner.targetReelTypes}
+              Objects
+              <input
+                min="0"
+                max="80"
+                type="number"
+                value={planner.objectCount}
                 onChange={(event) =>
-                  setPlanner((current) => ({ ...current, targetReelTypes: event.target.value }))
+                  setPlanner((current) => {
+                    const objectCount = Math.max(
+                      0,
+                      Number.parseInt(event.target.value || '0', 10),
+                    );
+                    return {
+                      ...current,
+                      objectCount,
+                      totalAssetCount: current.backgroundCount + objectCount,
+                    };
+                  })
                 }
               />
             </label>
             <label className="field">
-              Style constraints
-              <textarea
-                value={planner.styleConstraints}
-                onChange={(event) =>
-                  setPlanner((current) => ({ ...current, styleConstraints: event.target.value }))
-                }
-              />
-            </label>
-            <label className="field">
-              Generation budget / quality
+              Quality
               <select
                 value={planner.qualityLevel}
                 onChange={(event) =>
@@ -2583,581 +2926,611 @@ export function AssetPackGenerationWorkspace({
                 <option value="premium">Premium</option>
               </select>
             </label>
+            <label className="field">
+              Format
+              <select
+                value={planner.format}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    format: event.target.value as AssetPackPlannerState['format'],
+                  }))
+                }
+              >
+                <option value="proof reel">Proof reel</option>
+                <option value="listicle">Listicle</option>
+                <option value="product demo">Product demo</option>
+                <option value="objection handling">Objection handling</option>
+              </select>
+            </label>
+            <label className="field">
+              Style
+              <select
+                value={planner.style}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    style: event.target.value as AssetPackPlannerState['style'],
+                  }))
+                }
+              >
+                <option value="clean product">Clean product</option>
+                <option value="ugc">UGC</option>
+                <option value="cinematic">Cinematic</option>
+                <option value="high contrast">High contrast</option>
+              </select>
+            </label>
+            <label className="field">
+              Provider
+              <select
+                value={planner.provider}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    provider: event.target.value as AssetPackPlannerState['provider'],
+                  }))
+                }
+              >
+                <option value="runway">Runway</option>
+              </select>
+            </label>
+            <label className="field">
+              Model
+              <select
+                value={planner.model}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    model: event.target.value as AssetPackPlannerState['model'],
+                  }))
+                }
+              >
+                <option value="gen4.5">Gen 4.5</option>
+              </select>
+            </label>
+            <label className="field">
+              Ratio
+              <select
+                value={planner.ratio}
+                onChange={(event) =>
+                  setPlanner((current) => ({
+                    ...current,
+                    ratio: event.target.value as AssetPackPlannerState['ratio'],
+                  }))
+                }
+              >
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </label>
           </div>
-        </section>
-
-        <section className="generation-surface">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Asset pack review</p>
-              <h3>Proposed plan</h3>
-            </div>
-            <span className={`status-pill ${plan.warningCount ? 'is-live' : 'is-good'}`}>
-              {plan.warningCount
-                ? `${plan.warningCount} warning${plan.warningCount === 1 ? '' : 's'}`
-                : 'Ready'}
-            </span>
-          </div>
-
-          <div className="review-summary">
-            <span>{plan.mixSummary}</span>
-            <span>{plan.outputPotential}</span>
-            <span>{assetPack ? `Backend: ${assetPack.status}` : 'Backend: local draft'}</span>
-          </div>
-
-          <div className="planned-assets">
-            {plan.specs.map((spec) => (
-              <article className="planned-asset" key={spec.category}>
-                <div>
-                  <h4>{spec.category}</h4>
-                  <p>{spec.reason}</p>
-                </div>
-                <span>{spec.count}</span>
-              </article>
-            ))}
-          </div>
-
-          <div className="review-columns">
-            <div>
-              <h4>Expected reel formats</h4>
-              <ul>
-                {plan.formats.map((format) => (
-                  <li key={format}>{format}</li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4>Review notes</h4>
-              <ul>
-                {plan.notes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <div className="review-actions">
-            <button
-              className="utility-button"
-              type="button"
-              onClick={() => void savePackPlan()}
-              disabled={actionDisabled}
-            >
-              {isPackActionRunning ? 'Working...' : 'Save pack plan'}
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => void approvePackPlan()}
-              disabled={actionDisabled || assetPack?.status === 'approved'}
-            >
-              {isPackActionRunning ? 'Working...' : 'Approve pack plan'}
-            </button>
-            <button
-              className="danger-button"
-              type="button"
-              onClick={() => void stopPackPlan()}
-              disabled={actionDisabled || !assetPack || assetPack.status === 'rejected'}
-            >
-              Stop plan
-            </button>
-          </div>
-          <AssetPackOutbox
-            activePack={assetPack}
-            savedPacks={savedAssetPacks}
-            plan={assetPackPlan}
-            message={packOutboxMessage}
-          />
         </section>
       </div>
-
-      <section className="output-surface">
-        <button
-          className="collapsible-section-toggle"
-          type="button"
-          aria-expanded={isSavedPackBrowserOpen}
-          onClick={() => setIsSavedPackBrowserOpen((current) => !current)}
-        >
-          <div>
-            <p className="eyebrow">Saved packs</p>
-            <h3>Pack browser</h3>
-          </div>
-          <span>
-            <span className="status-pill">{savedAssetPacks.length} saved</span>
-            <strong>{isSavedPackBrowserOpen ? 'Collapse' : 'Expand'}</strong>
-          </span>
-        </button>
-
-        {isSavedPackBrowserOpen ? (
-          <>
-            <div className="inline-controls">
-              <label className="field">
-                View pack
-                <select
-                  value={selectedAssetPackId}
-                  onChange={(event) => {
-                    const pack = savedAssetPacks.find(
-                      (candidate) => candidate.id === event.target.value,
-                    );
-                    setSelectedAssetPackId(event.target.value);
-                    if (pack) {
-                      setAssetPack(pack);
-                      setPackOutboxMessage(`Selected ${pack.name}.`);
-                      setCombinatorOutboxMessage(`${pack.name} is selected for the combinator.`);
-                    }
-                  }}
-                  disabled={!savedAssetPacks.length}
-                >
-                  {savedAssetPacks.map((pack) => (
-                    <option key={pack.id} value={pack.id}>
-                      {formatAssetPackOption(pack)}
-                    </option>
-                  ))}
-                  {!savedAssetPacks.length ? <option value="">No saved packs yet</option> : null}
-                </select>
-              </label>
-              <button
-                className="utility-button"
-                type="button"
-                onClick={() => void loadSavedAssetPacks()}
-              >
-                Refresh packs
-              </button>
-            </div>
-
-            {selectedSavedPack ? (
-              <SelectedSavedPackDetail
-                pack={selectedSavedPack}
-                assets={packAssets}
-                candidateCount={candidateCompositions.length}
-              />
-            ) : (
-              <div className="empty-state">No saved packs loaded. Save a pack plan or refresh packs.</div>
-            )}
-          </>
-        ) : (
-          <p className="muted">
-            {selectedSavedPack
-              ? `${selectedSavedPack.name} is selected.`
-              : 'Saved pack details are hidden.'}
-          </p>
-        )}
-      </section>
-
-      <section className="output-surface">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Asset combinator</p>
-            <h3>Reel combinations</h3>
-          </div>
-          <div className="review-actions">
-            <button className="utility-button" type="button" onClick={() => void loadSavedAssetPacks()}>
-              Refresh packs
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => void queueRender()}
-                disabled={actionDisabled || !selectedCombinatorPack}
-            >
-              {isPackActionRunning ? 'Working...' : 'Create hook / cover'}
-            </button>
-          </div>
-        </div>
-
-        <label className="field">
-          Saved pack
-          <select
-            value={selectedCombinatorPack?.id ?? ''}
-            onChange={(event) => {
-              setSelectedAssetPackId(event.target.value);
-              const pack = combinatorAssetPacks.find(
-                (candidate) => candidate.id === event.target.value,
-              );
-              if (pack) {
-                setAssetPack(pack);
-                setCombinatorOutboxMessage(`${pack.name} is selected for the combinator.`);
-              }
-            }}
-            disabled={!combinatorAssetPacks.length}
-          >
-            {!combinatorAssetPacks.length ? (
-              <option value="">No active packs available</option>
-            ) : null}
-            {combinatorAssetPacks.length && !selectedCombinatorPack ? (
-              <option value="">Choose an active pack</option>
-            ) : null}
-            {combinatorAssetPacks.map((pack) => (
-              <option key={pack.id} value={pack.id}>
-                {formatAssetPackOption(pack)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="combo-grid">
-          <CombinationSlot label="Background" asset={selectedBackground} />
-          <CombinationSlot label="Foreground object" asset={selectedObject} />
-          <CombinationSlot label="Hook" asset={selectedHook} />
-          <CombinationSlot label="Audio" asset={selectedAudio} />
-          <CombinationSlot label="Format / template" asset={selectedVideo} />
-          <div className="combo-score">
-            <span>Estimated output score</span>
-            <strong>{outputScore}</strong>
-          </div>
-        </div>
-        <GeneratedCompositionOutputBox
-          compositionRuns={assetCompositionRuns}
-          selectedOutputRun={selectedOutputIsComposition ? selectedOutputRun : null}
-          setSelectedOutputRunId={setSelectedOutputRunId}
-          packageDetail={selectedOutputIsComposition ? packageDetail : null}
-          packageNotice={selectedOutputIsComposition ? packageNotice : ''}
-          failureMessages={selectedOutputIsComposition ? failureMessages : []}
-          artifactTabs={
-            selectedOutputIsComposition
-              ? artifactTabs.filter((tab) => tab !== 'video' && tab !== 'runway')
-              : []
-          }
-          artifactTab={artifactTab}
-          setArtifactTab={setArtifactTab}
-          selectedArtifact={selectedOutputIsComposition ? selectedArtifact : null}
-          selectedDownload={selectedOutputIsComposition ? selectedDownload : null}
-          artifactText={selectedOutputIsComposition ? artifactText : ''}
-          artifactTextStatus={selectedOutputIsComposition ? artifactTextStatus : ''}
-          copyArtifactText={copyArtifactText}
-          message={combinatorOutboxMessage}
-        />
-      </section>
 
     </>
   );
 }
 
-function AssetPackOutbox({
-  activePack,
-  savedPacks,
-  plan,
-  message,
+function HookGenerationCanvas({
+  generation,
+  selectedItemId = null,
+  mode = 'output',
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
+  beginMove,
+  beginResize,
+  canvasRef,
 }: {
-  activePack: AssetPackRecord | null;
-  savedPacks: AssetPackRecord[];
-  plan: AssetPackPlanResponse | null;
-  message: string;
+  generation: SavedHookImageGeneration;
+  selectedItemId?: string | null;
+  mode?: 'output' | 'edit';
+  onPointerMove?: (event: React.PointerEvent<HTMLElement>) => void;
+  onPointerUp?: (event: React.PointerEvent<HTMLElement>) => void;
+  onPointerCancel?: (event: React.PointerEvent<HTMLElement>) => void;
+  onPointerLeave?: (event: React.PointerEvent<HTMLElement>) => void;
+  beginMove?: (event: React.PointerEvent<HTMLButtonElement>, item: HookCanvasItem) => void;
+  beginResize?: (event: React.PointerEvent<HTMLSpanElement>, item: HookCanvasItem) => void;
+  canvasRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const pack = activePack ?? plan?.asset_pack ?? null;
-  const mix = plan?.asset_mix ?? pack?.asset_mix_final_json ?? pack?.asset_mix_requested_json ?? null;
+  const isEditable = mode === 'edit';
   return (
-    <section className="outbox-panel" aria-label="Pack plan outbox">
-      <div className="outbox-heading">
-        <div>
-          <p className="eyebrow">Pack plan outbox</p>
-          <h4>{pack ? pack.name : 'No saved pack selected'}</h4>
-        </div>
-        <span className={`status-pill ${pack ? statusTone(pack.status) : 'is-muted'}`}>
-          {pack?.status ?? 'draft'}
-        </span>
-      </div>
-      <dl className="outbox-grid">
-        <div>
-          <dt>Saved packs</dt>
-          <dd>{savedPacks.length}</dd>
-        </div>
-        <div>
-          <dt>Requested assets</dt>
-          <dd>{pack?.requested_asset_count ?? planAssetCount(plan) ?? 'Not saved'}</dd>
-        </div>
-        <div>
-          <dt>Asset mix</dt>
-          <dd>{formatAssetMix(mix)}</dd>
-        </div>
-        <div>
-          <dt>Formats</dt>
-          <dd>{plan?.expected_reel_formats?.join(', ') || 'Uses planner formats'}</dd>
-        </div>
-      </dl>
-      <p>{message}</p>
-      {plan?.strategy_summary ? <p>{plan.strategy_summary}</p> : null}
-    </section>
+    <div
+      className={`hook-canvas ${isEditable ? 'is-editing' : 'is-output'}`}
+      ref={canvasRef}
+      style={{ background: generation.background.previewTone }}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onPointerLeave={onPointerLeave}
+    >
+      {generation.background.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className="hook-canvas-background-image"
+          src={generation.background.imageUrl}
+          alt={generation.background.title}
+        />
+      ) : null}
+      {isEditable && generation.items.length === 0 ? (
+        <div className="hook-empty-state">Choose assets to place on this reel template.</div>
+      ) : null}
+      {generation.items.map((item) => {
+        const showLabel = item.asset.kind === 'hook' || (isEditable && !item.asset.imageUrl);
+        return (
+          <button
+            className={[
+              'hook-canvas-item',
+              item.asset.kind === 'hook' ? 'is-text' : 'is-visual',
+              item.id === selectedItemId ? 'is-selected' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            type="button"
+            key={item.id}
+            style={{
+              '--layer-color': layerColorForItem(item),
+              left: `${item.x}%`,
+              top: `${item.y}%`,
+              width: `${item.size}%`,
+              background: item.asset.previewTone,
+            } as React.CSSProperties & Record<'--layer-color', string>}
+            onPointerDown={beginMove ? (event) => beginMove(event, item) : undefined}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+            disabled={!isEditable || !beginMove}
+          >
+            {item.asset.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.asset.imageUrl} alt={item.asset.title} />
+            ) : null}
+            {showLabel ? <span>{item.asset.title}</span> : null}
+            {item.id === selectedItemId && beginResize ? (
+              <span
+                className="hook-resize-handle"
+                aria-hidden="true"
+                onPointerDown={(event) => beginResize(event, item)}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancel}
+              />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function SelectedSavedPackDetail({
-  pack,
-  assets,
-  candidateCount,
+export function HookImageCreator({
+  orgId = DEFAULT_ORG_ID,
+  selectedPage = null,
+  onRunsChanged = () => undefined,
+  compositionRuns = [],
+  selectedRun = null,
+  setSelectedRunId = () => undefined,
+  savedHookGenerations = [],
+  onSaveGeneration = () => undefined,
+  setWorkspaceMessage = () => undefined,
 }: {
-  pack: AssetPackRecord;
-  assets: AssetLibraryItem[];
-  candidateCount: number;
+  orgId?: string;
+  selectedPage?: PageRecord | null;
+  onRunsChanged?: () => void;
+  compositionRuns?: RunRecord[];
+  selectedRun?: RunRecord | null;
+  setSelectedRunId?: (runId: string) => void;
+  savedHookGenerations?: SavedHookImageGeneration[];
+  onSaveGeneration?: (generation: SavedHookImageGeneration) => void;
+  setWorkspaceMessage?: (message: string) => void;
 }) {
-  return (
-    <article className="saved-pack-card is-selected">
-      <div className="saved-pack-card-heading">
-        <div>
-          <h4>{pack.name}</h4>
-          <p>{pack.niche}</p>
-        </div>
-        <span className={`status-pill ${statusTone(pack.status)}`}>{pack.status}</span>
-      </div>
-      <dl className="saved-pack-meta">
-        <div>
-          <dt>Assets</dt>
-          <dd>
-            {assets.length || pack.requested_asset_count || 'Unknown'}
-            {assets.length ? ' loaded' : ''}
-          </dd>
-        </div>
-        <div>
-          <dt>Mix</dt>
-          <dd>{formatAssetMix(pack.asset_mix_final_json ?? pack.asset_mix_requested_json ?? null)}</dd>
-        </div>
-        <div>
-          <dt>Combinations</dt>
-          <dd>{candidateCount || 'Visual fallback'}</dd>
-        </div>
-      </dl>
-      {pack.strategy_summary ? <p>{pack.strategy_summary}</p> : null}
-      {assets.length ? (
-        <div className="pack-asset-browser" aria-label="Selected pack assets">
-          {assets.slice(0, 12).map((asset) => (
-            <AssetLibraryCard asset={asset} compact key={asset.id} />
-          ))}
-        </div>
-      ) : (
-        <p>No ready assets loaded for this pack yet.</p>
-      )}
-    </article>
-  );
-}
-
-function AssetLibraryCard({ asset, compact = false }: { asset: AssetLibraryItem; compact?: boolean }) {
-  return (
-    <article className={`asset-card ${compact ? 'is-compact' : ''}`}>
-      <div className="asset-preview" style={{ background: asset.previewTone }}>
-        {asset.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={asset.imageUrl} alt={asset.title} />
-        ) : (
-          <span>{asset.kind.replace('_', ' ')}</span>
-        )}
-      </div>
-      <div className="asset-card-body">
-        <div>
-          <h4>{asset.title}</h4>
-          <p className="muted">{asset.mediaType}</p>
-        </div>
-        <dl className="asset-meta">
-          <div>
-            <dt>Pack</dt>
-            <dd>{asset.pack}</dd>
-          </div>
-          <div>
-            <dt>Layer</dt>
-            <dd>{asset.layerSuitability}</dd>
-          </div>
-          <div>
-            <dt>Reuse</dt>
-            <dd>{asset.reuseCount}</dd>
-          </div>
-          <div>
-            <dt>Score</dt>
-            <dd>{asset.performanceScore}</dd>
-          </div>
-        </dl>
-        <div className="tag-row">
-          {asset.tags.map((tag) => (
-            <span key={tag}>{tag}</span>
-          ))}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function GeneratedCompositionOutputBox({
-  compositionRuns,
-  selectedOutputRun,
-  setSelectedOutputRunId,
-  packageDetail,
-  packageNotice,
-  failureMessages,
-  artifactTabs,
-  artifactTab,
-  setArtifactTab,
-  selectedArtifact,
-  selectedDownload,
-  artifactText,
-  artifactTextStatus,
-  copyArtifactText,
-  message,
-}: {
-  compositionRuns: RunRecord[];
-  selectedOutputRun: RunRecord | null;
-  setSelectedOutputRunId: (runId: string) => void;
-  packageDetail: PackageDetail | null;
-  packageNotice: string;
-  failureMessages: string[];
-  artifactTabs: ArtifactTab[];
-  artifactTab: ArtifactTab;
-  setArtifactTab: (tab: ArtifactTab) => void;
-  selectedArtifact: PackageArtifact | null;
-  selectedDownload: SignedDownload | null;
-  artifactText: string;
-  artifactTextStatus: string;
-  copyArtifactText: () => void;
-  message: string;
-}) {
-  const visibleArtifactTabs = artifactTabs.filter((tab) => tab !== 'video' && tab !== 'runway');
-  const visibleArtifactTab = visibleArtifactTabs.some((tab) => tab === artifactTab)
-    ? artifactTab
-    : (visibleArtifactTabs[0] ?? 'raw');
-  return (
-    <section className="generated-output-box" aria-label="Combinator generated output">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">Combinator output</p>
-          <h3>Generated hook / cover</h3>
-        </div>
-        <span className={`status-pill ${statusTone(selectedOutputRun?.status)}`}>
-          {selectedOutputRun?.status ?? 'waiting'}
-        </span>
-      </div>
-
-      {compositionRuns.length ? (
-        <>
-          <label className="field">
-            Hook / cover run
-            <select
-              value={selectedOutputRun?.id ?? ''}
-              onChange={(event) => setSelectedOutputRunId(event.target.value)}
-            >
-              {compositionRuns.map((run) => (
-                <option key={run.id} value={run.id}>
-                  {formatGeneratedRunOption(run)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <PackageSummary
-            run={selectedOutputRun}
-            detail={packageDetail}
-            notice={packageNotice || message}
-            failures={failureMessages}
-          />
-          <LifecycleSteps run={selectedOutputRun} />
-
-          <CompositionHookCoverPreview run={selectedOutputRun} />
-
-          {visibleArtifactTabs.length ? (
-            <ArtifactViewer
-              tabs={visibleArtifactTabs}
-              activeTab={visibleArtifactTab}
-              setActiveTab={setArtifactTab}
-              packageDetail={packageDetail}
-              run={selectedOutputRun}
-              artifact={selectedArtifact}
-              download={selectedDownload}
-              artifactText={artifactText}
-              artifactTextStatus={artifactTextStatus}
-              copyArtifactText={copyArtifactText}
-            />
-          ) : (
-            <div className="empty-state">
-              {selectedOutputRun?.status === 'failed'
-                ? (runErrorMessage(selectedOutputRun) ?? 'Artifacts not written.')
-                : packageNotice || message}
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="empty-state">{message}</div>
-      )}
-    </section>
-  );
-}
-
-function CompositionHookCoverPreview({ run }: { run: RunRecord | null }) {
-  const cover = hookCoverPayload(run);
-  if (!cover) {
-    return (
-      <div className="empty-state">
-        Queue a new hook / cover run to see the asset-pack image preview here.
-      </div>
-    );
-  }
-  const roles = asRecord(cover.roles) ?? {};
-  const background = asRecord(roles.background);
-  const foreground = asRecord(roles.foreground);
-  const hook = textValue(cover.hook) ?? textValue(cover.title) ?? 'Hook cover';
-  const backgroundTone = assetPreviewTone(background, 'linear-gradient(160deg, #101827, #334155)');
-  const foregroundTone = assetPreviewTone(foreground, 'linear-gradient(135deg, #5eead4, #f8fafc)');
-  const backgroundImageUrl = assetImageUrl(background);
-  const foregroundImageUrl = assetImageUrl(foreground);
-  const variant = hashString(textValue(cover.composition_id) ?? textValue(cover.title) ?? hook);
-  const objectStyle = {
-    background: foregroundTone,
-    right: `${-18 + (variant % 18)}%`,
-    bottom: `${8 + (variant % 24)}%`,
-    width: `${48 + (variant % 18)}%`,
-  };
-  const objectImageStyle = {
-    right: objectStyle.right,
-    bottom: objectStyle.bottom,
-    width: objectStyle.width,
-  };
-  const copyStyle =
-    variant % 3 === 0
-      ? { top: '9%', bottom: 'auto' }
-      : variant % 3 === 1
-        ? { top: '38%', bottom: 'auto' }
-        : { bottom: '9%' };
-  return (
-    <section className="hook-cover-output" aria-label="Generated hook cover preview">
-      <div className="hook-cover-preview" style={{ background: backgroundTone }}>
-        {backgroundImageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="hook-cover-background-image" src={backgroundImageUrl} alt="Selected background asset" />
-        ) : null}
-        <div className="hook-cover-shine" />
-        {foregroundImageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            className="hook-cover-object-image"
-            src={foregroundImageUrl}
-            alt="Selected foreground asset"
-            style={objectImageStyle}
-          />
-        ) : (
-          <div className="hook-cover-object" style={objectStyle} />
-        )}
-        <div className="hook-cover-copy" style={copyStyle}>
-          <span>Hook / cover</span>
-          <strong>{hook}</strong>
-        </div>
-      </div>
-      <div className="hook-cover-meta">
-        <span className="status-pill success">Local image</span>
-        <span>{textValue(cover.title) ?? 'Asset-pack hook cover'}</span>
-      </div>
-    </section>
-  );
-}
-
-export function HookImageCreator() {
-  const backgrounds = assetLibrarySeed.filter((asset) => asset.kind === 'background');
-  const placeableAssets = assetLibrarySeed.filter(
-    (asset) => asset.kind === 'object' || asset.kind === 'hook',
-  );
+  const seedBackgrounds = assetLibrarySeed.filter((asset) => asset.kind === 'background');
+  const [activeGenerationId, setActiveGenerationId] = useState('new');
+  const [generationName, setGenerationName] = useState('New hook image');
   const [selectedBackgroundId, setSelectedBackgroundId] = useState(bestAsset('background').id);
+  const [customBackground, setCustomBackground] = useState<AssetLibraryItem | null>(null);
   const [items, setItems] = useState<HookCanvasItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [savedAssetPacks, setSavedAssetPacks] = useState<AssetPackRecord[]>([]);
+  const [selectedAssetPackId, setSelectedAssetPackId] = useState('');
+  const [selectedBrowserAssetId, setSelectedBrowserAssetId] = useState('');
+  const [assetBrowserFilter, setAssetBrowserFilter] = useState<'all' | 'background' | 'object'>('all');
+  const [packAssets, setPackAssets] = useState<AssetLibraryItem[]>([]);
+  const [candidateCompositions, setCandidateCompositions] = useState<CandidateComposition[]>([]);
+  const [compositionPickIndex, setCompositionPickIndex] = useState(0);
+  const [isCombinatorRunning, setIsCombinatorRunning] = useState(false);
+  const [combinatorMessage, setCombinatorMessage] = useState(
+    'Choose an active saved pack to create a hook image on the canvas.',
+  );
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<HookCanvasDragState | null>(null);
+  const loadedDraftKey = useRef('');
+  const assetBrowserItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  const savedForActive =
+    savedHookGenerations.find((generation) => generation.id === activeGenerationId) ?? null;
   const selectedBackground =
-    backgrounds.find((asset) => asset.id === selectedBackgroundId) ?? backgrounds[0];
+    customBackground ??
+    seedBackgrounds.find((asset) => asset.id === selectedBackgroundId) ??
+    seedBackgrounds[0];
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
+  const combinatorAssetPacks = savedAssetPacks.filter(isCombinatorEligibleAssetPack);
+  const selectedCombinatorPack =
+    combinatorAssetPacks.find((pack) => pack.id === selectedAssetPackId) ?? null;
+  const combinatorLibrary = packAssets.length ? packAssets : assetLibrarySeed;
+  const browserAssetPool = useMemo(
+    () =>
+      packAssets.filter(
+        (asset) => asset.kind === 'background' || asset.kind === 'object' || asset.kind === 'hook',
+      ),
+    [packAssets],
+  );
+  const visiblePackAssets = useMemo(
+    () =>
+      assetBrowserFilter === 'all'
+        ? browserAssetPool
+        : browserAssetPool.filter((asset) =>
+            assetBrowserFilter === 'background'
+              ? asset.kind === 'background'
+              : asset.kind === 'object' || asset.kind === 'hook',
+          ),
+    [assetBrowserFilter, browserAssetPool],
+  );
+  const visiblePackAssetIds = useMemo(
+    () => visiblePackAssets.map((asset) => asset.id).join('|'),
+    [visiblePackAssets],
+  );
+  const visibleBackgroundCount = browserAssetPool.filter((asset) => asset.kind === 'background').length;
+  const visibleObjectCount = browserAssetPool.filter(
+    (asset) => asset.kind === 'object' || asset.kind === 'hook',
+  ).length;
+  const compositionSeed = `${selectedCombinatorPack?.id ?? selectedPage?.id ?? orgId}:${compositionPickIndex}`;
+  const selectedCandidate =
+    candidateCompositions.length > 0
+      ? candidateCompositions[compositionPickIndex % candidateCompositions.length]
+      : null;
+  const combinatorBackground =
+    assetFromCandidateRole(selectedCandidate, 'background') ??
+    pickAsset('background', compositionSeed, 0, combinatorLibrary);
+  const combinatorObject =
+    assetFromCandidateRole(selectedCandidate, 'foreground') ??
+    assetFromCandidateRole(selectedCandidate, 'object') ??
+    pickAsset('object', compositionSeed, 1, combinatorLibrary);
+  const combinatorHook =
+    assetFromCandidateRole(selectedCandidate, 'hook') ??
+    syntheticHookAsset(selectedCombinatorPack, combinatorObject);
+  const combinatorAudio =
+    assetFromCandidateRole(selectedCandidate, 'audio') ??
+    pickOptionalAsset('audio', compositionSeed, 3, combinatorLibrary);
+  const combinatorVideo =
+    assetFromCandidateRole(selectedCandidate, 'format') ??
+    pickOptionalAsset('video', compositionSeed, 4, combinatorLibrary);
+  const combinatorAssets = [
+    combinatorBackground,
+    combinatorObject,
+    combinatorHook,
+    combinatorAudio,
+    combinatorVideo,
+  ].filter((asset): asset is AssetLibraryItem => asset !== null);
+  const combinatorScore = Math.round(
+    combinatorAssets.reduce((sum, asset) => sum + asset.performanceScore, 0) /
+      Math.max(1, combinatorAssets.length),
+  );
+  const currentGeneration: SavedHookImageGeneration = {
+    id: activeGenerationId,
+    sourceRunId: savedForActive?.sourceRunId ?? null,
+    name: generationName,
+    selectedBackgroundId: selectedBackground.id,
+    background: selectedBackground,
+    items,
+    updatedAt: savedForActive?.updatedAt ?? new Date().toISOString(),
+  };
+
+  useEffect(() => {
+    void loadSavedAssetPacks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPage?.id, orgId]);
+
+  useEffect(() => {
+    if (!selectedAssetPackId) {
+      setPackAssets([]);
+      setCandidateCompositions([]);
+      setSelectedBrowserAssetId('');
+      return;
+    }
+    void loadSelectedPackAssets(selectedAssetPackId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAssetPackId, orgId]);
+
+  useEffect(() => {
+    if (
+      selectedBrowserAssetId &&
+      !visiblePackAssets.some((asset) => asset.id === selectedBrowserAssetId)
+    ) {
+      setSelectedBrowserAssetId('');
+    }
+  }, [selectedBrowserAssetId, visiblePackAssetIds, visiblePackAssets]);
+
+  useEffect(() => {
+    if (!selectedBrowserAssetId) {
+      return;
+    }
+    assetBrowserItemRefs.current[selectedBrowserAssetId]?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    });
+  }, [selectedBrowserAssetId]);
+
+  useEffect(() => {
+    if (activeGenerationId === 'new') {
+      return;
+    }
+    const generation = editableHookGenerationForId({
+      generationId: activeGenerationId,
+      compositionRuns,
+      savedHookGenerations,
+      orgId,
+    });
+    if (generation) {
+      const draftKey = `${generation.id}:${generation.updatedAt}:${generation.name}`;
+      if (loadedDraftKey.current === draftKey) {
+        return;
+      }
+      loadedDraftKey.current = draftKey;
+      loadGenerationDraft(generation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGenerationId, compositionRuns, savedHookGenerations]);
+
+  useEffect(() => {
+    if (selectedRun && activeGenerationId === 'new') {
+      setActiveGenerationId(selectedRun.id);
+    }
+  }, [activeGenerationId, selectedRun]);
+
+  async function loadSavedAssetPacks(preferredPackId?: string): Promise<AssetPackRecord[]> {
+    try {
+      const response = await fetch(`/api/orgs/${orgId}/asset-packs?limit=50`, {
+        cache: 'no-store',
+        headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      const packs = ((await response.json()) as AssetPackRecord[]).filter(
+        (pack) => pack.status !== 'rejected' && pack.status !== 'archived',
+      );
+      setSavedAssetPacks(packs);
+      const fallbackPackId =
+        packs.find(isCombinatorEligibleAssetPack)?.id ?? packs[0]?.id ?? '';
+      setSelectedAssetPackId(preferredPackId || selectedAssetPackId || fallbackPackId);
+      return packs;
+    } catch (error) {
+      setCombinatorMessage(
+        error instanceof Error ? error.message : 'Could not load saved asset packs.',
+      );
+      return [];
+    }
+  }
+
+  async function loadSelectedPackAssets(assetPackId: string): Promise<AssetLibraryItem[]> {
+    try {
+      setCombinatorMessage('Loading selected pack assets...');
+      const assetsResponse = await fetch(
+        `/api/orgs/${orgId}/assets?asset_pack_id=${assetPackId}&ready_status=ready&limit=200`,
+        {
+          cache: 'no-store',
+          headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
+        },
+      );
+      if (!assetsResponse.ok) {
+        throw new Error(await apiErrorMessage(assetsResponse));
+      }
+      const assetRows = (await assetsResponse.json()) as AssetLibraryItemOut[];
+      const mappedAssets = assetRows.map((row) => mapAssetLibraryItemOut(row, orgId));
+      setPackAssets(mappedAssets);
+
+      const combinationsResponse = await fetch(
+        `/api/orgs/${orgId}/asset-packs/${assetPackId}/combinations`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Actor-Id': 'operator:ui-rebuild',
+          },
+          body: JSON.stringify({
+            target_reel_count: 12,
+            mode: 'balanced',
+            filters: {},
+          }),
+        },
+      );
+      if (combinationsResponse.ok) {
+        const combinations = (await combinationsResponse.json()) as AssetPackCombinationsResponse;
+        setCandidateCompositions(combinations.candidate_compositions);
+        setCombinatorMessage(
+          combinations.candidate_compositions.length
+            ? `Loaded ${combinations.candidate_compositions.length} combinations from ${combinations.asset_pack.name}.`
+            : `${combinations.asset_pack.name} has no backend combinations; the canvas will use its ready assets with generated hook text.`,
+        );
+      } else {
+        setCandidateCompositions([]);
+        setCombinatorMessage(
+          `Loaded pack assets, but backend combinations are unavailable: ${await apiErrorMessage(
+            combinationsResponse,
+          )}`,
+        );
+      }
+      return mappedAssets;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load pack assets.';
+      setPackAssets([]);
+      setCandidateCompositions([]);
+      setCombinatorMessage(message);
+      return [];
+    }
+  }
+
+  async function approveCombinatorPack(pack: AssetPackRecord): Promise<AssetPackRecord> {
+    if (pack.status === 'approved' || pack.status === 'ready' || pack.status === 'generating') {
+      return pack;
+    }
+    if (pack.status !== 'planned') {
+      throw new Error(`Asset pack is ${pack.status}; choose a planned or active pack.`);
+    }
+    const response = await fetch(`/api/orgs/${orgId}/asset-packs/${pack.id}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Actor-Id': 'operator:ui-rebuild',
+      },
+      body: JSON.stringify({
+        note: 'Approved from live hook image creator.',
+        metadata: { source: 'web_live_hook_image_creator' },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await apiErrorMessage(response));
+    }
+    const approved = (await response.json()) as AssetPackRecord;
+    await loadSavedAssetPacks(approved.id);
+    return approved;
+  }
+
+  async function queueCombinatorRender() {
+    if (!selectedPage || !selectedCombinatorPack) {
+      setCombinatorMessage('Choose an active saved pack first.');
+      return;
+    }
+    setIsCombinatorRunning(true);
+    setWorkspaceMessage('Creating asset-led hook image...');
+    setCombinatorMessage('Creating selected hook image composition...');
+    try {
+      const approved = await approveCombinatorPack(selectedCombinatorPack);
+      const backgroundCount = packAssets.filter((asset) => asset.kind === 'background').length;
+      const objectCount = packAssets.filter((asset) => asset.kind === 'object').length;
+      const planner: AssetPackPlannerState = {
+        name: approved.name,
+        totalAssetCount: approved.requested_asset_count ?? Math.max(1, packAssets.length),
+        backgroundCount,
+        objectCount,
+        qualityLevel: 'balanced',
+        format: 'proof reel',
+        style: 'clean product',
+        provider: 'runway',
+        model: 'gen4.5',
+        ratio: '9:16',
+      };
+      const baseCompositionManifest =
+        selectedCandidate?.composition_manifest ??
+        buildCompositionManifest({
+          assetPackId: approved.id,
+          assetPackName: approved.name,
+          planner,
+          selectedBackground: combinatorBackground,
+          selectedObject: combinatorObject,
+          selectedHook: combinatorHook,
+          selectedAudio: combinatorAudio,
+          selectedVideo: combinatorVideo,
+          outputScore: combinatorScore,
+        });
+      const compositionManifest = withHookLayoutIntent({
+        manifest: baseCompositionManifest,
+        selectedBackground: combinatorBackground,
+        selectedObject: combinatorObject,
+        selectedHook: combinatorHook,
+      });
+      const response = await fetch(
+        `/api/orgs/${orgId}/asset-packs/${approved.id}/composition-renders`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Actor-Id': 'operator:ui-rebuild',
+          },
+          body: JSON.stringify({
+            page_id: selectedPage.id,
+            composition_manifest: compositionManifest,
+            render_mode: 'preview',
+            dry_run: true,
+            idempotency_key: `hook-image-creator:${approved.id}:${Date.now()}`,
+            metadata: {
+              source: 'web_live_hook_image_creator',
+              page_id: selectedPage.id,
+            },
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      const submitted = (await response.json()) as AssetPackRenderResponse;
+      setSelectedRunId(submitted.run_id);
+      setActiveGenerationId(submitted.run_id);
+      setGenerationName(`${approved.name} hook image`);
+      setSelectedBackgroundId(combinatorBackground.id);
+      setCustomBackground(
+        seedBackgrounds.some((asset) => asset.id === combinatorBackground.id)
+          ? null
+          : combinatorBackground,
+      );
+      const editorItems = asRecord(compositionManifest.editor_state)?.items;
+      setItems(
+        (Array.isArray(editorItems) ? editorItems : [])
+          .map(asHookCanvasItem)
+          .filter((item): item is HookCanvasItem => item !== null),
+      );
+      setSelectedItemId(null);
+      setCompositionPickIndex((current) => current + 1);
+      setCombinatorMessage(`Created hook image ${submitted.run_id.slice(0, 8)} on the canvas.`);
+      setWorkspaceMessage(`Created asset-led hook image ${submitted.run_id.slice(0, 8)}.`);
+      onRunsChanged();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not create hook image.';
+      setCombinatorMessage(message);
+      setWorkspaceMessage(message);
+    } finally {
+      setIsCombinatorRunning(false);
+    }
+  }
+
+  function loadGenerationDraft(generation: SavedHookImageGeneration) {
+    setGenerationName(generation.name);
+    setSelectedBackgroundId(generation.selectedBackgroundId);
+    setCustomBackground(
+      seedBackgrounds.some((asset) => asset.id === generation.background.id)
+        ? null
+        : generation.background,
+      );
+    setItems(generation.items);
+    setSelectedItemId(null);
+  }
+
+  function handleGenerationChange(generationId: string) {
+    setActiveGenerationId(generationId);
+    if (generationId === 'new') {
+      setGenerationName('New hook image');
+      setSelectedBackgroundId(bestAsset('background').id);
+      setCustomBackground(null);
+      setItems([]);
+      setSelectedItemId(null);
+      return;
+    }
+    const generation = editableHookGenerationForId({
+      generationId,
+      compositionRuns,
+      savedHookGenerations,
+      orgId,
+    });
+    if (generation) {
+      loadedDraftKey.current = `${generation.id}:${generation.updatedAt}:${generation.name}`;
+      loadGenerationDraft(generation);
+      if (generation.sourceRunId) {
+        setSelectedRunId(generation.sourceRunId);
+      }
+      return;
+    }
+  }
 
   function addItem(asset: AssetLibraryItem) {
     const siblingCount = items.filter((item) => item.asset.id === asset.id).length;
@@ -3170,6 +3543,34 @@ export function HookImageCreator() {
     };
     setItems((current) => [...current, nextItem]);
     setSelectedItemId(nextItem.id);
+  }
+
+  function setCanvasBackground(asset: AssetLibraryItem) {
+    setSelectedBackgroundId(asset.id);
+    setCustomBackground(
+      seedBackgrounds.some((seedAsset) => seedAsset.id === asset.id) ? null : asset,
+    );
+    setSelectedItemId(null);
+  }
+
+  function removeItemsForAsset(assetId: string) {
+    setItems((current) => current.filter((item) => item.asset.id !== assetId));
+    setSelectedItemId((current) => {
+      if (!current) {
+        return null;
+      }
+      const selectedRemoved = items.some((item) => item.id === current && item.asset.id === assetId);
+      return selectedRemoved ? null : current;
+    });
+  }
+
+  function handleLiveAssetAction(asset: AssetLibraryItem) {
+    setSelectedBrowserAssetId(asset.id);
+    if (asset.kind === 'background') {
+      setCanvasBackground(asset);
+      return;
+    }
+    addItem(asset);
   }
 
   function updateSelectedItemSize(size: number) {
@@ -3194,6 +3595,33 @@ export function HookImageCreator() {
   function resetCanvas() {
     setItems([]);
     setSelectedItemId(null);
+  }
+
+  async function saveGeneration() {
+    const sourceRunId = compositionRuns.some((run) => run.id === activeGenerationId)
+      ? activeGenerationId
+      : (savedForActive?.sourceRunId ?? null);
+    const id =
+      activeGenerationId !== 'new'
+        ? activeGenerationId
+        : `local-hook:${selectedPage?.id ?? orgId}:${Date.now()}`;
+    const name = generationName.trim() || 'Untitled hook image';
+    const nextGeneration: SavedHookImageGeneration = {
+      id,
+      sourceRunId,
+      name,
+      selectedBackgroundId: selectedBackground.id,
+      background: selectedBackground,
+      items,
+      updatedAt: new Date().toISOString(),
+    };
+    onSaveGeneration(nextGeneration);
+    setActiveGenerationId(id);
+    setGenerationName(name);
+    setWorkspaceMessage(`${name} saved.`);
+    if (sourceRunId) {
+      await syncHookGenerationToRun(orgId, sourceRunId, nextGeneration);
+    }
   }
 
   function beginMove(event: React.PointerEvent<HTMLButtonElement>, item: HookCanvasItem) {
@@ -3270,7 +3698,9 @@ export function HookImageCreator() {
           <p className="eyebrow">Live hook image creator</p>
           <h3>Reel hook image</h3>
         </div>
-        <span className="status-pill">Local only</span>
+        <span className="status-pill">
+          {activeGenerationId === 'new' ? 'New image' : 'Editable generation'}
+        </span>
       </div>
 
       <div className="hook-creator-layout">
@@ -3278,53 +3708,143 @@ export function HookImageCreator() {
           <div className="hook-control-group">
             <div className="section-heading is-compact">
               <div>
-                <h4>Background</h4>
-                <p className="muted">Scroll and choose a reel plate.</p>
+                <h4>Live asset browser</h4>
+                <p className="muted">Browse the selected pack and place assets on the live canvas.</p>
               </div>
             </div>
-            <div className="hook-choice-strip" aria-label="Hook background choices">
-              {backgrounds.map((asset) => (
-                <button
-                  className={
-                    asset.id === selectedBackground.id ? 'hook-choice is-active' : 'hook-choice'
-                  }
-                  type="button"
-                  key={asset.id}
-                  onClick={() => setSelectedBackgroundId(asset.id)}
-                >
-                  <span className="asset-preview" style={{ background: asset.previewTone }} />
-                  <strong>{asset.title}</strong>
-                  <small>{asset.tags.join(', ')}</small>
-                </button>
-              ))}
+            <label className="field">
+              Pack
+              <select
+                value={selectedAssetPackId}
+                onChange={(event) => {
+                  setSelectedAssetPackId(event.target.value);
+                  setSelectedBrowserAssetId('');
+                }}
+                disabled={!savedAssetPacks.length}
+              >
+                {!savedAssetPacks.length ? <option value="">No saved packs yet</option> : null}
+                {savedAssetPacks.map((pack) => (
+                  <option key={pack.id} value={pack.id}>
+                    {formatAssetPackOption(pack)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Asset
+              <select
+                value={selectedBrowserAssetId}
+                onChange={(event) => setSelectedBrowserAssetId(event.target.value)}
+                disabled={!visiblePackAssets.length}
+              >
+                <option value="">All backgrounds and objects</option>
+                {visiblePackAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="asset-browser-filter" role="group" aria-label="Live asset type filter">
+              <button
+                className={assetBrowserFilter === 'all' ? 'is-active' : ''}
+                type="button"
+                onClick={() => setAssetBrowserFilter('all')}
+              >
+                All
+              </button>
+              <button
+                className={assetBrowserFilter === 'background' ? 'is-active' : ''}
+                type="button"
+                onClick={() => setAssetBrowserFilter('background')}
+              >
+                Backgrounds
+              </button>
+              <button
+                className={assetBrowserFilter === 'object' ? 'is-active' : ''}
+                type="button"
+                onClick={() => setAssetBrowserFilter('object')}
+              >
+                Objects
+              </button>
             </div>
-          </div>
 
-          <div className="hook-control-group">
-            <div className="section-heading is-compact">
-              <div>
-                <h4>Assets</h4>
-                <p className="muted">Add seeded objects or hook copy to the local image.</p>
-              </div>
+            <div className="pack-browser-counts" aria-label="Live asset counts">
+              <span>{visibleBackgroundCount} backgrounds</span>
+              <span>{visibleObjectCount} objects</span>
             </div>
-            <div className="hook-asset-picker">
-              {placeableAssets.map((asset) => (
-                <button
-                  className="hook-asset-button"
-                  type="button"
-                  key={asset.id}
-                  onClick={() => addItem(asset)}
-                >
-                  <span
-                    className="asset-preview is-small"
-                    style={{ background: asset.previewTone }}
-                  />
-                  <span>
-                    <strong>{asset.title}</strong>
-                    <small>{asset.layerSuitability}</small>
-                  </span>
-                </button>
-              ))}
+
+            <div className="review-actions">
+              <button
+                className="utility-button"
+                type="button"
+                onClick={() => void loadSavedAssetPacks()}
+              >
+                Refresh packs
+              </button>
+            </div>
+
+            <div className="pack-browser-scroll live-pack-browser-scroll" aria-label="Live background and object assets">
+              {visiblePackAssets.length ? (
+                visiblePackAssets.map((asset) => {
+                  const canvasCount = items.filter((item) => item.asset.id === asset.id).length;
+                  const isSelected = asset.id === selectedBrowserAssetId;
+                  return (
+                    <div
+                      className={
+                        isSelected
+                          ? 'pack-browser-asset live-browser-asset is-selected'
+                          : 'pack-browser-asset live-browser-asset'
+                      }
+                      key={asset.id}
+                      ref={(element) => {
+                        assetBrowserItemRefs.current[asset.id] = element;
+                      }}
+                    >
+                      <button
+                        className="live-browser-select"
+                        type="button"
+                        onClick={() => handleLiveAssetAction(asset)}
+                      >
+                        <span className="asset-preview is-small" style={{ background: asset.previewTone }}>
+                          {asset.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={asset.imageUrl} alt="" />
+                          ) : null}
+                        </span>
+                        <span className="pack-browser-asset-name">{asset.title}</span>
+                        <span className="pack-browser-kind">
+                          {asset.kind === 'background'
+                            ? 'Background'
+                            : asset.kind === 'hook'
+                              ? 'Hook'
+                              : 'Object'}
+                        </span>
+                      </button>
+                      <div className="live-browser-actions">
+                        <button
+                          className={asset.kind === 'background' ? 'utility-button' : 'primary-button'}
+                          type="button"
+                          onClick={() => handleLiveAssetAction(asset)}
+                        >
+                          {asset.kind === 'background' ? 'Set background' : 'Add to canvas'}
+                        </button>
+                        {asset.kind !== 'background' && canvasCount > 0 ? (
+                          <button
+                            className="danger-button"
+                            type="button"
+                            onClick={() => removeItemsForAsset(asset.id)}
+                          >
+                            Remove from canvas
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="empty-state">No background or object assets ready for this pack.</div>
+              )}
             </div>
           </div>
 
@@ -3369,58 +3889,418 @@ export function HookImageCreator() {
               </button>
             </div>
           </div>
+
+          <div className="hook-control-group">
+            <div className="section-heading is-compact">
+              <div>
+                <h4>Asset combinator</h4>
+                <p className="muted">{combinatorMessage}</p>
+              </div>
+            </div>
+            <label className="field">
+              Saved pack
+              <select
+                value={selectedCombinatorPack?.id ?? ''}
+                onChange={(event) => setSelectedAssetPackId(event.target.value)}
+                disabled={!combinatorAssetPacks.length}
+              >
+                {!combinatorAssetPacks.length ? (
+                  <option value="">No active packs available</option>
+                ) : null}
+                {combinatorAssetPacks.length && !selectedCombinatorPack ? (
+                  <option value="">Choose an active pack</option>
+                ) : null}
+                {combinatorAssetPacks.map((pack) => (
+                  <option key={pack.id} value={pack.id}>
+                    {formatAssetPackOption(pack)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="live-combinator-score">
+              <span>Score</span>
+              <strong>{combinatorScore}</strong>
+            </div>
+            <div className="review-actions">
+              <button
+                className="utility-button"
+                type="button"
+                onClick={() => void loadSavedAssetPacks()}
+              >
+                Refresh packs
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void queueCombinatorRender()}
+                disabled={isCombinatorRunning || !selectedCombinatorPack || !selectedPage}
+              >
+                {isCombinatorRunning ? 'Working...' : 'Create on canvas'}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="hook-canvas-wrap">
-          <div
-            className="hook-canvas"
-            ref={canvasRef}
-            style={{ background: selectedBackground.previewTone }}
+          <HookGenerationCanvas
+            generation={currentGeneration}
+            mode="edit"
+            selectedItemId={selectedItemId}
             onPointerMove={continuePointer}
             onPointerUp={endPointer}
             onPointerCancel={endPointer}
             onPointerLeave={endPointer}
-          >
-            <div className="hook-safe-area" />
-            {items.length === 0 ? (
-              <div className="hook-empty-state">Choose assets to place on this reel template.</div>
-            ) : null}
-            {items.map((item) => (
-              <button
-                className={
-                  item.id === selectedItemId
-                    ? 'hook-canvas-item is-selected'
-                    : 'hook-canvas-item'
-                }
-                type="button"
-                key={item.id}
-                style={{
-                  left: `${item.x}%`,
-                  top: `${item.y}%`,
-                  width: `${item.size}%`,
-                  background: item.asset.previewTone,
-                }}
-                onPointerDown={(event) => beginMove(event, item)}
-                onPointerUp={endPointer}
-                onPointerCancel={endPointer}
-              >
-                <span>{item.asset.title}</span>
-                {item.id === selectedItemId ? (
-                  <span
-                    className="hook-resize-handle"
-                    aria-hidden="true"
-                    onPointerDown={(event) => beginResize(event, item)}
-                    onPointerUp={endPointer}
-                    onPointerCancel={endPointer}
-                  />
+            beginMove={beginMove}
+            beginResize={beginResize}
+            canvasRef={canvasRef}
+          />
+          <div className="hook-canvas-contents" aria-label="Canvas contents">
+            <button
+              className={!selectedItemId ? 'hook-canvas-chip is-selected is-background' : 'hook-canvas-chip is-background'}
+              type="button"
+              onClick={() => setSelectedItemId(null)}
+            >
+              <span className="asset-preview is-small" style={{ background: selectedBackground.previewTone }}>
+                {selectedBackground.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={selectedBackground.imageUrl} alt="" />
                 ) : null}
-              </button>
+              </span>
+              <span>
+                <strong>Background</strong>
+                <small>{selectedBackground.title}</small>
+              </span>
+            </button>
+            {items.map((item) => (
+              <div
+                className={
+                  item.id === selectedItemId ? 'hook-canvas-chip is-selected' : 'hook-canvas-chip'
+                }
+                key={item.id}
+              >
+                <button type="button" onClick={() => setSelectedItemId(item.id)}>
+                  <span className="asset-preview is-small" style={{ background: item.asset.previewTone }}>
+                    {item.asset.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.asset.imageUrl} alt="" />
+                    ) : null}
+                  </span>
+                  <span>
+                    <strong>{item.asset.kind === 'hook' ? 'Hook' : 'Object'}</strong>
+                    <small>{item.asset.title}</small>
+                  </span>
+                </button>
+                <button
+                  className="hook-canvas-chip-remove"
+                  type="button"
+                  aria-label={`Remove ${item.asset.title}`}
+                  onClick={() => {
+                    setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+                    setSelectedItemId((current) => (current === item.id ? null : current));
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
             ))}
+          </div>
+          <div className="hook-save-panel">
+            <label className="field">
+              Existing saved image
+              <select
+                value={activeGenerationId}
+                onChange={(event) => handleGenerationChange(event.target.value)}
+              >
+                <option value="new">Create new hook image</option>
+                {compositionRuns.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {formatGeneratedRunOption(run, savedHookGenerations)}
+                  </option>
+                ))}
+                {savedHookGenerations
+                  .filter((generation) => !generation.sourceRunId)
+                  .map((generation) => (
+                    <option key={generation.id} value={generation.id}>
+                      {generation.name} - saved
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              Name
+              <input
+                value={generationName}
+                onChange={(event) => setGenerationName(event.target.value)}
+                onBlur={() => void saveGeneration()}
+              />
+            </label>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void saveGeneration()}
+            >
+              Save image
+            </button>
+            <button
+              className="utility-button"
+              type="button"
+              onClick={() => handleGenerationChange('new')}
+            >
+              Create blank/new
+            </button>
           </div>
         </div>
       </div>
     </section>
   );
+}
+
+function hookGenerationForRun(
+  run: RunRecord,
+  savedHookGenerations: SavedHookImageGeneration[],
+  orgId: string,
+): SavedHookImageGeneration {
+  const runGeneration = buildHookGenerationFromRun(run, orgId);
+  const savedGeneration =
+    savedHookGenerations.find((generation) => generation.sourceRunId === run.id) ??
+    savedHookGenerations.find((generation) => generation.id === run.id);
+  return savedGeneration
+    ? mergeRunHookGenerationWithSaved(runGeneration, savedGeneration)
+    : runGeneration;
+}
+
+function editableHookGenerationForId({
+  generationId,
+  compositionRuns,
+  savedHookGenerations,
+  orgId,
+}: {
+  generationId: string;
+  compositionRuns: RunRecord[];
+  savedHookGenerations: SavedHookImageGeneration[];
+  orgId: string;
+}): SavedHookImageGeneration | null {
+  const run =
+    compositionRuns.find((candidate) => candidate.id === generationId) ??
+    compositionRuns.find((candidate) =>
+      savedHookGenerations.some(
+        (generation) =>
+          generation.id === generationId && generation.sourceRunId === candidate.id,
+      ),
+    );
+  if (run) {
+    return hookGenerationForRun(run, savedHookGenerations, orgId);
+  }
+  return savedHookGenerations.find((generation) => generation.id === generationId) ?? null;
+}
+
+function mergeRunHookGenerationWithSaved(
+  runGeneration: SavedHookImageGeneration,
+  savedGeneration: SavedHookImageGeneration,
+): SavedHookImageGeneration {
+  const mergedItems = mergeRunItemsWithSavedGeometry(runGeneration.items, savedGeneration.items);
+  return {
+    ...runGeneration,
+    id: savedGeneration.id,
+    sourceRunId: savedGeneration.sourceRunId ?? runGeneration.sourceRunId,
+    name: savedGeneration.name || runGeneration.name,
+    selectedBackgroundId: runGeneration.background.id,
+    background: runGeneration.background,
+    items: mergedItems,
+    updatedAt:
+      savedGeneration.updatedAt > runGeneration.updatedAt
+        ? savedGeneration.updatedAt
+        : runGeneration.updatedAt,
+  };
+}
+
+function mergeRunItemsWithSavedGeometry(
+  runItems: HookCanvasItem[],
+  savedItems: HookCanvasItem[],
+): HookCanvasItem[] {
+  const mergedItems = savedItems.map((savedItem, index) => {
+    const runItem =
+      runItems.find((item) => item.id === savedItem.id) ??
+      runItems.find((item) => item.asset.kind === savedItem.asset.kind) ??
+      runItems[index];
+    if (!runItem) {
+      return savedItem;
+    }
+    return {
+      ...savedItem,
+      asset: runItem.asset,
+    };
+  });
+  runItems.forEach((runItem) => {
+    if (!mergedItems.some((item) => item.id === runItem.id || item.asset.kind === runItem.asset.kind)) {
+      mergedItems.push(runItem);
+    }
+  });
+  return mergedItems;
+}
+
+function buildHookGenerationFromRun(run: RunRecord, orgId: string): SavedHookImageGeneration {
+  const cover = hookCoverPayload(run);
+  const editorState = asRecord(cover?.editor_state);
+  const layout = asRecord(cover?.layout);
+  const editorItems = Array.isArray(editorState?.items)
+    ? editorState.items.map(asHookCanvasItem).filter((item) => item !== null)
+    : null;
+  const roles = asRecord(cover?.roles) ?? {};
+  const background = assetFromCoverRole(asRecord(roles.background), 'background', run.id, orgId);
+  const foreground = assetFromCoverRole(asRecord(roles.foreground), 'object', run.id, orgId);
+  const hookText = textValue(cover?.hook) ?? textValue(cover?.title) ?? 'Hook cover';
+  const hookAsset: AssetLibraryItem = {
+    id: `run-hook:${run.id}`,
+    title: hookText,
+    kind: 'hook',
+    mediaType: 'text',
+    pack: textValue(asRecord(run.input_params?.composition_manifest)?.asset_pack_name) ?? 'Combinator',
+    tags: ['generated-hook'],
+    layerSuitability: 'Opening caption',
+    reuseCount: 0,
+    performanceScore: 80,
+    previewTone: 'linear-gradient(135deg, #101827, #f97316)',
+  };
+  const defaultLayout = intentionalHookLayout({
+    seed: textValue(cover?.composition_id) ?? run.id,
+    hookText,
+    foreground,
+  });
+  const foregroundLayout = asRecord(layout?.foreground);
+  const hookLayout = asRecord(layout?.hook);
+  const defaultItems = [
+    foreground
+      ? {
+          id: `run-object:${run.id}`,
+          asset: foreground,
+          x: numericValue(foregroundLayout?.x) ?? defaultLayout.foreground.x,
+          y: numericValue(foregroundLayout?.y) ?? defaultLayout.foreground.y,
+          size: numericValue(foregroundLayout?.size) ?? defaultLayout.foreground.size,
+        }
+      : null,
+    {
+      id: `run-copy:${run.id}`,
+      asset: hookAsset,
+      x: numericValue(hookLayout?.x) ?? defaultLayout.hook.x,
+      y: numericValue(hookLayout?.y) ?? defaultLayout.hook.y,
+      size: numericValue(hookLayout?.size) ?? defaultLayout.hook.size,
+    },
+  ].filter((item): item is HookCanvasItem => item !== null);
+  const items = editorItems ? mergeRunItemsWithSavedGeometry(defaultItems, editorItems) : defaultItems;
+  const title =
+    textValue(cover?.title) ??
+    textValue(asRecord(run.input_params?.composition_manifest)?.title) ??
+    `Output ${run.id.slice(0, 8)}`;
+  return {
+    id: run.id,
+    sourceRunId: run.id,
+    name: title,
+    selectedBackgroundId: background.id,
+    background,
+    items,
+    updatedAt: run.updated_at,
+  };
+}
+
+function assetFromCoverRole(
+  role: Record<string, unknown> | null,
+  fallbackKind: AssetLibraryKind,
+  runId: string,
+  orgId: string,
+): AssetLibraryItem {
+  const metadata = asRecord(role?.metadata);
+  const title =
+    textValue(role?.title) ??
+    textValue(metadata?.title) ??
+    (fallbackKind === 'background' ? 'Generated background' : 'Generated foreground');
+  const assetId = textValue(role?.asset_id) ?? textValue(role?.id) ?? `${fallbackKind}:${runId}`;
+  const kind = roleToLibraryKind(
+    fallbackKind === 'object' ? 'foreground' : fallbackKind,
+    textValue(role?.asset_kind) ?? fallbackKind,
+  );
+  return {
+    id: `${fallbackKind === 'background' ? 'run-bg' : 'run-asset'}:${assetId}`,
+    title,
+    kind,
+    mediaType: textValue(metadata?.media_type) ?? 'asset',
+    pack: textValue(metadata?.asset_pack_niche) ?? 'Combinator output',
+    tags: stringList(metadata?.tags),
+    layerSuitability: textValue(metadata?.category) ?? 'Generated layer',
+    reuseCount: 0,
+    performanceScore: Math.round((numericValue(role?.performance_score) ?? 0.78) * 100),
+    previewTone: assetPreviewTone(role, previewToneForAsset(assetId, kind, title)),
+    imageUrl: stableAssetImageUrl(orgId, assetId) ?? assetImageUrl(role) ?? undefined,
+    storageUri: textValue(role?.storage_uri) ?? textValue(metadata?.storage_uri) ?? undefined,
+  };
+}
+
+function intentionalHookLayout({
+  seed,
+  hookText,
+  foreground,
+}: {
+  seed: string;
+  hookText: string;
+  foreground: AssetLibraryItem;
+}): {
+  foreground: { x: number; y: number; size: number };
+  hook: { x: number; y: number; size: number };
+  intent: string;
+} {
+  const variant = hashString(`${seed}:${hookText}:${foreground.id}`) % 4;
+  const hookLength = hookText.length;
+  const hookSize = hookLength > 42 ? 58 : hookLength > 26 ? 54 : 48;
+  const layouts = [
+    {
+      foreground: { x: 66, y: 64, size: 56 },
+      hook: { x: 42, y: 24, size: hookSize },
+      intent: 'subject-low-right_hook-upper-left',
+    },
+    {
+      foreground: { x: 36, y: 66, size: 58 },
+      hook: { x: 58, y: 25, size: hookSize },
+      intent: 'subject-low-left_hook-upper-right',
+    },
+    {
+      foreground: { x: 68, y: 42, size: 52 },
+      hook: { x: 42, y: 74, size: hookSize },
+      intent: 'subject-mid-right_hook-lower-left',
+    },
+    {
+      foreground: { x: 50, y: 67, size: 62 },
+      hook: { x: 50, y: 22, size: hookSize },
+      intent: 'subject-bottom-center_hook-top-center',
+    },
+  ];
+  return layouts[variant];
+}
+
+async function syncHookGenerationToRun(
+  orgId: string,
+  runId: string,
+  generation: SavedHookImageGeneration,
+) {
+  try {
+    await fetch(`/api/orgs/${orgId}/runs/${runId}/hook-cover`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Actor-Id': 'operator:ui-rebuild',
+      },
+      body: JSON.stringify({
+        title: generation.name,
+        editor_state: {
+          selected_background_id: generation.selectedBackgroundId,
+          background: generation.background,
+          items: generation.items,
+          updated_at: generation.updatedAt,
+        },
+      }),
+    });
+  } catch {
+    // Local persistence still keeps the editor and asset-pack tab in sync.
+  }
 }
 
 function bestAsset(kind: AssetLibraryKind, library: AssetLibraryItem[] = assetLibrarySeed): AssetLibraryItem {
@@ -3468,7 +4348,7 @@ function assetFromCandidateRole(
   return mapCandidateAssetToLibraryItem(asset, role);
 }
 
-function mapAssetLibraryItemOut(row: AssetLibraryItemOut): AssetLibraryItem {
+function mapAssetLibraryItemOut(row: AssetLibraryItemOut, orgId: string = DEFAULT_ORG_ID): AssetLibraryItem {
   const metadata = row.metadata ?? {};
   const intent = asRecord(metadata.intent);
   const request = asRecord(intent?.request);
@@ -3492,7 +4372,8 @@ function mapAssetLibraryItemOut(row: AssetLibraryItemOut): AssetLibraryItem {
     reuseCount: row.reuse_count,
     performanceScore: Math.round((row.performance_score ?? numericValue(metadata.performance_score) ?? 0.72) * 100),
     previewTone: previewToneForAsset(row.id, row.asset_kind, title),
-    imageUrl: proxiedDownloadUrl(row.download?.url),
+    imageUrl: stableAssetImageUrl(orgId, row.id) ?? proxiedDownloadUrl(row.download?.url),
+    storageUri: row.storage_uri,
   };
 }
 
@@ -3512,7 +4393,8 @@ function mapCandidateAssetToLibraryItem(
     reuseCount: asset.usage_count,
     performanceScore: Math.round((asset.performance_score ?? 0.72) * 100),
     previewTone: previewToneForAsset(asset.asset_id, asset.asset_kind, asset.title ?? role),
-    imageUrl: textValue(asset.metadata.image_url) ?? undefined,
+    imageUrl: stableAssetImageUrl(DEFAULT_ORG_ID, asset.asset_id) ?? textValue(asset.metadata.image_url) ?? undefined,
+    storageUri: textValue(asset.metadata.storage_uri) ?? undefined,
   };
 }
 
@@ -3588,11 +4470,9 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function planAssetCount(plan: AssetPackPlanResponse | null): number | null {
-  if (!plan) {
-    return null;
-  }
-  return Object.values(plan.asset_mix).reduce((sum, value) => sum + value, 0);
+function layerColorForItem(item: HookCanvasItem): string {
+  const palette = ['#5eead4', '#f59e0b', '#a78bfa', '#fb7185', '#38bdf8', '#84cc16'];
+  return palette[hashString(`${item.id}:${item.asset.id}`) % palette.length];
 }
 
 function formatAssetMix(value: Record<string, unknown> | null): string {
@@ -3613,12 +4493,22 @@ function isCombinatorEligibleAssetPack(pack: AssetPackRecord): boolean {
   return pack.status !== 'rejected' && pack.status !== 'archived';
 }
 
-function formatGeneratedRunOption(run: RunRecord): string {
+function formatGeneratedRunOption(
+  run: RunRecord,
+  savedHookGenerations: SavedHookImageGeneration[] = [],
+): string {
+  const savedName = savedHookGenerations.find((generation) => generation.sourceRunId === run.id)?.name;
   const title =
+    savedName ??
     textValue(hookCoverPayload(run)?.title) ??
     textValue(asRecord(run.input_params?.composition_manifest)?.title) ??
     `Output ${run.id.slice(0, 8)}`;
   return `${title} - ${run.status}`;
+}
+
+function formatOrgOption(org: OrgRecord): string {
+  const count = `${org.page_count} page${org.page_count === 1 ? '' : 's'}`;
+  return `${org.name} (${org.slug}) - ${count}`;
 }
 
 function hookCoverPayload(run: RunRecord | null): Record<string, unknown> | null {
@@ -3639,7 +4529,14 @@ function assetPreviewTone(asset: Record<string, unknown> | null, fallback: strin
 
 function assetImageUrl(asset: Record<string, unknown> | null): string | null {
   const metadata = asRecord(asset?.metadata);
-  return textValue(metadata?.image_url);
+  const download = asRecord(asset?.download);
+  return (
+    textValue(metadata?.image_url) ??
+    textValue(asset?.image_url) ??
+    textValue(asset?.preview_url) ??
+    proxiedDownloadUrl(textValue(download?.url) ?? undefined) ??
+    null
+  );
 }
 
 function proxiedDownloadUrl(url: string | undefined): string | undefined {
@@ -3657,65 +4554,17 @@ function proxiedDownloadUrl(url: string | undefined): string | undefined {
   return url;
 }
 
-function buildAssetPackPlan(planner: AssetPackPlannerState) {
-  const total = Number.isFinite(planner.totalAssetCount) ? Math.max(0, planner.totalAssetCount) : 0;
-  const specs = [
-    {
-      category: 'Backgrounds',
-      count: Math.max(1, Math.round(total * 0.25)),
-      reason: 'Reusable plates give each reel a distinct setting without regenerating full videos.',
-    },
-    {
-      category: 'Transparent objects',
-      count: Math.max(1, Math.round(total * 0.25)),
-      reason: 'Foreground PNGs make product, subject, and proof variants composable.',
-    },
-    {
-      category: 'Motion clips',
-      count: Math.max(1, Math.round(total * 0.17)),
-      reason: 'Short videos carry pacing and proof moments for higher-retention formats.',
-    },
-    {
-      category: 'Hooks',
-      count: Math.max(1, Math.round(total * 0.17)),
-      reason: 'Hook copy lets the same visual assets support multiple angles.',
-    },
-    {
-      category: 'Audio beds',
-      count: Math.max(1, Math.round(total * 0.08)),
-      reason: 'A small audio set keeps rhythm consistent while preserving edit variety.',
-    },
-    {
-      category: 'Reference outputs',
-      count: Math.max(1, Math.round(total * 0.08)),
-      reason: 'Final outputs anchor style and performance expectations for future generations.',
-    },
-  ];
-  const formats = planner.targetReelTypes
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 5);
-  const warnings = [total < 12 ? 'Pack is small; combination variety may be limited.' : null].filter(
-    (item): item is string => item !== null,
+function stableAssetImageUrl(orgId: string, assetId: string | null | undefined): string | undefined {
+  if (!assetId || !isUuid(assetId)) {
+    return undefined;
+  }
+  return `/api/orgs/${encodeURIComponent(orgId)}/assets/${encodeURIComponent(assetId)}/file`;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
   );
-  const notes = [
-    ...warnings,
-    planner.styleConstraints.trim()
-      ? 'Style constraints are recorded for generation.'
-      : 'Style constraints are optional; the planner can use defaults.',
-    planner.split.trim()
-      ? 'Asset split is recorded for review.'
-      : 'Asset split is optional; the planner can infer categories.',
-  ];
-  return {
-    specs,
-    formats: formats.length ? formats : ['proof reel', 'product demo'],
-    mixSummary: `${total} assets for ${planner.niche || 'selected page'} at ${planner.qualityLevel} quality`,
-    outputPotential: `Estimated ${Math.max(3, Math.round(total * 1.8))} candidate reels`,
-    notes: notes.length ? notes : ['No bottlenecks detected in the current plan.'],
-    warningCount: warnings.length,
-  };
 }
 
 function buildCompositionManifest({
@@ -3747,6 +4596,11 @@ function buildCompositionManifest({
     selectedVideo?.id ?? 'no-format',
     Date.now(),
   ].join(':');
+  const layout = intentionalHookLayout({
+    seed: compositionId,
+    hookText: selectedHook.title,
+    foreground: selectedObject,
+  });
   const roles: Record<string, unknown> = {
     background: localAssetForManifest(selectedBackground),
     foreground: localAssetForManifest(selectedObject),
@@ -3765,6 +4619,32 @@ function buildCompositionManifest({
     composition_id: compositionId,
     title: `${assetPackName} hook cover`,
     roles,
+    layout: {
+      intent: layout.intent,
+      background: { treatment: 'full_bleed', safe_crop: 'center_weighted' },
+      foreground: layout.foreground,
+      hook: layout.hook,
+      rationale:
+        'Combinator places the strongest visual subject away from the hook text and reserves a readable copy zone.',
+    },
+    editor_state: {
+      selected_background_id: selectedBackground.id,
+      background: selectedBackground,
+      items: [
+        {
+          id: `manifest-object:${selectedObject.id}`,
+          asset: selectedObject,
+          ...layout.foreground,
+        },
+        {
+          id: `manifest-hook:${selectedHook.id}`,
+          asset: selectedHook,
+          ...layout.hook,
+        },
+      ],
+      updated_at: new Date().toISOString(),
+      intent: layout.intent,
+    },
     scores: {
       selection: outputScore / 100,
       compatibility: 0.82,
@@ -3772,15 +4652,78 @@ function buildCompositionManifest({
       performance: outputScore / 100,
     },
     planner_context: {
-      niche: planner.niche,
+      name: planner.name,
       requested_asset_count: planner.totalAssetCount,
-      requested_split: planner.split,
-      target_reel_types: planner.targetReelTypes,
-      style_constraints: planner.styleConstraints,
+      requested_split: {
+        background_image: planner.backgroundCount,
+        transparent_cutout_png: planner.objectCount,
+      },
+      target_reel_types: [planner.format],
+      style_constraints: {
+        style: planner.style,
+        ratio: planner.ratio,
+      },
       quality_level: planner.qualityLevel,
     },
   };
 }
+
+function withHookLayoutIntent({
+  manifest,
+  selectedBackground,
+  selectedObject,
+  selectedHook,
+}: {
+  manifest: Record<string, unknown>;
+  selectedBackground: AssetLibraryItem;
+  selectedObject: AssetLibraryItem;
+  selectedHook: AssetLibraryItem;
+}): Record<string, unknown> {
+  const manifestLayout = asRecord(manifest.layout);
+  const compositionId =
+    textValue(manifest.composition_id) ??
+    `${selectedBackground.id}:${selectedObject.id}:${selectedHook.id}`;
+  const layout = intentionalHookLayout({
+    seed: compositionId,
+    hookText: selectedHook.title,
+    foreground: selectedObject,
+  });
+  return {
+    ...manifest,
+    layout: {
+      ...manifestLayout,
+      intent: textValue(manifestLayout?.intent) ?? layout.intent,
+      background: asRecord(manifestLayout?.background) ?? {
+        treatment: 'full_bleed',
+        safe_crop: 'center_weighted',
+      },
+      foreground: asRecord(manifestLayout?.foreground) ?? layout.foreground,
+      hook: asRecord(manifestLayout?.hook) ?? layout.hook,
+      rationale:
+        textValue(manifestLayout?.rationale) ??
+        'Combinator places the strongest visual subject away from the hook text and reserves a readable copy zone.',
+    },
+    editor_state: asRecord(manifest.editor_state) ?? {
+      selected_background_id: selectedBackground.id,
+      background: selectedBackground,
+      items: [
+        {
+          id: `manifest-object:${selectedObject.id}`,
+          asset: selectedObject,
+          ...layout.foreground,
+        },
+        {
+          id: `manifest-hook:${selectedHook.id}`,
+          asset: selectedHook,
+          ...layout.hook,
+        },
+      ],
+      updated_at: new Date().toISOString(),
+      intent: layout.intent,
+    },
+  };
+}
+
 function localAssetForManifest(asset: AssetLibraryItem): Record<string, unknown> {
   return {
     asset_id: asset.id,
@@ -3796,6 +4739,7 @@ function localAssetForManifest(asset: AssetLibraryItem): Record<string, unknown>
       performance_score: asset.performanceScore / 100,
       preview_tone: asset.previewTone,
       image_url: asset.imageUrl,
+      storage_uri: asset.storageUri,
     },
   };
 }

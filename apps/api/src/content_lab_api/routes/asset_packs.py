@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -261,6 +262,40 @@ def _role_title(asset: dict[str, Any]) -> str:
     return " ".join(str(title).strip().split())
 
 
+def _intentional_hook_layout(
+    *,
+    seed: str,
+    hook_text: str,
+    foreground_asset: dict[str, Any],
+) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{seed}:{hook_text}:{foreground_asset.get('asset_id')}".encode()).hexdigest()
+    variant = int(digest[:8], 16) % 4
+    hook_size = 58 if len(hook_text) > 42 else 54 if len(hook_text) > 26 else 48
+    layouts = [
+        {
+            "foreground": {"x": 66, "y": 64, "size": 56},
+            "hook": {"x": 42, "y": 24, "size": hook_size},
+            "intent": "subject-low-right_hook-upper-left",
+        },
+        {
+            "foreground": {"x": 36, "y": 66, "size": 58},
+            "hook": {"x": 58, "y": 25, "size": hook_size},
+            "intent": "subject-low-left_hook-upper-right",
+        },
+        {
+            "foreground": {"x": 68, "y": 42, "size": 52},
+            "hook": {"x": 42, "y": 74, "size": hook_size},
+            "intent": "subject-mid-right_hook-lower-left",
+        },
+        {
+            "foreground": {"x": 50, "y": 67, "size": 62},
+            "hook": {"x": 50, "y": 22, "size": hook_size},
+            "intent": "subject-bottom-center_hook-top-center",
+        },
+    ]
+    return layouts[variant]
+
+
 def _composition_hook_cover_payload(
     *,
     asset_pack: AssetPack,
@@ -275,10 +310,31 @@ def _composition_hook_cover_payload(
     hook_asset = roles.get("hook") if isinstance(roles.get("hook"), dict) else {}
     background_asset = roles.get("background") if isinstance(roles.get("background"), dict) else {}
     foreground_asset = roles.get("foreground") if isinstance(roles.get("foreground"), dict) else {}
+    hook_text = _role_title(hook_asset) if hook_asset else source_plan["hook"]
+    manifest_editor_state = (
+        manifest.get("editor_state") if isinstance(manifest.get("editor_state"), dict) else None
+    )
+    layout = manifest.get("layout") if isinstance(manifest.get("layout"), dict) else None
+    if layout is None:
+        generated_layout = _intentional_hook_layout(
+            seed=str(manifest.get("composition_id") or run.id),
+            hook_text=hook_text,
+            foreground_asset=foreground_asset,
+        )
+        layout = {
+            "intent": generated_layout["intent"],
+            "background": {"treatment": "full_bleed", "safe_crop": "center_weighted"},
+            "foreground": generated_layout["foreground"],
+            "hook": generated_layout["hook"],
+            "rationale": (
+                "Combinator places the visual subject away from hook text and reserves "
+                "a readable copy zone."
+            ),
+        }
     hook_cover = {
         "schema_version": "asset_hook_cover.v1",
         "title": str(manifest.get("title") or f"{asset_pack.name} hook cover"),
-        "hook": _role_title(hook_asset) if hook_asset else source_plan["hook"],
+        "hook": hook_text,
         "asset_pack_id": str(asset_pack.id),
         "composition_id": str(manifest.get("composition_id") or run.id),
         "render_mode": render_mode,
@@ -288,6 +344,8 @@ def _composition_hook_cover_payload(
             "foreground": foreground_asset,
             "hook": hook_asset,
         },
+        "layout": layout,
+        "editor_state": manifest_editor_state,
         "source_plan": source_plan,
     }
     return {
