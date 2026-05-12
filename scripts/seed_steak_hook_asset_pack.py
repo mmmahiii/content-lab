@@ -514,7 +514,7 @@ def download_with_retry(url: str) -> bytes:
 
 
 def request(url: str) -> urllib.request.Request:
-    return urllib.request.Request(url)
+    return urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 
 
 def ext_value(ext: Mapping[str, Any], key: str) -> str | None:
