@@ -1013,6 +1013,39 @@ dd {
   color: var(--muted);
 }
 
+.steak-pack-preview {
+  margin-bottom: 16px;
+}
+
+.steak-pack-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+
+.steak-pack-preview-grid .hook-cover-preview {
+  width: min(100%, 260px);
+}
+
+.steak-pack-preview-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.steak-pack-preview-copy strong {
+  color: var(--text);
+  font-size: clamp(1.8rem, 4vw, 3.4rem);
+  line-height: 0.95;
+}
+
+.steak-pack-preview-copy p {
+  max-width: 56ch;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .hook-creator-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.9fr) minmax(280px, 420px);

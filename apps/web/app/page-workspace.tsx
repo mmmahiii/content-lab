@@ -2155,6 +2155,9 @@ export function AssetPackGenerationWorkspace({
   const combinatorAssetPacks = savedAssetPacks.filter(isCombinatorEligibleAssetPack);
   const selectedSavedPack =
     savedAssetPacks.find((pack) => pack.id === selectedAssetPackId) ?? assetPack ?? null;
+  const isSteakPackSelected = selectedSavedPack
+    ? isSteakHookPack(selectedSavedPack, activeAssetLibrary)
+    : false;
   const selectedCombinatorPack =
     combinatorAssetPacks.find((pack) => pack.id === selectedAssetPackId) ??
     (assetPack && isCombinatorEligibleAssetPack(assetPack) ? assetPack : null);
@@ -2583,6 +2586,35 @@ export function AssetPackGenerationWorkspace({
           <p className="muted">Asset previews are hidden. Expand to browse reusable assets.</p>
         )}
       </section>
+
+      {isSteakPackSelected ? (
+        <section className="generation-surface steak-pack-preview" aria-label="Steakpagetest asset pack preview">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Asset pack preview</p>
+              <h3>{selectedSavedPack?.name ?? 'steakpagetest Instagram steak hook recreation'}</h3>
+            </div>
+            <span className="status-pill success">{activeAssetLibrary.length} loaded assets</span>
+          </div>
+          <div className="steak-pack-preview-grid">
+            <div className="hook-cover-preview is-steak-hook">
+              <SteakHookScene />
+            </div>
+            <div className="steak-pack-preview-copy">
+              <strong>steakpagetest</strong>
+              <p>
+                Ready pack recreation of the uploaded Instagram hook screenshot: pan with steaks,
+                countertop herb planter, right action rail, lower caption, and bottom navigation.
+              </p>
+              <div className="tag-row">
+                <span>testorg1</span>
+                <span>steakpagetest</span>
+                <span>asset-pack based generation</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <div className="asset-pack-grid">
         <section className="generation-surface">
@@ -3773,6 +3805,15 @@ function formatAssetPackOption(pack: AssetPackRecord): string {
 
 function isCombinatorEligibleAssetPack(pack: AssetPackRecord): boolean {
   return pack.status !== 'rejected' && pack.status !== 'archived';
+}
+
+function isSteakHookPack(pack: AssetPackRecord, assets: AssetLibraryItem[]): boolean {
+  const packText = `${pack.name} ${pack.niche}`.toLowerCase();
+  return (
+    packText.includes('steakpagetest') ||
+    packText.includes('steak hook') ||
+    assets.some((asset) => asset.tags.includes('steakpagetest'))
+  );
 }
 
 function formatGeneratedRunOption(run: RunRecord): string {
