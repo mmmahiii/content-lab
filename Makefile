@@ -22,7 +22,13 @@ migrate: ## Run Alembic migrations (apps/api)
 	cd apps/api && poetry run alembic upgrade head
 
 seed-faceless-cooking-online: ## Seed local Faceless Cooking Demo page + online PNG test pack
-	cd apps/api && poetry run python ../../scripts/seed_faceless_cooking_asset_pack.py --pack-name "faceless cooking png test pack online" --create-demo-page
+	OPERATOR_ORG_ID="$(CONTENT_LAB_OPERATOR_ORG_ID)"; \
+	set -a; [ ! -f .env ] || . ./.env; set +a; \
+	OPERATOR_ORG_ID="$${OPERATOR_ORG_ID:-$${CONTENT_LAB_OPERATOR_ORG_ID:-}}"; \
+	cd apps/api && poetry run python ../../scripts/seed_faceless_cooking_asset_pack.py --org-slug default --pack-name "faceless cooking png test pack online" --create-demo-page; \
+	if [ -n "$${OPERATOR_ORG_ID:-}" ] && [ "$${OPERATOR_ORG_ID}" != "00000000-0000-4000-8000-000000000001" ]; then \
+		poetry run python ../../scripts/seed_faceless_cooking_asset_pack.py --org-id "$${OPERATOR_ORG_ID}" --pack-name "faceless cooking png test pack online" --create-demo-page; \
+	fi
 
 # ── Python install ───────────────────────────────────────────────────
 

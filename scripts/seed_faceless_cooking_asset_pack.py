@@ -350,7 +350,7 @@ def main() -> None:
     engine = create_engine(database_url, pool_pre_ping=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     with SessionLocal() as db:
-        org = get_org(db, args.org_slug)
+        org = get_org(db, slug=args.org_slug, org_id=args.org_id)
         demo_page = ensure_demo_page(db, org_id=org.id) if args.create_demo_page else None
         pack = create_pack(db, org_id=org.id, pack_name=args.pack_name)
         summary_assets: list[dict[str, Any]] = []
@@ -420,6 +420,7 @@ def parse_args() -> argparse.Namespace:
         description="Seed a faceless-cooking asset pack with real online PNG assets."
     )
     parser.add_argument("--database-url", default=None)
+    parser.add_argument("--org-id", default=None)
     parser.add_argument("--org-slug", default="default")
     parser.add_argument(
         "--pack-name",
@@ -435,7 +436,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_org(db: Session, slug: str) -> Org:
+def get_org(db: Session, *, slug: str, org_id: str | None) -> Org:
+    if org_id:
+        parsed_org_id = uuid.UUID(org_id)
+        org = db.get(Org, parsed_org_id)
+        if org is None:
+            org = Org(
+                name="Local Operator Org",
+                slug=f"local-operator-{str(parsed_org_id)[:8]}",
+            )
+            org.id = parsed_org_id
+            db.add(org)
+            db.commit()
+            db.refresh(org)
+        return org
+
     org = db.scalars(select(Org).where(Org.slug == slug)).one_or_none()
     if org is None and slug != "default":
         org = db.scalars(select(Org).where(Org.slug == "default")).one_or_none()

@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
+import { normalizeOrgId, OPERATOR_ORG_COOKIE } from './_lib/operator-context';
+
 const DEFAULT_ORG_ID =
   process.env.NEXT_PUBLIC_CONTENT_LAB_OPERATOR_ORG_ID ??
   '00000000-0000-4000-8000-000000000001';
@@ -474,6 +476,21 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function textValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function activeOrgId(): string {
+  if (typeof document !== 'undefined') {
+    const cookie = document.cookie
+      .split(';')
+      .map((item) => item.trim())
+      .find((item) => item.startsWith(`${OPERATOR_ORG_COOKIE}=`));
+    const cookieValue = cookie ? decodeURIComponent(cookie.split('=', 2)[1] ?? '') : null;
+    const normalizedCookie = normalizeOrgId(cookieValue);
+    if (normalizedCookie) {
+      return normalizedCookie;
+    }
+  }
+  return normalizeOrgId(DEFAULT_ORG_ID) ?? '00000000-0000-4000-8000-000000000001';
 }
 
 function numericValue(value: unknown): number | null {
@@ -1158,7 +1175,7 @@ export function PageWorkspace() {
   async function loadPages() {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/pages`, { cache: 'no-store' });
+      const response = await fetch(`/api/orgs/${activeOrgId()}/pages`, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -1185,7 +1202,7 @@ export function PageWorkspace() {
     setPolicy(null);
     setPolicyDraft(null);
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/policy/page/${pageId}`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/policy/page/${pageId}`, {
         cache: 'no-store',
       });
       if (!response.ok) {
@@ -1201,7 +1218,7 @@ export function PageWorkspace() {
 
   async function loadRuns(pageId: string) {
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/pages/${pageId}/runs`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/pages/${pageId}/runs`, {
         cache: 'no-store',
       });
       if (!response.ok) {
@@ -1238,7 +1255,7 @@ export function PageWorkspace() {
   async function loadPackage(run: RunRecord) {
     setPackageNotice('');
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/packages/${run.id}`, { cache: 'no-store' });
+      const response = await fetch(`/api/orgs/${activeOrgId()}/packages/${run.id}`, { cache: 'no-store' });
       if (!response.ok) {
         if (response.status === 404) {
           setPackageDetail((current) => (current?.run_id === run.id ? current : null));
@@ -1399,7 +1416,7 @@ export function PageWorkspace() {
         throw new Error('Page name is required.');
       }
       const handle = normalizeHandle(form.handle);
-      const response = await fetch(`/api/orgs/${selectedOrgId}/pages`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/pages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1437,7 +1454,7 @@ export function PageWorkspace() {
     setIsSaving(true);
     setMessage('Deleting page...');
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/pages/${selectedPage.id}`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/pages/${selectedPage.id}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -1464,7 +1481,7 @@ export function PageWorkspace() {
     setIsPolicySaving(true);
     setMessage('Saving policy...');
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/policy/page/${selectedPage.id}`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/policy/page/${selectedPage.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1493,7 +1510,7 @@ export function PageWorkspace() {
     setIsWorkflowSaving(true);
     setMessage('Creating plan...');
     try {
-      const response = await fetch(`/api/orgs/${selectedOrgId}/pages/${selectedPage.id}/idea-plans`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/pages/${selectedPage.id}/idea-plans`, {
         method: 'POST',
         headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
       });
@@ -1520,7 +1537,7 @@ export function PageWorkspace() {
     setMessage(mode === 'runway' ? 'Creating Runway package...' : 'Creating smoke package...');
     try {
       const response = await fetch(
-        `/api/orgs/${selectedOrgId}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/generate-package`,
+        `/api/orgs/${activeOrgId()}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/generate-package`,
         {
           method: 'POST',
           headers: {
@@ -1556,7 +1573,7 @@ export function PageWorkspace() {
     setMessage('Discarding plan...');
     try {
       const response = await fetch(
-        `/api/orgs/${selectedOrgId}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/discard`,
+        `/api/orgs/${activeOrgId()}/pages/${selectedPage.id}/idea-plans/${selectedPlan.id}/discard`,
         {
           method: 'POST',
           headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
@@ -2233,7 +2250,7 @@ function ArtifactViewer({
 }
 
 export function AssetPackGenerationWorkspace({
-  orgId,
+  orgId: _orgId,
   selectedPage,
   onRunsChanged,
   setWorkspaceMessage,
@@ -2275,7 +2292,6 @@ export function AssetPackGenerationWorkspace({
   savedHookGenerations?: SavedHookImageGeneration[];
   onSaveHookGeneration?: (generation: SavedHookImageGeneration) => void;
 }) {
-  const effectiveOrgId = orgId ?? DEFAULT_ORG_ID;
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(true);
   const [selectedBrowserAssetId, setSelectedBrowserAssetId] = useState('');
   const [assetBrowserFilter, setAssetBrowserFilter] = useState<'all' | 'background' | 'object'>('all');
@@ -2404,7 +2420,7 @@ export function AssetPackGenerationWorkspace({
 
   async function loadSavedAssetPacks(preferredPackId?: string): Promise<AssetPackRecord[]> {
     try {
-      const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs?limit=50`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs?limit=50`, {
         cache: 'no-store',
         headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
       });
@@ -2434,7 +2450,7 @@ export function AssetPackGenerationWorkspace({
   async function loadSelectedPackAssets(assetPackId: string): Promise<AssetLibraryItem[]> {
     try {
       const assetsResponse = await fetch(
-        `/api/orgs/${effectiveOrgId}/assets?asset_pack_id=${assetPackId}&ready_status=ready&limit=200`,
+        `/api/orgs/${activeOrgId()}/assets?asset_pack_id=${assetPackId}&ready_status=ready&limit=200`,
         {
           cache: 'no-store',
           headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
@@ -2444,11 +2460,11 @@ export function AssetPackGenerationWorkspace({
         throw new Error(await apiErrorMessage(assetsResponse));
       }
       const assetRows = (await assetsResponse.json()) as AssetLibraryItemOut[];
-      const mappedAssets = assetRows.map((row) => mapAssetLibraryItemOut(row, effectiveOrgId));
+      const mappedAssets = assetRows.map((row) => mapAssetLibraryItemOut(row, activeOrgId()));
       setPackAssets(mappedAssets);
 
       const combinationsResponse = await fetch(
-        `/api/orgs/${effectiveOrgId}/asset-packs/${assetPackId}/combinations`,
+        `/api/orgs/${activeOrgId()}/asset-packs/${assetPackId}/combinations`,
         {
           method: 'POST',
           headers: {
@@ -2492,7 +2508,7 @@ export function AssetPackGenerationWorkspace({
     const backgroundCount = Math.max(0, Math.floor(planner.backgroundCount));
     const objectCount = Math.max(0, Math.floor(planner.objectCount));
     const requestedAssetCount = Math.max(1, backgroundCount + objectCount);
-    const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/plan`, {
+    const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs/plan`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2533,7 +2549,7 @@ export function AssetPackGenerationWorkspace({
     if (pack.status !== 'planned') {
       throw new Error(`Asset pack is ${pack.status}; create a new planned pack before approving.`);
     }
-    const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/${pack.id}/approve`, {
+    const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs/${pack.id}/approve`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2555,7 +2571,7 @@ export function AssetPackGenerationWorkspace({
   }
 
   async function generateApprovedPack(pack: AssetPackRecord): Promise<AssetPackPlanResponse> {
-    const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/${pack.id}/generate`, {
+    const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs/${pack.id}/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2617,7 +2633,7 @@ export function AssetPackGenerationWorkspace({
     setWorkspaceMessage('Deleting asset pack...');
     setPackBrowserMessage(`Deleting ${packToDelete.name}...`);
     try {
-      const response = await fetch(`/api/orgs/${effectiveOrgId}/asset-packs/${packToDelete.id}/reject`, {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs/${packToDelete.id}/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
