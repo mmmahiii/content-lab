@@ -1,0 +1,291 @@
+[
+  {
+    "id": "local-hook:7da4c869-81fc-4cad-9241-76b2f62732fc:steak-reel-recreation",
+    "sourceRunId": null,
+    "name": "steakpagetest steak reel recreation",
+    "selectedBackgroundId": "981a9042-91b2-41c8-a138-6749b8176ba7",
+    "background": {
+      "id": "981a9042-91b2-41c8-a138-6749b8176ba7",
+      "title": "California kitchen cooktop backdrop",
+      "kind": "background",
+      "mediaType": "image",
+      "pack": "steakpagetest object asset bank",
+      "tags": [
+        "steak-reel-seed",
+        "background",
+        "kitchen",
+        "cooktop",
+        "interior"
+      ],
+      "layerSuitability": "Real-photo layer (background)",
+      "reuseCount": 0,
+      "performanceScore": 86,
+      "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+      "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/981a9042-91b2-41c8-a138-6749b8176ba7/file",
+      "storageUri": ""
+    },
+    "items": [
+      {
+        "id": "143b4cf3-e3b6-4dc3-b233-617ed95c6792-induction",
+        "asset": {
+          "id": "143b4cf3-e3b6-4dc3-b233-617ed95c6792",
+          "title": "Induction cooktop (rolling boil crop)",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "induction",
+            "cooktop",
+            "induction",
+            "kitchen"
+          ],
+          "layerSuitability": "Real-photo layer (induction)",
+          "reuseCount": 0,
+          "performanceScore": 84,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/143b4cf3-e3b6-4dc3-b233-617ed95c6792/file",
+          "storageUri": ""
+        },
+        "x": 0.08,
+        "y": 0.22,
+        "size": 0.45
+      },
+      {
+        "id": "3c06dc0d-1494-4d29-b5b6-6d480ff76f6e-pan",
+        "asset": {
+          "id": "3c06dc0d-1494-4d29-b5b6-6d480ff76f6e",
+          "title": "Stainless steel frying pan",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "pan",
+            "pan",
+            "cookware",
+            "metal"
+          ],
+          "layerSuitability": "Real-photo layer (pan)",
+          "reuseCount": 0,
+          "performanceScore": 82,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/3c06dc0d-1494-4d29-b5b6-6d480ff76f6e/file",
+          "storageUri": ""
+        },
+        "x": 0.18,
+        "y": 0.38,
+        "size": 0.35
+      },
+      {
+        "id": "1aa687bf-4ac7-4e75-8bd6-d28cdaa4ce59-steak_raw",
+        "asset": {
+          "id": "1aa687bf-4ac7-4e75-8bd6-d28cdaa4ce59",
+          "title": "Raw beef steak",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "steak_raw",
+            "steak",
+            "beef",
+            "raw"
+          ],
+          "layerSuitability": "Real-photo layer (steak_raw)",
+          "reuseCount": 0,
+          "performanceScore": 88,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/1aa687bf-4ac7-4e75-8bd6-d28cdaa4ce59/file",
+          "storageUri": ""
+        },
+        "x": 0.42,
+        "y": 0.48,
+        "size": 0.22
+      },
+      {
+        "id": "7edde25f-2f49-4928-acf7-e109b838fe41-steak_grill",
+        "asset": {
+          "id": "7edde25f-2f49-4928-acf7-e109b838fe41",
+          "title": "Grilling steak",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "steak_grill",
+            "steak",
+            "grill",
+            "cook"
+          ],
+          "layerSuitability": "Real-photo layer (steak_grill)",
+          "reuseCount": 0,
+          "performanceScore": 85,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/7edde25f-2f49-4928-acf7-e109b838fe41/file",
+          "storageUri": ""
+        },
+        "x": 0.55,
+        "y": 0.52,
+        "size": 0.2
+      },
+      {
+        "id": "1217972f-7053-48dd-aa86-96449b7f9926-basil",
+        "asset": {
+          "id": "1217972f-7053-48dd-aa86-96449b7f9926",
+          "title": "Basil plant in pot",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "basil",
+            "basil",
+            "herb",
+            "plant"
+          ],
+          "layerSuitability": "Real-photo layer (basil)",
+          "reuseCount": 0,
+          "performanceScore": 80,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/1217972f-7053-48dd-aa86-96449b7f9926/file",
+          "storageUri": ""
+        },
+        "x": 0.05,
+        "y": 0.55,
+        "size": 0.25
+      },
+      {
+        "id": "62dde273-2cba-43e4-a9fc-4fb250def06d-rosemary",
+        "asset": {
+          "id": "62dde273-2cba-43e4-a9fc-4fb250def06d",
+          "title": "Rosemary sprig",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "rosemary",
+            "rosemary",
+            "herb",
+            "aromatic"
+          ],
+          "layerSuitability": "Real-photo layer (rosemary)",
+          "reuseCount": 0,
+          "performanceScore": 78,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/62dde273-2cba-43e4-a9fc-4fb250def06d/file",
+          "storageUri": ""
+        },
+        "x": 0.72,
+        "y": 0.3,
+        "size": 0.2
+      },
+      {
+        "id": "ed1b5f6c-407d-43ee-86d2-8ee22b7baa58-parsley",
+        "asset": {
+          "id": "ed1b5f6c-407d-43ee-86d2-8ee22b7baa58",
+          "title": "Parsley plant in pot",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "parsley",
+            "parsley",
+            "herb",
+            "plant"
+          ],
+          "layerSuitability": "Real-photo layer (parsley)",
+          "reuseCount": 0,
+          "performanceScore": 79,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/ed1b5f6c-407d-43ee-86d2-8ee22b7baa58/file",
+          "storageUri": ""
+        },
+        "x": 0.62,
+        "y": 0.65,
+        "size": 0.18
+      },
+      {
+        "id": "5a50739a-127b-4305-82b4-d45849f72390-wine",
+        "asset": {
+          "id": "5a50739a-127b-4305-82b4-d45849f72390",
+          "title": "Red wine in glass",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "wine",
+            "wine",
+            "glass",
+            "drink"
+          ],
+          "layerSuitability": "Real-photo layer (wine)",
+          "reuseCount": 0,
+          "performanceScore": 81,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/5a50739a-127b-4305-82b4-d45849f72390/file",
+          "storageUri": ""
+        },
+        "x": 0.78,
+        "y": 0.58,
+        "size": 0.15
+      },
+      {
+        "id": "9a7d1eb5-5b4b-4834-9e91-de0bbaf08583-decanter",
+        "asset": {
+          "id": "9a7d1eb5-5b4b-4834-9e91-de0bbaf08583",
+          "title": "Wine decanter",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "decanter",
+            "decanter",
+            "wine",
+            "vessel"
+          ],
+          "layerSuitability": "Real-photo layer (decanter)",
+          "reuseCount": 0,
+          "performanceScore": 80,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/9a7d1eb5-5b4b-4834-9e91-de0bbaf08583/file",
+          "storageUri": ""
+        },
+        "x": 0.82,
+        "y": 0.72,
+        "size": 0.18
+      },
+      {
+        "id": "65a92032-e9e5-4d5c-9e64-00c29abdf79c-mint",
+        "asset": {
+          "id": "65a92032-e9e5-4d5c-9e64-00c29abdf79c",
+          "title": "Mint herb (transparent PNG)",
+          "kind": "object",
+          "mediaType": "image",
+          "pack": "steakpagetest object asset bank",
+          "tags": [
+            "steak-reel-seed",
+            "mint",
+            "mint",
+            "herb",
+            "transparent"
+          ],
+          "layerSuitability": "Real-photo layer (mint)",
+          "reuseCount": 0,
+          "performanceScore": 83,
+          "previewTone": "linear-gradient(135deg,#1f2937,#94a3b8)",
+          "imageUrl": "/api/orgs/6a7ad9e2-a051-4765-a26b-34e01e82e35c/assets/65a92032-e9e5-4d5c-9e64-00c29abdf79c/file",
+          "storageUri": ""
+        },
+        "x": 0.25,
+        "y": 0.62,
+        "size": 0.22
+      }
+    ],
+    "updatedAt": "2026-05-13T03:15:49.000Z"
+  }
+]
