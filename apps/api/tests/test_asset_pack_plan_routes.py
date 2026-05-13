@@ -30,7 +30,7 @@ from content_lab_api.models import (
     Task,
 )
 from content_lab_api.schemas.asset_packs import SourceAssetRegisterRequest
-from content_lab_api.services.asset_packs import register_source_asset_for_pack
+from content_lab_api.services.asset_packs import detach_asset_from_pack, register_source_asset_for_pack
 from content_lab_assets.registry import validate_asset_kind_media_type
 from content_lab_shared.settings import Settings
 from content_lab_storage import StorageRef, StoredObject
@@ -896,6 +896,67 @@ def test_register_source_asset_for_pack_stores_png_and_attaches_item(
     )
     assert audit.actor_id == "operator:uploader"
     assert audit.payload["asset_id"] == str(asset.id)
+
+
+def test_detach_asset_from_pack_removes_membership(
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    pack = AssetPack(
+        org_id=org_id,
+        name="Detach kit",
+        niche="tea",
+        requested_asset_count=1,
+        status="planned",
+    )
+    db_session.add(pack)
+    db_session.flush()
+    storage = _FakeStorageClient()
+    register_request = cast(Request, SimpleNamespace(state=SimpleNamespace(actor="operator:uploader")))
+
+    asset, _, reused = register_source_asset_for_pack(
+        db_session,
+        register_request,
+        org_id=org_id,
+        asset_pack_id=pack.id,
+        body=SourceAssetRegisterRequest(
+            asset_class="component",
+            asset_kind="object_image",
+            asset_source="uploaded",
+            pack_role="manual_cutout",
+            filename="cutout.png",
+            content_type="image/png",
+            data_base64=base64.b64encode(_PNG_1X1_TRANSPARENT).decode("ascii"),
+            metadata={"niche": "tea"},
+        ),
+        storage_client=storage,
+        settings=Settings(minio_bucket="content-lab"),
+    )
+    assert reused is False
+    assert (
+        db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack.id).count() == 1
+    )
+
+    detach_request = cast(Request, SimpleNamespace(state=SimpleNamespace(actor="operator:detach")))
+    detach_asset_from_pack(
+        db_session,
+        detach_request,
+        org_id=org_id,
+        asset_pack_id=pack.id,
+        asset_id=asset.id,
+    )
+    assert (
+        db_session.query(AssetPackItem).filter(AssetPackItem.asset_pack_id == pack.id).count() == 0
+    )
+    detached_audit = (
+        db_session.query(AuditLog)
+        .filter(
+            AuditLog.resource_id == str(pack.id),
+            AuditLog.action == "asset_pack.asset.detached",
+        )
+        .one()
+    )
+    assert detached_audit.payload["asset_id"] == str(asset.id)
 
 
 def test_asset_pack_registration_smoke_moves_pack_ready_with_linked_assets(

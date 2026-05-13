@@ -44,6 +44,8 @@ describe('HomePage', () => {
     expect(markup).toContain('Total asset count');
     expect(markup).toContain('Create pack');
     expect(markup).toContain('Delete pack');
+    expect(markup).toContain('Create asset');
+    expect(markup).toContain('Delete asset');
     expect(markup).toContain('Quality');
     expect(markup).toContain('Format');
     expect(markup).toContain('Style');

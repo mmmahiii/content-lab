@@ -401,6 +401,46 @@ def register_source_asset_for_pack(
     return asset, item, False
 
 
+def detach_asset_from_pack(
+    db: Session,
+    request: Request,
+    *,
+    org_id: uuid.UUID,
+    asset_pack_id: uuid.UUID,
+    asset_id: uuid.UUID,
+) -> None:
+    """Remove pack membership rows for an asset without deleting the registry Asset."""
+
+    _get_org_or_404(db, org_id)
+    asset_pack = _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
+    items = (
+        db.query(AssetPackItem)
+        .filter(
+            AssetPackItem.asset_pack_id == asset_pack_id,
+            AssetPackItem.asset_id == asset_id,
+        )
+        .all()
+    )
+    if not items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Asset not linked to this pack",
+        )
+    removed = len(items)
+    for item in items:
+        db.delete(item)
+    _record_asset_pack_audit(
+        db,
+        request,
+        org_id=org_id,
+        asset_pack=asset_pack,
+        action="asset_pack.asset.detached",
+        payload={"asset_id": str(asset_id), "removed_items": removed},
+    )
+    refresh_asset_pack_readiness(db, asset_pack=asset_pack)
+    db.commit()
+
+
 def _download_approved_external_url(url: str) -> tuple[bytes, str | None]:
     assert_safe_http_url_for_fetch(url)
     try:
