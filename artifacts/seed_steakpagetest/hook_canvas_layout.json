@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "packName": "steakpagetest object asset bank",
+  "savedGenerationName": "steakpagetest steak reel recreation",
+  "savedGenerationIdSuffix": "steak-reel-recreation",
+  "backgroundSlot": "background",
+  "canvasItems": [
+    {"slot": "induction", "x": 0.08, "y": 0.22, "size": 0.45},
+    {"slot": "pan", "x": 0.18, "y": 0.38, "size": 0.35},
+    {"slot": "steak_raw", "x": 0.42, "y": 0.48, "size": 0.22},
+    {"slot": "steak_grill", "x": 0.55, "y": 0.52, "size": 0.2},
+    {"slot": "basil", "x": 0.05, "y": 0.55, "size": 0.25},
+    {"slot": "rosemary", "x": 0.72, "y": 0.3, "size": 0.2},
+    {"slot": "parsley", "x": 0.62, "y": 0.65, "size": 0.18},
+    {"slot": "wine", "x": 0.78, "y": 0.58, "size": 0.15},
+    {"slot": "decanter", "x": 0.82, "y": 0.72, "size": 0.18},
+    {"slot": "mint", "x": 0.25, "y": 0.62, "size": 0.22}
+  ]
+}
