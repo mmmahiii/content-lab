@@ -14,6 +14,8 @@
   --danger: #fb7185;
   --warning: #fbbf24;
   --good: #86efac;
+  /** Pack browser, paste queue, hook chips: backdrop behind transparent PNG objects */
+  --object-preview-fill: radial-gradient(circle at 50% 42%, #faf8f4 0%, #ebe8e0 100%);
 }
 
 *,
@@ -727,6 +729,205 @@ dd {
   line-height: 1.4;
 }
 
+.pack-browser-asset-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 10px;
+}
+
+.pack-browser-split-create {
+  position: relative;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.pack-browser-split-create:focus-within .pack-browser-create-flyout,
+.pack-browser-split-create:hover .pack-browser-create-flyout,
+.pack-browser-split-create.is-staging-paste .pack-browser-create-flyout {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.pack-browser-split-trigger {
+  width: 100%;
+}
+
+.pack-browser-create-flyout {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(560px, max(100%, 320px));
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(10, 14, 24, 0.97);
+  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.14s ease,
+    visibility 0.14s ease;
+}
+
+.pack-browser-create-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.pack-browser-create-column {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pack-browser-create-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.pack-browser-create-copy {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pack-browser-ai-prompt {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5, 10, 20, 0.55);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pack-browser-ai-prompt:focus-visible {
+  border-color: rgba(94, 234, 212, 0.62);
+  outline: none;
+}
+
+.pack-browser-role-toggle {
+  width: 100%;
+}
+
+.pack-browser-paste-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5, 10, 20, 0.55);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  outline: none;
+}
+
+.pack-browser-paste-bar:focus-visible {
+  border-color: rgba(94, 234, 212, 0.62);
+}
+
+.pack-browser-paste-bar-placeholder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pack-browser-paste-bar-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pack-browser-paste-bar-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  border: 1px solid rgba(200, 193, 178, 0.55);
+  object-fit: contain;
+  background: var(--object-preview-fill);
+}
+
+.pack-browser-paste-name-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pack-browser-paste-name-field {
+  margin: 0;
+}
+
+.pack-browser-paste-name-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.pack-browser-paste-name-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pack-browser-paste-row-remove {
+  flex: 0 0 auto;
+  padding-inline: 12px;
+}
+
+.pack-browser-paste-actions-footer {
+  margin-top: 4px;
+}
+
+.pack-browser-clear-all-paste {
+  flex: 1 1 auto;
+}
+
+.pack-browser-paste-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pack-browser-paste-status {
+  margin: 0;
+  font-size: 11px;
+}
+
+.pack-browser-delete-asset {
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.pack-browser-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .asset-kind-tabs button {
   flex: 1 1 130px;
 }
@@ -780,6 +981,19 @@ dd {
     0 0,
     8px 8px;
   background-size: 16px 16px;
+}
+
+.pack-browser-asset .asset-preview img,
+.live-browser-asset .asset-preview img {
+  background: var(--object-preview-fill);
+}
+
+.hook-canvas-chip:not(.is-background) .asset-preview.is-small {
+  background: var(--object-preview-fill);
+}
+
+.hook-canvas-chip:not(.is-background) .asset-preview img {
+  background: var(--object-preview-fill);
 }
 
 .asset-preview.is-small {
@@ -1617,7 +1831,7 @@ button.hook-canvas-chip,
   width: 100%;
   height: 100%;
   border-radius: inherit;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .hook-canvas-item img + span {

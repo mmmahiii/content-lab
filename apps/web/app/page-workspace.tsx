@@ -2249,6 +2249,278 @@ function ArtifactViewer({
   );
 }
 
+function looksLikeAssetUuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
+function slugForPackRole(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return (slug || 'operator_upload').slice(0, 128);
+}
+
+function safePngFilename(name: string): string {
+  const base = name
+    .trim()
+    .replace(/[^\w.\-]+/g, '_')
+    .replace(/^\.+|\.+$/g, '');
+  const stem = base || 'asset';
+  return stem.toLowerCase().endsWith('.png') ? stem : `${stem}.png`;
+}
+
+type PackPasteQueueRow = {
+  id: string;
+  blob: Blob;
+  previewUrl: string;
+  title: string;
+};
+
+function newPackPasteQueueRowId(): string {
+  return `pq-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function defaultPackPasteTitle(blob: Blob, index: number): string {
+  if (blob instanceof File && blob.name) {
+    const stem = blob.name.replace(/\.[^.]+$/i, '').trim();
+    const cleaned = stem.replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '');
+    if (cleaned) {
+      return cleaned.slice(0, 120);
+    }
+  }
+  return `asset_${index + 1}`;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read image data'));
+    reader.readAsDataURL(blob);
+  });
+  const comma = dataUrl.indexOf(',');
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+
+async function assertPngBlob(blob: Blob): Promise<void> {
+  const header = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+  const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (!pngSignature.every((byte, index) => header[index] === byte)) {
+    throw new Error('Image conversion did not produce a valid PNG.');
+  }
+}
+
+/**
+ * Removes common uniform studio backdrops for catalog/product shots by flooding transparent from
+ * image edges against an averaged corner color reference (RGB tolerance match).
+ */
+function stripStudioBackdropByEdgeFlood(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || canvas.width < 2 || canvas.height < 2) {
+    return false;
+  }
+  const width = canvas.width;
+  const height = canvas.height;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  /** Studio JPEGs need slack; edge-connected flood limits leakage into the subject. */
+  const tolerance = 46;
+
+  const pixelRgb = (x: number, y: number) => {
+    const i = (y * width + x) * 4;
+    return [data[i], data[i + 1], data[i + 2]] as const;
+  };
+
+  let edgeSumR = 0;
+  let edgeSumG = 0;
+  let edgeSumB = 0;
+  let edgeCount = 0;
+  const pushEdgePixel = (x: number, y: number) => {
+    const [r, g, b] = pixelRgb(x, y);
+    edgeSumR += r;
+    edgeSumG += g;
+    edgeSumB += b;
+    edgeCount += 1;
+  };
+  for (let x = 0; x < width; x += 1) {
+    pushEdgePixel(x, 0);
+    pushEdgePixel(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    pushEdgePixel(0, y);
+    pushEdgePixel(width - 1, y);
+  }
+  let refR = edgeCount ? Math.round(edgeSumR / edgeCount) : 255;
+  let refG = edgeCount ? Math.round(edgeSumG / edgeCount) : 255;
+  let refB = edgeCount ? Math.round(edgeSumB / edgeCount) : 255;
+
+  const corners = [
+    pixelRgb(0, 0),
+    pixelRgb(width - 1, 0),
+    pixelRgb(0, height - 1),
+    pixelRgb(width - 1, height - 1),
+  ];
+  let cornerR = 0;
+  let cornerG = 0;
+  let cornerB = 0;
+  for (const [r, g, b] of corners) {
+    cornerR += r;
+    cornerG += g;
+    cornerB += b;
+  }
+  cornerR = Math.round(cornerR / corners.length);
+  cornerG = Math.round(cornerG / corners.length);
+  cornerB = Math.round(cornerB / corners.length);
+
+  const cornerDelta =
+    Math.abs(refR - cornerR) + Math.abs(refG - cornerG) + Math.abs(refB - cornerB);
+  if (cornerDelta <= 72) {
+    refR = Math.round((refR + cornerR) / 2);
+    refG = Math.round((refG + cornerG) / 2);
+    refB = Math.round((refB + cornerB) / 2);
+  }
+
+  const matchesBackdrop = (r: number, g: number, b: number) =>
+    Math.abs(r - refR) <= tolerance &&
+    Math.abs(g - refG) <= tolerance &&
+    Math.abs(b - refB) <= tolerance;
+
+  const visited = new Uint8Array(width * height);
+  const queue: number[] = [];
+
+  const tryEnqueue = (x: number, y: number) => {
+    const pi = y * width + x;
+    if (visited[pi]) {
+      return;
+    }
+    const i = pi * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    if (!matchesBackdrop(r, g, b)) {
+      return;
+    }
+    visited[pi] = 1;
+    queue.push(pi);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    tryEnqueue(x, 0);
+    tryEnqueue(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    tryEnqueue(0, y);
+    tryEnqueue(width - 1, y);
+  }
+
+  if (!queue.length) {
+    return false;
+  }
+
+  const deltas: readonly (readonly [number, number])[] = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+    [-1, -1],
+    [-1, 1],
+    [1, -1],
+    [1, 1],
+  ];
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const pi = queue[head];
+    const i = pi * 4;
+    data[i + 3] = 0;
+    const x = pi % width;
+    const y = Math.floor(pi / width);
+    for (const [dx, dy] of deltas) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        tryEnqueue(nx, ny);
+      }
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return true;
+}
+
+/** Rough fraction of sampled pixels that are mostly transparent (after any backdrop strip). */
+function sampleTransparentFraction(canvas: HTMLCanvasElement): number {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return 0;
+  }
+  const { width, height } = canvas;
+  const sampleStep = Math.max(2, Math.floor(Math.min(width, height) / 128));
+  const sampleData = ctx.getImageData(0, 0, width, height).data;
+  let transparent = 0;
+  let total = 0;
+  for (let y = 0; y < height; y += sampleStep) {
+    for (let x = 0; x < width; x += sampleStep) {
+      total += 1;
+      const i = (y * width + x) * 4;
+      if (sampleData[i + 3] < 22) {
+        transparent += 1;
+      }
+    }
+  }
+  return total ? transparent / total : 0;
+}
+
+function isPngSignature(header: Uint8Array): boolean {
+  const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return pngSignature.every((byte, index) => header[index] === byte);
+}
+
+async function imageUrlIsPng(url: string): Promise<boolean> {
+  const response = await fetch(url, {
+    cache: 'no-store',
+    headers: { Range: 'bytes=0-7' },
+  });
+  if (!response.ok) {
+    throw new Error('Could not validate asset image bytes.');
+  }
+  const header = new Uint8Array(await (await response.blob()).slice(0, 8).arrayBuffer());
+  return isPngSignature(header);
+}
+
+async function rasterBlobToPng(
+  blob: Blob,
+  options?: { stripStudioBackdrop?: boolean },
+): Promise<{ pngBlob: Blob; backdropRemoved: boolean; transparentFraction: number }> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Canvas is unavailable in this browser.');
+    }
+    ctx.drawImage(bitmap, 0, 0);
+    let backdropRemoved = false;
+    if (options?.stripStudioBackdrop) {
+      backdropRemoved = stripStudioBackdropByEdgeFlood(canvas);
+    }
+    const transparentFraction = sampleTransparentFraction(canvas);
+    const encoded = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (next) => (next ? resolve(next) : reject(new Error('Could not encode PNG'))),
+        'image/png',
+      );
+    });
+    await assertPngBlob(encoded);
+    return { pngBlob: encoded, backdropRemoved, transparentFraction };
+  } finally {
+    bitmap.close();
+  }
+}
+
 export function AssetPackGenerationWorkspace({
   orgId: _orgId,
   selectedPage,
@@ -2319,14 +2591,25 @@ export function AssetPackGenerationWorkspace({
   const [compositionPickIndex, setCompositionPickIndex] = useState(0);
   const [isPackActionRunning, setIsPackActionRunning] = useState(false);
   const assetBrowserItemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const pasteImageInputRef = useRef<HTMLInputElement | null>(null);
 
-  const activeAssetLibrary = packAssets.length ? packAssets : assetLibrarySeed;
+  const [aiAssetPromptDraft, setAiAssetPromptDraft] = useState('');
+  const [pasteAssetSlotKind, setPasteAssetSlotKind] = useState<
+    'background_image' | 'transparent_cutout_png'
+  >('transparent_cutout_png');
+  const [pasteQueue, setPasteQueue] = useState<PackPasteQueueRow[]>([]);
+  const [pasteStagingNote, setPasteStagingNote] = useState('');
+  const [isPasteSaving, setIsPasteSaving] = useState(false);
+  const pasteQueueRef = useRef<PackPasteQueueRow[]>([]);
+  pasteQueueRef.current = pasteQueue;
+
+  const compositionAssetLibrary = packAssets.length ? packAssets : assetLibrarySeed;
   const browserAssetPool = useMemo(
     () =>
-      activeAssetLibrary.filter(
+      packAssets.filter(
         (asset) => asset.kind === 'background' || asset.kind === 'object',
       ),
-    [activeAssetLibrary],
+    [packAssets],
   );
   const visiblePackAssets = useMemo(
     () =>
@@ -2339,8 +2622,6 @@ export function AssetPackGenerationWorkspace({
     () => visiblePackAssets.map((asset) => asset.id).join('|'),
     [visiblePackAssets],
   );
-  const visibleBackgroundCount = browserAssetPool.filter((asset) => asset.kind === 'background').length;
-  const visibleObjectCount = browserAssetPool.filter((asset) => asset.kind === 'object').length;
   const combinatorAssetPacks = savedAssetPacks.filter(isCombinatorEligibleAssetPack);
   const selectedSavedPack =
     savedAssetPacks.find((pack) => pack.id === selectedAssetPackId) ?? assetPack ?? null;
@@ -2354,20 +2635,20 @@ export function AssetPackGenerationWorkspace({
       : null;
   const selectedBackground =
     assetFromCandidateRole(selectedCandidate, 'background', activeOrgId()) ??
-    pickAsset('background', compositionSeed, 0, activeAssetLibrary);
+    pickAsset('background', compositionSeed, 0, compositionAssetLibrary);
   const selectedObject =
     assetFromCandidateRole(selectedCandidate, 'foreground', activeOrgId()) ??
     assetFromCandidateRole(selectedCandidate, 'object', activeOrgId()) ??
-    pickAsset('object', compositionSeed, 1, activeAssetLibrary);
+    pickAsset('object', compositionSeed, 1, compositionAssetLibrary);
   const selectedHook =
     assetFromCandidateRole(selectedCandidate, 'hook', activeOrgId()) ??
     syntheticHookAsset(selectedSavedPack, selectedObject);
   const selectedAudio =
     assetFromCandidateRole(selectedCandidate, 'audio', activeOrgId()) ??
-    pickOptionalAsset('audio', compositionSeed, 3, activeAssetLibrary);
+    pickOptionalAsset('audio', compositionSeed, 3, compositionAssetLibrary);
   const selectedVideo =
     assetFromCandidateRole(selectedCandidate, 'format', activeOrgId()) ??
-    pickOptionalAsset('video', compositionSeed, 4, activeAssetLibrary);
+    pickOptionalAsset('video', compositionSeed, 4, compositionAssetLibrary);
   const selectedCombinationAssets = [
     selectedBackground,
     selectedObject,
@@ -2417,6 +2698,12 @@ export function AssetPackGenerationWorkspace({
       inline: 'nearest',
     });
   }, [selectedBrowserAssetId]);
+
+  useEffect(() => {
+    return () => {
+      pasteQueueRef.current.forEach((row) => URL.revokeObjectURL(row.previewUrl));
+    };
+  }, []);
 
   async function loadSavedAssetPacks(preferredPackId?: string): Promise<AssetPackRecord[]> {
     try {
@@ -2674,6 +2961,289 @@ export function AssetPackGenerationWorkspace({
     }
   }
 
+  function appendPackPasteImages(blobs: Blob[]) {
+    if (!blobs.length) {
+      return;
+    }
+    setPasteQueue((current) => {
+      const start = current.length;
+      const additions = blobs.map((blob, index) => ({
+        id: newPackPasteQueueRowId(),
+        blob,
+        previewUrl: URL.createObjectURL(blob),
+        title: defaultPackPasteTitle(blob, start + index),
+      }));
+      return [...current, ...additions];
+    });
+    setPasteStagingNote(`Staged ${blobs.length} image(s). Adjust names if needed, then save.`);
+    setPackBrowserMessage(`Staged ${blobs.length} image(s).`);
+  }
+
+  function removeLastPackPasteRow() {
+    let removed = false;
+    setPasteQueue((current) => {
+      if (!current.length) {
+        return current;
+      }
+      removed = true;
+      const row = current[current.length - 1];
+      URL.revokeObjectURL(row.previewUrl);
+      return current.slice(0, -1);
+    });
+    if (removed) {
+      setPasteStagingNote('Removed last pasted image.');
+    }
+  }
+
+  function removePackPasteRow(id: string) {
+    setPasteQueue((current) => {
+      const row = current.find((candidate) => candidate.id === id);
+      if (row) {
+        URL.revokeObjectURL(row.previewUrl);
+      }
+      return current.filter((candidate) => candidate.id !== id);
+    });
+  }
+
+  function updatePackPasteRowTitle(id: string, title: string) {
+    setPasteQueue((current) =>
+      current.map((row) => (row.id === id ? { ...row, title } : row)),
+    );
+  }
+
+  function clearPackPasteQueue() {
+    setPasteQueue((current) => {
+      current.forEach((row) => URL.revokeObjectURL(row.previewUrl));
+      return [];
+    });
+    setPasteStagingNote('Cleared staged images.');
+  }
+
+  function collectImageBlobsFromDataTransfer(dataTransfer: DataTransfer | null): Blob[] {
+    if (!dataTransfer?.files?.length) {
+      return [];
+    }
+    return Array.from(dataTransfer.files).filter((file) => file.type.startsWith('image/'));
+  }
+
+  function collectImageBlobsFromClipboard(event: React.ClipboardEvent<HTMLElement>): Blob[] {
+    const items = event.clipboardData?.items;
+    if (!items?.length) {
+      return [];
+    }
+    const blobs: Blob[] = [];
+    for (let index = 0; index < items.length; index += 1) {
+      const entry = items[index];
+      if (entry.kind !== 'file') {
+        continue;
+      }
+      const file = entry.getAsFile();
+      if (file && file.type.startsWith('image/')) {
+        blobs.push(file);
+      }
+    }
+    return blobs;
+  }
+
+  function handlePasteBarKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Backspace') {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest('input[type="text"]')) {
+      return;
+    }
+    if (!pasteQueue.length) {
+      return;
+    }
+    event.preventDefault();
+    removeLastPackPasteRow();
+  }
+
+  function handlePasteBarPaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    const blobs = collectImageBlobsFromClipboard(event);
+    if (!blobs.length) {
+      return;
+    }
+    event.preventDefault();
+    appendPackPasteImages(blobs);
+  }
+
+  function handlePasteAssetFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('image/'));
+    event.target.value = '';
+    if (!files.length) {
+      setPackBrowserMessage('Choose image file(s) (PNG, JPEG, WebP, …).');
+      return;
+    }
+    appendPackPasteImages(files);
+  }
+
+  function handlePasteBarDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const blobs = collectImageBlobsFromDataTransfer(event.dataTransfer);
+    if (!blobs.length) {
+      setPackBrowserMessage('Drop one or more image files.');
+      return;
+    }
+    appendPackPasteImages(blobs);
+  }
+
+  async function savePasteQueueToPack() {
+    const pack = selectedSavedPack;
+    if (!pack) {
+      const message = 'Select a saved pack first.';
+      setPackBrowserMessage(message);
+      setWorkspaceMessage(message);
+      return;
+    }
+    if (!pasteQueue.length) {
+      const message = 'Paste or choose at least one image first.';
+      setPackBrowserMessage(message);
+      setWorkspaceMessage(message);
+      return;
+    }
+    setIsPasteSaving(true);
+    setPasteStagingNote('');
+    setPackBrowserMessage(`Saving ${pasteQueue.length} asset(s)...`);
+    let uploadedCount = 0;
+    let lowCutoutTransparency = false;
+    try {
+      const rowsSnapshot = [...pasteQueue];
+      const stripBackdrop = pasteAssetSlotKind === 'transparent_cutout_png';
+      for (let index = 0; index < rowsSnapshot.length; index += 1) {
+        const row = rowsSnapshot[index];
+        const title = row.title.trim() || defaultPackPasteTitle(row.blob, index);
+        const { pngBlob, backdropRemoved, transparentFraction } = await rasterBlobToPng(row.blob, {
+          stripStudioBackdrop: stripBackdrop,
+        });
+        if (stripBackdrop && transparentFraction < 0.035) {
+          lowCutoutTransparency = true;
+        }
+        const uploadBlob =
+          pngBlob.type === 'image/png' ? pngBlob : new Blob([pngBlob], { type: 'image/png' });
+        const stagedBlob = row.blob;
+        const asFile = stagedBlob instanceof File ? stagedBlob : null;
+        const declaredPng =
+          stagedBlob.type.toLowerCase() === 'image/png' ||
+          Boolean(asFile && asFile.name.toLowerCase().endsWith('.png'));
+        const converted = !declaredPng;
+        const base64 = await blobToBase64(uploadBlob);
+        const filename = safePngFilename(title);
+        const response = await fetch(
+          `/api/orgs/${activeOrgId()}/asset-packs/${pack.id}/source-assets`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Actor-Id': 'operator:ui-rebuild',
+            },
+            body: JSON.stringify({
+              asset_class: 'component',
+              asset_kind: pasteAssetSlotKind,
+              asset_source: 'uploaded',
+              pack_role: slugForPackRole(`${title}-${row.id.slice(-8)}`),
+              filename,
+              content_type: 'image/png',
+              data_base64: base64,
+            metadata: {
+              title,
+              png_validated: true,
+              ...(converted ? { import_png_conversion: 'canvas_rasterize' } : {}),
+              ...(backdropRemoved ? { studio_backdrop_removed: 'edge_flood_fill' } : {}),
+              ...(stripBackdrop
+                ? { cutout_transparency_fraction: Number(transparentFraction.toFixed(4)) }
+                : {}),
+            },
+            }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(await apiErrorMessage(response));
+        }
+        uploadedCount += 1;
+        setPasteQueue((current) => {
+          const match = current.find((candidate) => candidate.id === row.id);
+          if (!match) {
+            return current;
+          }
+          URL.revokeObjectURL(match.previewUrl);
+          return current.filter((candidate) => candidate.id !== row.id);
+        });
+      }
+      const note =
+        uploadedCount === 1
+          ? 'Saved 1 validated PNG to pack.'
+          : `Saved ${uploadedCount} validated PNGs to pack.`;
+      setPasteStagingNote(note);
+      let doneMessage = `Added ${uploadedCount} asset(s) to ${pack.name}.`;
+      if (lowCutoutTransparency) {
+        doneMessage +=
+          ' Some cutouts still look opaque—try a cleaner studio edge or export real transparency.';
+      }
+      setPackBrowserMessage(doneMessage);
+      setWorkspaceMessage(doneMessage);
+      await loadSelectedPackAssets(pack.id);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not save pasted assets to the pack.';
+      setPackBrowserMessage(
+        uploadedCount
+          ? `${message} (${uploadedCount} uploaded before the failure.)`
+          : message,
+      );
+      setWorkspaceMessage(message);
+    } finally {
+      setIsPasteSaving(false);
+    }
+  }
+
+  async function deleteSelectedPackAsset() {
+    const pack = selectedSavedPack;
+    if (!pack || !selectedBrowserAssetId || !looksLikeAssetUuid(selectedBrowserAssetId)) {
+      setPackBrowserMessage(
+        pack
+          ? 'Select a pack asset row with a real asset id (demo thumbnails cannot be removed here).'
+          : 'Select a pack first.',
+      );
+      return;
+    }
+    const confirmed = window.confirm(
+      'Remove this asset from the pack? The underlying org asset record is kept.',
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsPackActionRunning(true);
+    setPackBrowserMessage('Removing asset from pack...');
+    try {
+      const response = await fetch(
+        `/api/orgs/${activeOrgId()}/asset-packs/${pack.id}/assets/${selectedBrowserAssetId}`,
+        {
+          method: 'DELETE',
+          headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
+        },
+      );
+      if (!response.ok && response.status !== 204) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      setSelectedBrowserAssetId('');
+      setPackBrowserMessage('Removed asset from pack.');
+      await loadSelectedPackAssets(pack.id);
+    } catch (error) {
+      setPackBrowserMessage(
+        error instanceof Error ? error.message : 'Could not remove asset from pack.',
+      );
+    } finally {
+      setIsPackActionRunning(false);
+    }
+  }
+
+  const canDetachPackAsset =
+    Boolean(selectedSavedPack) &&
+    looksLikeAssetUuid(selectedBrowserAssetId) &&
+    !isPackActionRunning;
+
   return (
     <>
       <section className="generation-surface asset-library-panel">
@@ -2688,10 +3258,7 @@ export function AssetPackGenerationWorkspace({
             <h3>Pack browser</h3>
           </div>
           <span>
-            <span className="status-pill">
-              {savedAssetPacks.length} saved /{' '}
-              {packAssets.length ? `${packAssets.length} pack assets` : `${assetLibrarySeed.length} demo assets`}
-            </span>
+            <span className="status-pill">{browserAssetPool.length} assets</span>
             <strong>{isAssetLibraryOpen ? 'Collapse' : 'Expand'}</strong>
           </span>
         </button>
@@ -2719,7 +3286,7 @@ export function AssetPackGenerationWorkspace({
                 >
                   {savedAssetPacks.map((pack) => (
                     <option key={pack.id} value={pack.id}>
-                      {formatAssetPackOption(pack)}
+                      {formatAssetPackOption(pack, false)}
                     </option>
                   ))}
                   {!savedAssetPacks.length ? <option value="">No saved packs yet</option> : null}
@@ -2766,11 +3333,6 @@ export function AssetPackGenerationWorkspace({
                 </button>
               </div>
 
-              <div className="pack-browser-counts" aria-label="Visible asset counts">
-                <span>{visibleBackgroundCount} backgrounds</span>
-                <span>{visibleObjectCount} objects</span>
-              </div>
-
               <button
                 className="utility-button"
                 type="button"
@@ -2787,6 +3349,186 @@ export function AssetPackGenerationWorkspace({
                 Delete pack
               </button>
               <p className="pack-browser-message">{packBrowserMessage}</p>
+
+              <div className="pack-browser-asset-toolbar">
+                <div
+                  className={`pack-browser-split-create${pasteQueue.length ? ' is-staging-paste' : ''}`}
+                >
+                  <button
+                    className="utility-button pack-browser-split-trigger"
+                    type="button"
+                    disabled={!selectedSavedPack || isPackActionRunning}
+                  >
+                    Create asset
+                  </button>
+                  <div className="pack-browser-create-flyout" aria-label="Create asset options">
+                    <div className="pack-browser-create-columns">
+                      <div className="pack-browser-create-column">
+                        <p className="pack-browser-create-heading">AI create asset</p>
+                        <p className="muted pack-browser-create-copy">
+                          Prompt wiring is not enabled yet; use this space to draft ideas.
+                        </p>
+                        <textarea
+                          className="pack-browser-ai-prompt"
+                          rows={6}
+                          value={aiAssetPromptDraft}
+                          onChange={(event) => setAiAssetPromptDraft(event.target.value)}
+                          placeholder="Describe the asset you want generated…"
+                          spellCheck={false}
+                        />
+                        <button className="utility-button" type="button" disabled>
+                          Generate with AI (soon)
+                        </button>
+                      </div>
+                      <div className="pack-browser-create-column">
+                        <p className="pack-browser-create-heading">Paste or drop image</p>
+                        <p className="muted pack-browser-create-copy">
+                          Object PNG: studio-style flat backdrops are auto-removed when they reach the
+                          edges (RGB flood from corners). Background keeps the full frame. Images are
+                          saved as validated PNG.
+                        </p>
+                        <div
+                          className="asset-browser-filter pack-browser-role-toggle"
+                          role="group"
+                          aria-label="Uploaded asset role"
+                        >
+                          <button
+                            className={pasteAssetSlotKind === 'transparent_cutout_png' ? 'is-active' : ''}
+                            type="button"
+                            onClick={() => setPasteAssetSlotKind('transparent_cutout_png')}
+                          >
+                            Object PNG
+                          </button>
+                          <button
+                            className={pasteAssetSlotKind === 'background_image' ? 'is-active' : ''}
+                            type="button"
+                            onClick={() => setPasteAssetSlotKind('background_image')}
+                          >
+                            Background
+                          </button>
+                        </div>
+                        <div
+                          className="pack-browser-paste-bar"
+                          tabIndex={0}
+                          role="textbox"
+                          aria-label="Paste images. Press Backspace to remove the last staged image."
+                          aria-multiline="false"
+                          onPaste={handlePasteBarPaste}
+                          onKeyDown={handlePasteBarKeyDown}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={handlePasteBarDrop}
+                        >
+                          {pasteQueue.length ? (
+                            <div className="pack-browser-paste-bar-previews">
+                              {pasteQueue.map((row) => (
+                                <React.Fragment key={row.id}>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    className="pack-browser-paste-bar-thumb"
+                                    src={row.previewUrl}
+                                    alt=""
+                                  />
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="pack-browser-paste-bar-placeholder">
+                              Paste images here (Ctrl+V), drop files, or choose below…
+                            </span>
+                          )}
+                        </div>
+                        {pasteQueue.length ? (
+                          <div className="pack-browser-paste-name-list">
+                            {pasteQueue.map((row, rowIndex) => (
+                              <label key={row.id} className="field pack-browser-paste-name-field">
+                                Name {rowIndex + 1}
+                                <div className="pack-browser-paste-name-row">
+                                  <input
+                                    type="text"
+                                    value={row.title}
+                                    onChange={(event) =>
+                                      updatePackPasteRowTitle(row.id, event.target.value)
+                                    }
+                                    placeholder={`Asset ${rowIndex + 1}`}
+                                    autoComplete="off"
+                                  />
+                                  <button
+                                    className="utility-button pack-browser-paste-row-remove"
+                                    type="button"
+                                    aria-label={`Remove image ${rowIndex + 1}`}
+                                    disabled={isPasteSaving}
+                                    onClick={() => removePackPasteRow(row.id)}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="pack-browser-paste-actions pack-browser-paste-actions-footer">
+                          <button
+                            className="utility-button"
+                            type="button"
+                            disabled={!selectedSavedPack || isPasteSaving || isPackActionRunning}
+                            onClick={() => pasteImageInputRef.current?.click()}
+                          >
+                            Choose image(s)
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={
+                              !selectedSavedPack ||
+                              isPasteSaving ||
+                              isPackActionRunning ||
+                              !pasteQueue.length
+                            }
+                            onClick={() => void savePasteQueueToPack()}
+                          >
+                            {isPasteSaving
+                              ? 'Saving…'
+                              : pasteQueue.length > 1
+                                ? `Save ${pasteQueue.length} to pack`
+                                : 'Save to pack'}
+                          </button>
+                          {pasteQueue.length ? (
+                            <button
+                              className="utility-button pack-browser-clear-all-paste"
+                              type="button"
+                              disabled={isPasteSaving}
+                              onClick={clearPackPasteQueue}
+                            >
+                              Clear all
+                            </button>
+                          ) : null}
+                          <input
+                            ref={pasteImageInputRef}
+                            className="pack-browser-file-input"
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handlePasteAssetFileChange}
+                            aria-hidden
+                            tabIndex={-1}
+                          />
+                        </div>
+                        {pasteStagingNote ? (
+                          <p className="muted pack-browser-paste-status">{pasteStagingNote}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  className="danger-button pack-browser-delete-asset"
+                  type="button"
+                  disabled={!canDetachPackAsset}
+                  onClick={() => void deleteSelectedPackAsset()}
+                >
+                  Delete asset
+                </button>
+              </div>
             </aside>
 
             <div className="pack-browser-scroll" aria-label="Background and object assets">
@@ -3155,6 +3897,7 @@ export function HookImageCreator({
   const [candidateCompositions, setCandidateCompositions] = useState<CandidateComposition[]>([]);
   const [compositionPickIndex, setCompositionPickIndex] = useState(0);
   const [isCombinatorRunning, setIsCombinatorRunning] = useState(false);
+  const [isCanvasAssetValidating, setIsCanvasAssetValidating] = useState(false);
   const [combinatorMessage, setCombinatorMessage] = useState(
     'Choose an active saved pack to create a hook image on the canvas.',
   );
@@ -3162,6 +3905,7 @@ export function HookImageCreator({
   const dragState = useRef<HookCanvasDragState | null>(null);
   const loadedDraftKey = useRef('');
   const assetBrowserItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const pngValidatedCanvasAssetIds = useRef<Set<string>>(new Set());
 
   const savedForActive =
     savedHookGenerations.find((generation) => generation.id === activeGenerationId) ?? null;
@@ -3276,6 +4020,49 @@ export function HookImageCreator({
       inline: 'nearest',
     });
   }, [selectedBrowserAssetId]);
+
+  useEffect(() => {
+    const visualItemsToValidate = items.filter(
+      (item) =>
+        item.asset.imageUrl &&
+        item.asset.kind !== 'hook' &&
+        !pngValidatedCanvasAssetIds.current.has(item.asset.id),
+    );
+    if (!visualItemsToValidate.length) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      for (const item of visualItemsToValidate) {
+        try {
+          const isPng = await imageUrlIsPng(item.asset.imageUrl ?? '');
+          if (cancelled) {
+            return;
+          }
+          if (!isPng) {
+            setItems((current) =>
+              current.filter((candidate) => candidate.asset.id !== item.asset.id),
+            );
+            setSelectedItemId((current) => (current === item.id ? null : current));
+            setCombinatorMessage(`${item.asset.title} was removed because it is not a valid PNG.`);
+            setWorkspaceMessage(`${item.asset.title} was removed because it is not a valid PNG.`);
+            continue;
+          }
+          pngValidatedCanvasAssetIds.current.add(item.asset.id);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          setCombinatorMessage(
+            error instanceof Error ? error.message : 'Could not validate canvas PNG asset.',
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [items, setWorkspaceMessage]);
 
   useEffect(() => {
     if (activeGenerationId === 'new') {
@@ -3548,7 +4335,37 @@ export function HookImageCreator({
     }
   }
 
-  function addItem(asset: AssetLibraryItem) {
+  async function validateCanvasPngAsset(asset: AssetLibraryItem): Promise<boolean> {
+    if (!asset.imageUrl || asset.kind === 'hook' || pngValidatedCanvasAssetIds.current.has(asset.id)) {
+      return true;
+    }
+    setIsCanvasAssetValidating(true);
+    setCombinatorMessage(`Validating ${asset.title} is a PNG...`);
+    try {
+      const isPng = await imageUrlIsPng(asset.imageUrl);
+      if (!isPng) {
+        setCombinatorMessage(`${asset.title} is not a valid PNG. Re-upload it through Create asset.`);
+        setWorkspaceMessage(`${asset.title} is not a valid PNG. Re-upload it through Create asset.`);
+        return false;
+      }
+      pngValidatedCanvasAssetIds.current.add(asset.id);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not validate this asset as a PNG.';
+      setCombinatorMessage(message);
+      setWorkspaceMessage(message);
+      return false;
+    } finally {
+      setIsCanvasAssetValidating(false);
+    }
+  }
+
+  async function addItem(asset: AssetLibraryItem) {
+    const isValidPng = await validateCanvasPngAsset(asset);
+    if (!isValidPng) {
+      return;
+    }
     const siblingCount = items.filter((item) => item.asset.id === asset.id).length;
     const nextItem: HookCanvasItem = {
       id: `${asset.id}-${Date.now()}-${siblingCount}`,
@@ -3561,7 +4378,11 @@ export function HookImageCreator({
     setSelectedItemId(nextItem.id);
   }
 
-  function setCanvasBackground(asset: AssetLibraryItem) {
+  async function setCanvasBackground(asset: AssetLibraryItem) {
+    const isValidPng = await validateCanvasPngAsset(asset);
+    if (!isValidPng) {
+      return;
+    }
     setSelectedBackgroundId(asset.id);
     setCustomBackground(
       seedBackgrounds.some((seedAsset) => seedAsset.id === asset.id) ? null : asset,
@@ -3580,13 +4401,13 @@ export function HookImageCreator({
     });
   }
 
-  function handleLiveAssetAction(asset: AssetLibraryItem) {
+  async function handleLiveAssetAction(asset: AssetLibraryItem) {
     setSelectedBrowserAssetId(asset.id);
     if (asset.kind === 'background') {
-      setCanvasBackground(asset);
+      await setCanvasBackground(asset);
       return;
     }
-    addItem(asset);
+    await addItem(asset);
   }
 
   function updateSelectedItemSize(size: number) {
@@ -3820,7 +4641,8 @@ export function HookImageCreator({
                       <button
                         className="live-browser-select"
                         type="button"
-                        onClick={() => handleLiveAssetAction(asset)}
+                        disabled={isCanvasAssetValidating}
+                        onClick={() => void handleLiveAssetAction(asset)}
                       >
                         <span className="asset-preview is-small" style={{ background: asset.previewTone }}>
                           {asset.imageUrl ? (
@@ -3841,9 +4663,14 @@ export function HookImageCreator({
                         <button
                           className={asset.kind === 'background' ? 'utility-button' : 'primary-button'}
                           type="button"
-                          onClick={() => handleLiveAssetAction(asset)}
+                          disabled={isCanvasAssetValidating}
+                          onClick={() => void handleLiveAssetAction(asset)}
                         >
-                          {asset.kind === 'background' ? 'Set background' : 'Add to canvas'}
+                          {isCanvasAssetValidating
+                            ? 'Validating PNG...'
+                            : asset.kind === 'background'
+                              ? 'Set background'
+                              : 'Add to canvas'}
                         </button>
                         {asset.kind !== 'background' && canvasCount > 0 ? (
                           <button
@@ -3995,7 +4822,7 @@ export function HookImageCreator({
                 key={item.id}
               >
                 <button type="button" onClick={() => setSelectedItemId(item.id)}>
-                  <span className="asset-preview is-small" style={{ background: item.asset.previewTone }}>
+                  <span className="asset-preview is-small">
                     {item.asset.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={item.asset.imageUrl} alt="" />
@@ -4502,9 +5329,8 @@ function formatAssetMix(value: Record<string, unknown> | null): string {
     .join(', ');
 }
 
-function formatAssetPackOption(pack: AssetPackRecord): string {
-  const count = pack.requested_asset_count ?? '?';
-  return `${pack.name} - ${pack.status} - ${count} assets`;
+function formatAssetPackOption(pack: AssetPackRecord, includeStatus = true): string {
+  return includeStatus ? `${pack.name} - ${pack.status}` : pack.name;
 }
 
 function isCombinatorEligibleAssetPack(pack: AssetPackRecord): boolean {

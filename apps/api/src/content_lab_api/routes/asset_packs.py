@@ -11,6 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.responses import Response
 
 from content_lab_api.deps import get_db
 from content_lab_api.models import (
@@ -61,6 +62,7 @@ from content_lab_api.services import (
     create_asset_pack,
     create_asset_pack_batch,
     create_asset_pack_plan,
+    detach_asset_from_pack,
     generate_approved_asset_pack,
     plan_existing_asset_pack,
     regenerate_asset_pack_plan,
@@ -841,6 +843,28 @@ def register_source_asset(
         item=AssetPackItemOut.model_validate(item),
         reused_existing_asset=reused_existing,
     )
+
+
+@router.delete(
+    "/{asset_pack_id}/assets/{asset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def detach_pack_asset(
+    org_id: uuid.UUID,
+    asset_pack_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    detach_asset_from_pack(
+        db,
+        request,
+        org_id=org_id,
+        asset_pack_id=asset_pack_id,
+        asset_id=asset_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _latest_gen_params(db: Session, *, asset_id: uuid.UUID) -> AssetGenParam | None:
