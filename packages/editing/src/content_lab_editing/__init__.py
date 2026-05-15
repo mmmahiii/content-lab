@@ -73,6 +73,7 @@ from content_lab_editing.package_builder import (
     build_package_directory,
     build_ready_to_post_package,
 )
+from content_lab_editing.reel_timeline_schema import ReelTimeline, ReelTimelineObject
 from content_lab_editing.templates import (
     CALM_EXPLAINER_V1,
     DEFAULT_EDITORIAL_TEMPLATE,
@@ -86,6 +87,11 @@ from content_lab_editing.templates import (
     get_editorial_template,
     select_and_apply_editorial_template,
     select_editorial_template,
+)
+from content_lab_editing.timeline_validator import (
+    ReelTimelineFinding,
+    ReelTimelineValidationReport,
+    validate_reel_timeline_artifact,
 )
 from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayManifestEntry
 
@@ -121,6 +127,10 @@ __all__ = [
     "MotionTransform",
     "RenderedOverlayManifest",
     "RenderedOverlayManifestEntry",
+    "ReelTimeline",
+    "ReelTimelineFinding",
+    "ReelTimelineObject",
+    "ReelTimelineValidationReport",
     "SafeAreaConstraints",
     "SceneAwareEditPlan",
     "SceneEditPlanSegment",
@@ -156,5 +166,6 @@ __all__ = [
     "validate_composition_realism",
     "validate_composition_manifest",
     "validate_media_timeline",
+    "validate_reel_timeline_artifact",
     "validate_source_asset_availability",
 ]

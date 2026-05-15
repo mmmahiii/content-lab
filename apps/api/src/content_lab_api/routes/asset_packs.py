@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import insert
+from sqlalchemy import func, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -50,6 +50,10 @@ from content_lab_api.schemas.asset_packs import (
     AssetPackReviewDecisionRequest,
     CandidateCompositionAssetOut,
     CandidateCompositionOut,
+    CinematicPlanPromptOut,
+    CinematicPlanPromptRequest,
+    CinematicPlanValidateOut,
+    CinematicPlanValidateRequest,
     SourceAssetRegisterOut,
     SourceAssetRegisterRequest,
 )
@@ -68,6 +72,14 @@ from content_lab_api.services import (
     reject_asset_pack_plan,
 )
 from content_lab_assets.combinator import CandidateComposition, PackAsset
+from content_lab_assets.role_assignment import normalize_asset_for_cinematic_planning
+from content_lab_creative.single_prompt_reel_planner import (
+    SinglePromptPlannerInput,
+    build_master_planning_prompt,
+    build_plan_artifacts,
+    validate_pasted_cinematic_plan,
+)
+from content_lab_qa.plan_realism import validate_cinematic_plan_realism
 from content_lab_runs import RunStatus, TaskStatus
 from content_lab_shared.logging import ANONYMOUS_ACTOR
 
@@ -212,7 +224,8 @@ def _composition_source_plan(
     manifest: dict[str, Any],
     render_mode: str,
 ) -> dict[str, Any]:
-    roles = manifest.get("roles") if isinstance(manifest.get("roles"), dict) else {}
+    roles_raw = manifest.get("roles")
+    roles = cast(dict[str, Any], roles_raw) if isinstance(roles_raw, dict) else {}
     role_titles = {
         str(role): _role_title(asset)
         for role, asset in roles.items()
@@ -262,6 +275,130 @@ def _role_title(asset: dict[str, Any]) -> str:
     return " ".join(str(title).strip().split())
 
 
+def _page_context_for_cinematic_planner(*, page: Page, asset_pack: AssetPack) -> dict[str, Any]:
+    return {
+        "page_id": str(page.id),
+        "platform": page.platform,
+        "display_name": page.display_name,
+        "handle": page.handle,
+        "kind": page.kind,
+        "page_metadata": dict(page.metadata_ or {}),
+        "asset_pack_id": str(asset_pack.id),
+        "asset_pack_name": asset_pack.name,
+        "asset_pack_niche": asset_pack.niche,
+        "asset_pack_purpose": asset_pack.purpose,
+        "asset_pack_target_audience": asset_pack.target_audience,
+        "asset_pack_strategy_summary": asset_pack.strategy_summary,
+    }
+
+
+def _cinematic_planner_input(
+    db: Session,
+    *,
+    org_id: uuid.UUID,
+    asset_pack: AssetPack,
+    body: CinematicPlanPromptRequest,
+) -> SinglePromptPlannerInput:
+    page = _get_page_or_404(db, org_id=org_id, page_id=body.page_id)
+    selected_assets = _selected_cinematic_asset_descriptors(
+        db,
+        asset_pack=asset_pack,
+        selected_asset_ids=body.selected_asset_ids,
+    )
+    return SinglePromptPlannerInput(
+        page_context=_page_context_for_cinematic_planner(page=page, asset_pack=asset_pack),
+        selected_assets=selected_assets,
+        content_goal=body.content_goal,
+        brand_persona_constraints=body.brand_persona_constraints,
+        platform_constraints=body.platform_constraints,
+        duration_target_seconds=body.duration_target_seconds,
+        pinned_prompt_paths=body.pinned_prompt_paths,
+        banned_prompt_paths=body.banned_prompt_paths,
+    )
+
+
+def _actual_asset_count_for_pack(db: Session, asset_pack_id: uuid.UUID) -> int:
+    return int(
+        db.query(func.count(AssetPackItem.id))
+        .filter(
+            AssetPackItem.asset_pack_id == asset_pack_id,
+            AssetPackItem.asset_id.isnot(None),
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _asset_pack_out(db: Session, asset_pack: AssetPack) -> AssetPackOut:
+    payload = AssetPackOut.model_validate(asset_pack)
+    return payload.model_copy(
+        update={"actual_asset_count": _actual_asset_count_for_pack(db, asset_pack.id)}
+    )
+
+
+def _selected_cinematic_asset_descriptors(
+    db: Session,
+    *,
+    asset_pack: AssetPack,
+    selected_asset_ids: list[uuid.UUID],
+) -> list[dict[str, Any]]:
+    selected_set = set(selected_asset_ids)
+    items = (
+        db.query(AssetPackItem)
+        .filter(
+            AssetPackItem.asset_pack_id == asset_pack.id,
+            AssetPackItem.asset_id.in_(selected_asset_ids),
+        )
+        .order_by(AssetPackItem.priority, AssetPackItem.created_at, AssetPackItem.id)
+        .all()
+    )
+    found_ids = {item.asset_id for item in items if item.asset_id is not None}
+    missing = sorted(str(asset_id) for asset_id in selected_set - found_ids)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"selected assets are not members of this pack: {', '.join(missing)}",
+        )
+    assets_by_id = {
+        asset.id: asset
+        for asset in db.query(Asset).filter(Asset.id.in_(selected_asset_ids)).all()
+    }
+    descriptors: list[dict[str, Any]] = []
+    for item in items:
+        if item.asset_id is None:
+            continue
+        asset = assets_by_id.get(item.asset_id)
+        if asset is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"selected asset is missing from registry: {item.asset_id}",
+            )
+        if asset.status not in {"active", "ready"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"selected asset is not ready: {item.asset_id}",
+            )
+        metadata = {
+            **dict(asset.metadata_ or {}),
+            **dict(item.metadata_json or {}),
+            "storage_uri": asset.storage_uri,
+            "content_hash": asset.content_hash,
+            "asset_pack_niche": asset_pack.niche,
+        }
+        descriptor = normalize_asset_for_cinematic_planning(
+            {
+                "asset_id": str(item.asset_id),
+                "asset_kind": item.asset_kind,
+                "pack_role": item.pack_role,
+                "reuse_purpose": item.reuse_purpose,
+                "metadata": metadata,
+                "compatibility_metadata": dict(item.compatibility_metadata or {}),
+            }
+        )
+        descriptors.append(descriptor.model_dump(mode="json"))
+    return descriptors
+
+
 def _intentional_hook_layout(
     *,
     seed: str,
@@ -306,10 +443,18 @@ def _composition_hook_cover_payload(
     source_plan: dict[str, Any],
     render_mode: str,
 ) -> dict[str, Any]:
-    roles = manifest.get("roles") if isinstance(manifest.get("roles"), dict) else {}
-    hook_asset = roles.get("hook") if isinstance(roles.get("hook"), dict) else {}
-    background_asset = roles.get("background") if isinstance(roles.get("background"), dict) else {}
-    foreground_asset = roles.get("foreground") if isinstance(roles.get("foreground"), dict) else {}
+    roles_raw = manifest.get("roles")
+    roles = cast(dict[str, Any], roles_raw) if isinstance(roles_raw, dict) else {}
+    hook_raw = roles.get("hook")
+    background_raw = roles.get("background")
+    foreground_raw = roles.get("foreground")
+    hook_asset = cast(dict[str, Any], hook_raw) if isinstance(hook_raw, dict) else {}
+    background_asset = (
+        cast(dict[str, Any], background_raw) if isinstance(background_raw, dict) else {}
+    )
+    foreground_asset = (
+        cast(dict[str, Any], foreground_raw) if isinstance(foreground_raw, dict) else {}
+    )
     hook_text = _role_title(hook_asset) if hook_asset else source_plan["hook"]
     manifest_editor_state = (
         manifest.get("editor_state") if isinstance(manifest.get("editor_state"), dict) else None
@@ -400,7 +545,11 @@ def create_asset_pack_route(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackOut:
-    return create_asset_pack(db, request, org_id=org_id, body=body)
+    created = create_asset_pack(db, request, org_id=org_id, body=body)
+    return _asset_pack_out(
+        db,
+        _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=created.id),
+    )
 
 
 @router.get("", response_model=list[AssetPackOut])
@@ -424,7 +573,24 @@ def list_asset_packs(
         .limit(limit)
         .all()
     )
-    return [AssetPackOut.model_validate(row) for row in rows]
+    counts: dict[uuid.UUID, int] = {}
+    if rows:
+        counts = {
+            asset_pack_id: int(count)
+            for asset_pack_id, count in db.query(AssetPackItem.asset_pack_id, func.count(AssetPackItem.id))
+            .filter(
+                AssetPackItem.asset_pack_id.in_([row.id for row in rows]),
+                AssetPackItem.asset_id.isnot(None),
+            )
+            .group_by(AssetPackItem.asset_pack_id)
+            .all()
+        }
+    return [
+        AssetPackOut.model_validate(row).model_copy(
+            update={"actual_asset_count": int(counts.get(row.id, 0))}
+        )
+        for row in rows
+    ]
 
 
 @router.post("/plan", response_model=AssetPackPlanOut, status_code=status.HTTP_201_CREATED)
@@ -434,7 +600,15 @@ def plan_asset_pack(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackPlanOut:
-    return create_asset_pack_plan(db, request, org_id=org_id, body=body)
+    planned = create_asset_pack_plan(db, request, org_id=org_id, body=body)
+    return planned.model_copy(
+        update={
+            "asset_pack": _asset_pack_out(
+                db,
+                _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=planned.asset_pack.id),
+            )
+        }
+    )
 
 
 @router.get("/{asset_pack_id}", response_model=AssetPackOut)
@@ -444,8 +618,9 @@ def get_asset_pack(
     db: Session = Depends(get_db),
 ) -> AssetPackOut:
     _get_org_or_404(db, org_id)
-    return AssetPackOut.model_validate(
-        _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
+    return _asset_pack_out(
+        db,
+        _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id),
     )
 
 
@@ -457,12 +632,20 @@ def plan_existing_pack(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackPlanOut:
-    return plan_existing_asset_pack(
+    planned = plan_existing_asset_pack(
         db,
         request,
         org_id=org_id,
         asset_pack_id=asset_pack_id,
         body=body,
+    )
+    return planned.model_copy(
+        update={
+            "asset_pack": _asset_pack_out(
+                db,
+                _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=planned.asset_pack.id),
+            )
+        }
     )
 
 
@@ -508,10 +691,95 @@ def generate_asset_pack_combinations(
             detail=str(exc),
         ) from exc
     return AssetPackCombinationsOut(
-        asset_pack=AssetPackOut.model_validate(asset_pack),
+        asset_pack=_asset_pack_out(db, asset_pack),
         candidate_compositions=[
             _candidate_out(asset_pack=asset_pack, candidate=candidate) for candidate in candidates
         ],
+    )
+
+
+@router.post("/{asset_pack_id}/cinematic-plan-prompt", response_model=CinematicPlanPromptOut)
+def generate_cinematic_plan_prompt(
+    org_id: uuid.UUID,
+    asset_pack_id: uuid.UUID,
+    body: CinematicPlanPromptRequest,
+    db: Session = Depends(get_db),
+) -> CinematicPlanPromptOut:
+    _get_org_or_404(db, org_id)
+    asset_pack = _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
+    try:
+        planner_input = _cinematic_planner_input(
+            db,
+            org_id=org_id,
+            asset_pack=asset_pack,
+            body=body,
+        )
+        prompt_package = build_master_planning_prompt(planner_input)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return CinematicPlanPromptOut(
+        recommended_model=prompt_package.recommended_model,
+        planning_prompt_version=prompt_package.planning_prompt_version,
+        input_page_context_hash=prompt_package.input_page_context_hash,
+        selected_asset_ids=[uuid.UUID(asset_id) for asset_id in prompt_package.selected_asset_ids],
+        suggested_prompt_paths=prompt_package.suggested_prompt_paths,
+        master_prompt=prompt_package.master_prompt,
+        planner_input=planner_input.model_dump(mode="json"),
+    )
+
+
+@router.post("/{asset_pack_id}/cinematic-plan-validate", response_model=CinematicPlanValidateOut)
+def validate_cinematic_plan(
+    org_id: uuid.UUID,
+    asset_pack_id: uuid.UUID,
+    body: CinematicPlanValidateRequest,
+    db: Session = Depends(get_db),
+) -> CinematicPlanValidateOut:
+    _get_org_or_404(db, org_id)
+    asset_pack = _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
+    try:
+        planner_input = _cinematic_planner_input(
+            db,
+            org_id=org_id,
+            asset_pack=asset_pack,
+            body=body,
+        )
+        plan_payload: str | dict[str, Any] = (
+            body.raw_plan_json if body.raw_plan_json is not None else dict(body.plan or {})
+        )
+        validated = validate_pasted_cinematic_plan(plan_payload, planner_input=planner_input)
+        realism_report = validate_cinematic_plan_realism(validated.plan)
+        if not realism_report.passed:
+            raise ValueError(
+                "realism QA failed: "
+                + ", ".join(
+                    finding.code for finding in realism_report.findings if finding.severity == "fail"
+                )
+            )
+        validation_report = {
+            **validated.validation_report,
+            "plan_realism": realism_report.as_dict(),
+        }
+        artifacts = build_plan_artifacts(
+            validated.plan,
+            realism_qa={
+                "scene_regulation": validated.validation_report.get("scene_regulation"),
+                "plan_realism": realism_report.as_dict(),
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return CinematicPlanValidateOut(
+        plan=validated.plan.model_dump(mode="json"),
+        validation_report=validation_report,
+        plan_hash=validated.plan_hash,
+        artifacts=artifacts,
     )
 
 
@@ -734,12 +1002,16 @@ def approve_asset_pack(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackOut:
-    return approve_asset_pack_plan(
+    approved = approve_asset_pack_plan(
         db,
         request,
         org_id=org_id,
         asset_pack_id=asset_pack_id,
         body=body,
+    )
+    return _asset_pack_out(
+        db,
+        _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=approved.id),
     )
 
 
@@ -751,12 +1023,16 @@ def reject_asset_pack(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackOut:
-    return reject_asset_pack_plan(
+    rejected = reject_asset_pack_plan(
         db,
         request,
         org_id=org_id,
         asset_pack_id=asset_pack_id,
         body=body,
+    )
+    return _asset_pack_out(
+        db,
+        _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=rejected.id),
     )
 
 
@@ -768,12 +1044,20 @@ def regenerate_asset_pack(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackPlanOut:
-    return regenerate_asset_pack_plan(
+    regenerated = regenerate_asset_pack_plan(
         db,
         request,
         org_id=org_id,
         asset_pack_id=asset_pack_id,
         body=body,
+    )
+    return regenerated.model_copy(
+        update={
+            "asset_pack": _asset_pack_out(
+                db,
+                _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=regenerated.asset_pack.id),
+            )
+        }
     )
 
 
@@ -789,12 +1073,20 @@ def generate_approved_pack(
     request: Request,
     db: Session = Depends(get_db),
 ) -> AssetPackBatchOut:
-    return generate_approved_asset_pack(
+    generated = generate_approved_asset_pack(
         db,
         request,
         org_id=org_id,
         asset_pack_id=asset_pack_id,
         body=body,
+    )
+    return generated.model_copy(
+        update={
+            "asset_pack": _asset_pack_out(
+                db,
+                _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=generated.asset_pack.id),
+            )
+        }
     )
 
 

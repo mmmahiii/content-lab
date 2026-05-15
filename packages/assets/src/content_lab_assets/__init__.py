@@ -71,6 +71,12 @@ from content_lab_assets.registry import (
     resolve_phase1_asset,
     validate_asset_kind_media_type,
 )
+from content_lab_assets.role_assignment import (
+    CINEMATIC_ROLES,
+    CinematicAssetDescriptor,
+    cinematic_roles_for_asset,
+    normalize_asset_for_cinematic_planning,
+)
 from content_lab_assets.store import RunwayAssetStore, SQLRunwayAssetStore, StoredRunwayGeneration
 from content_lab_assets.types import (
     AssetSourceMetadata,
@@ -96,7 +102,9 @@ __all__ = [
     "AssetSourceType",
     "AssetTransparencyMetadata",
     "AssetVisualMetadata",
+    "CINEMATIC_ROLES",
     "CandidateComposition",
+    "CinematicAssetDescriptor",
     "GenerateDecision",
     "MediaType",
     "MotionSuitabilityAssessment",
@@ -127,6 +135,7 @@ __all__ = [
     "build_generation_idempotency_key",
     "build_overlay_text_asset_key",
     "build_provenance",
+    "cinematic_roles_for_asset",
     "compatible_asset_pair",
     "detect_png_transparency",
     "detect_png_visual_metadata",
@@ -136,6 +145,7 @@ __all__ = [
     "infer_asset_source_type_from_asset_source",
     "infer_media_type_for_asset_kind",
     "is_ready_asset_status",
+    "normalize_asset_for_cinematic_planning",
     "resolve_phase1_asset",
     "serialize_provenance_json",
     "select_performance_weighted_combinations",

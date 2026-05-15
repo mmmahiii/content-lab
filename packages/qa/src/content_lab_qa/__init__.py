@@ -27,6 +27,11 @@ from content_lab_qa.package import (
     validate_package_completeness,
     validate_package_script_semantics,
 )
+from content_lab_qa.plan_realism import (
+    PlanRealismFinding,
+    PlanRealismReport,
+    validate_cinematic_plan_realism,
+)
 from content_lab_qa.provenance import validate_package_provenance
 from content_lab_qa.repetition import (
     RepetitionGate,
@@ -67,6 +72,8 @@ __all__ = [
     "AlignmentQAReport",
     "PackageQAResult",
     "PackageQualityAssuranceError",
+    "PlanRealismFinding",
+    "PlanRealismReport",
     "QAGate",
     "QAResult",
     "qa_result_blocks_readiness",
@@ -109,4 +116,5 @@ __all__ = [
     "validate_package_script_semantics",
     "validate_package_provenance",
     "validate_caption_meta_language",
+    "validate_cinematic_plan_realism",
 ]

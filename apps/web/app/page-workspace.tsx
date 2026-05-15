@@ -191,6 +191,7 @@ type AssetPackRecord = {
   name: string;
   niche: string;
   requested_asset_count?: number;
+  actual_asset_count?: number;
   asset_mix_requested_json?: Record<string, unknown> | null;
   asset_mix_final_json?: Record<string, unknown> | null;
   strategy_summary?: string | null;
@@ -242,6 +243,23 @@ type CandidateComposition = {
 type AssetPackCombinationsResponse = {
   asset_pack: AssetPackRecord;
   candidate_compositions: CandidateComposition[];
+};
+
+type CinematicPlanPromptResponse = {
+  recommended_model: string;
+  planning_prompt_version: string;
+  input_page_context_hash: string;
+  selected_asset_ids: string[];
+  suggested_prompt_paths: string[];
+  master_prompt: string;
+  planner_input: Record<string, unknown>;
+};
+
+type CinematicPlanValidateResponse = {
+  plan: Record<string, unknown>;
+  validation_report: Record<string, unknown>;
+  plan_hash: string;
+  artifacts: Record<string, unknown>;
 };
 
 type HookCanvasItem = {
@@ -684,7 +702,15 @@ async function apiErrorMessage(response: Response): Promise<string> {
         .join('; ');
     }
   } catch {
-    return text;
+    const trimmed = text.trim();
+    if (
+      trimmed.startsWith('<!DOCTYPE html') ||
+      trimmed.startsWith('<html') ||
+      trimmed.includes('<title>404: This page could not be found.</title>')
+    ) {
+      return `Request failed with ${response.status}. The web proxy route returned an HTML error page instead of JSON; refresh the dev server and try again.`;
+    }
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
   }
   return text;
 }
@@ -1157,7 +1183,7 @@ export function PageWorkspace() {
     try {
       const response = await fetch('/api/orgs', { cache: 'no-store' });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const nextOrgs = (await response.json()) as OrgRecord[];
       setOrgs(nextOrgs);
@@ -1177,7 +1203,7 @@ export function PageWorkspace() {
     try {
       const response = await fetch(`/api/orgs/${activeOrgId()}/pages`, { cache: 'no-store' });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const nextPages = (await response.json()) as PageRecord[];
       setPageLoadError(null);
@@ -1206,7 +1232,7 @@ export function PageWorkspace() {
         cache: 'no-store',
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const nextPolicy = (await response.json()) as PagePolicy;
       setPolicy(nextPolicy);
@@ -1222,7 +1248,7 @@ export function PageWorkspace() {
         cache: 'no-store',
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const nextRuns = (await response.json()) as RunRecord[];
       const nextPlanRuns = nextRuns.filter(isPlanAvailable);
@@ -1264,7 +1290,7 @@ export function PageWorkspace() {
           );
           return;
         }
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       setPackageDetail((await response.json()) as PackageDetail);
       setPackageNotice('');
@@ -1429,7 +1455,7 @@ export function PageWorkspace() {
         }),
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const created = (await response.json()) as PageRecord;
       setForm(emptyForm);
@@ -1458,7 +1484,7 @@ export function PageWorkspace() {
         method: 'DELETE',
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       await loadPages();
       setMessage(`Deleted ${selectedPage.display_name}.`);
@@ -1490,7 +1516,7 @@ export function PageWorkspace() {
         body: JSON.stringify(policyDraft),
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const saved = (await response.json()) as PagePolicy;
       setPolicy(saved);
@@ -1515,7 +1541,7 @@ export function PageWorkspace() {
         headers: { 'X-Actor-Id': 'operator:ui-rebuild' },
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const created = (await response.json()) as RunRecord;
       await loadRuns(selectedPage.id);
@@ -1548,7 +1574,7 @@ export function PageWorkspace() {
         },
       );
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       const created = (await response.json()) as RunRecord;
       await loadRuns(selectedPage.id);
@@ -1580,7 +1606,7 @@ export function PageWorkspace() {
         },
       );
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await apiErrorMessage(response));
       }
       await loadRuns(selectedPage.id);
       setMessage('Plan discarded.');
@@ -2483,8 +2509,8 @@ export function AssetPackGenerationWorkspace({
         setCandidateCompositions(combinations.candidate_compositions);
         setCombinatorOutboxMessage(
           combinations.candidate_compositions.length
-            ? `Loaded ${combinations.candidate_compositions.length} backend combinations from ${combinations.asset_pack.name}.`
-            : `${combinations.asset_pack.name} has visual assets but no backend hook-text combinations; preview will use its real PNGs with a generated hook label.`,
+            ? `Loaded ${combinations.candidate_compositions.length} backend combinations from ${displayAssetPackName(combinations.asset_pack)}.`
+            : `${displayAssetPackName(combinations.asset_pack)} has visual assets but no backend hook-text combinations; preview will use its real PNGs with a generated hook label.`,
         );
       } else {
         setCandidateCompositions([]);
@@ -2538,7 +2564,7 @@ export function AssetPackGenerationWorkspace({
     const created = (await response.json()) as AssetPackPlanResponse;
     setAssetPack(created.asset_pack);
     setSelectedAssetPackId(created.asset_pack.id);
-    setPackBrowserMessage(`Planned ${created.asset_pack.name}.`);
+    setPackBrowserMessage(`Planned ${displayAssetPackName(created.asset_pack)}.`);
     return created;
   }
 
@@ -2566,7 +2592,7 @@ export function AssetPackGenerationWorkspace({
     const approved = (await response.json()) as AssetPackRecord;
     setAssetPack(approved);
     setSelectedAssetPackId(approved.id);
-    setPackBrowserMessage(`Approved ${approved.name}.`);
+    setPackBrowserMessage(`Approved ${displayAssetPackName(approved)}.`);
     return approved;
   }
 
@@ -2608,8 +2634,8 @@ export function AssetPackGenerationWorkspace({
       setAssetBrowserFilter('all');
       await loadSavedAssetPacks(generatedPack.id);
       await loadSelectedPackAssets(generatedPack.id);
-      setPackBrowserMessage(`Created ${generatedPack.name}.`);
-      setWorkspaceMessage(`Created ${generatedPack.name}.`);
+      setPackBrowserMessage(`Created ${displayAssetPackName(generatedPack)}.`);
+      setWorkspaceMessage(`Created ${displayAssetPackName(generatedPack)}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not create asset pack.';
       setPackBrowserMessage(message);
@@ -2625,13 +2651,15 @@ export function AssetPackGenerationWorkspace({
       setPackBrowserMessage('No pack selected.');
       return;
     }
-    const confirmed = window.confirm(`Delete ${packToDelete.name} from the pack browser?`);
+    const confirmed = window.confirm(
+      `Delete ${displayAssetPackName(packToDelete)} from the pack browser?`,
+    );
     if (!confirmed) {
       return;
     }
     setIsPackActionRunning(true);
     setWorkspaceMessage('Deleting asset pack...');
-    setPackBrowserMessage(`Deleting ${packToDelete.name}...`);
+    setPackBrowserMessage(`Deleting ${displayAssetPackName(packToDelete)}...`);
     try {
       const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs/${packToDelete.id}/reject`, {
         method: 'POST',
@@ -2661,8 +2689,8 @@ export function AssetPackGenerationWorkspace({
         setPackAssets([]);
         setCandidateCompositions([]);
       }
-      setPackBrowserMessage(`Deleted ${packToDelete.name}.`);
-      setWorkspaceMessage(`Deleted ${packToDelete.name}.`);
+      setPackBrowserMessage(`Deleted ${displayAssetPackName(packToDelete)}.`);
+      setWorkspaceMessage(`Deleted ${displayAssetPackName(packToDelete)}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not delete asset pack.';
       setPackBrowserMessage(message);
@@ -2711,8 +2739,10 @@ export function AssetPackGenerationWorkspace({
                     setSelectedBrowserAssetId('');
                     if (pack) {
                       setAssetPack(pack);
-                      setPackBrowserMessage(`Selected ${pack.name}.`);
-                      setCombinatorOutboxMessage(`${pack.name} is selected for the combinator.`);
+                      setPackBrowserMessage(`Selected ${displayAssetPackName(pack)}.`);
+                      setCombinatorOutboxMessage(
+                        `${displayAssetPackName(pack)} is selected for the combinator.`,
+                      );
                     }
                   }}
                   disabled={!savedAssetPacks.length}
@@ -2767,6 +2797,7 @@ export function AssetPackGenerationWorkspace({
               </div>
 
               <div className="pack-browser-counts" aria-label="Visible asset counts">
+                <span>{assetPackCountLabel(selectedSavedPack)}</span>
                 <span>{visibleBackgroundCount} backgrounds</span>
                 <span>{visibleObjectCount} objects</span>
               </div>
@@ -2825,7 +2856,7 @@ export function AssetPackGenerationWorkspace({
         ) : (
           <p className="muted">
             {selectedSavedPack
-              ? `${selectedSavedPack.name} is selected. Expand to browse saved pack assets.`
+              ? `${displayAssetPackName(selectedSavedPack)} is selected. Expand to browse saved pack assets.`
               : 'Pack details and asset previews are hidden.'}
           </p>
         )}
@@ -3152,11 +3183,20 @@ export function HookImageCreator({
   const [selectedBrowserAssetId, setSelectedBrowserAssetId] = useState('');
   const [assetBrowserFilter, setAssetBrowserFilter] = useState<'all' | 'background' | 'object'>('all');
   const [packAssets, setPackAssets] = useState<AssetLibraryItem[]>([]);
-  const [candidateCompositions, setCandidateCompositions] = useState<CandidateComposition[]>([]);
-  const [compositionPickIndex, setCompositionPickIndex] = useState(0);
-  const [isCombinatorRunning, setIsCombinatorRunning] = useState(false);
-  const [combinatorMessage, setCombinatorMessage] = useState(
-    'Choose an active saved pack to create a hook image on the canvas.',
+  const [selectedPlanAssetIds, setSelectedPlanAssetIds] = useState<string[]>([]);
+  const [cinematicContentGoal, setCinematicContentGoal] = useState('');
+  const [cinematicDuration, setCinematicDuration] = useState('6.5');
+  const [brandPersonaConstraints, setBrandPersonaConstraints] = useState('');
+  const [platformConstraints, setPlatformConstraints] = useState('{"platform":"instagram","aspect_ratio":"9:16"}');
+  const [pinnedPromptPaths, setPinnedPromptPaths] = useState('');
+  const [bannedPromptPaths, setBannedPromptPaths] = useState('');
+  const [masterPrompt, setMasterPrompt] = useState('');
+  const [pastedPlanJson, setPastedPlanJson] = useState('');
+  const [validatedPlan, setValidatedPlan] = useState<CinematicPlanValidateResponse | null>(null);
+  const [selectedArtifactName, setSelectedArtifactName] = useState('cinematic_reel_plan.json');
+  const [isPlannerRunning, setIsPlannerRunning] = useState(false);
+  const [plannerMessage, setPlannerMessage] = useState(
+    'Choose a pack, select assets, then generate the ChatGPT planning prompt.',
   );
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<HookCanvasDragState | null>(null);
@@ -3173,7 +3213,6 @@ export function HookImageCreator({
   const combinatorAssetPacks = savedAssetPacks.filter(isCombinatorEligibleAssetPack);
   const selectedCombinatorPack =
     combinatorAssetPacks.find((pack) => pack.id === selectedAssetPackId) ?? null;
-  const combinatorLibrary = packAssets.length ? packAssets : assetLibrarySeed;
   const browserAssetPool = useMemo(
     () =>
       packAssets.filter(
@@ -3200,38 +3239,17 @@ export function HookImageCreator({
   const visibleObjectCount = browserAssetPool.filter(
     (asset) => asset.kind === 'object' || asset.kind === 'hook',
   ).length;
-  const compositionSeed = `${selectedCombinatorPack?.id ?? selectedPage?.id ?? orgId}:${compositionPickIndex}`;
-  const selectedCandidate =
-    candidateCompositions.length > 0
-      ? candidateCompositions[compositionPickIndex % candidateCompositions.length]
-      : null;
-  const combinatorBackground =
-    assetFromCandidateRole(selectedCandidate, 'background', orgId) ??
-    pickAsset('background', compositionSeed, 0, combinatorLibrary);
-  const combinatorObject =
-    assetFromCandidateRole(selectedCandidate, 'foreground', orgId) ??
-    assetFromCandidateRole(selectedCandidate, 'object', orgId) ??
-    pickAsset('object', compositionSeed, 1, combinatorLibrary);
-  const combinatorHook =
-    assetFromCandidateRole(selectedCandidate, 'hook', orgId) ??
-    syntheticHookAsset(selectedCombinatorPack, combinatorObject);
-  const combinatorAudio =
-    assetFromCandidateRole(selectedCandidate, 'audio', orgId) ??
-    pickOptionalAsset('audio', compositionSeed, 3, combinatorLibrary);
-  const combinatorVideo =
-    assetFromCandidateRole(selectedCandidate, 'format', orgId) ??
-    pickOptionalAsset('video', compositionSeed, 4, combinatorLibrary);
-  const combinatorAssets = [
-    combinatorBackground,
-    combinatorObject,
-    combinatorHook,
-    combinatorAudio,
-    combinatorVideo,
-  ].filter((asset): asset is AssetLibraryItem => asset !== null);
-  const combinatorScore = Math.round(
-    combinatorAssets.reduce((sum, asset) => sum + asset.performanceScore, 0) /
-      Math.max(1, combinatorAssets.length),
+  const selectablePlanAssets = packAssets;
+  const selectedPlanAssets = selectablePlanAssets.filter((asset) =>
+    selectedPlanAssetIds.includes(asset.id),
   );
+  const allPlanAssetsSelected =
+    selectablePlanAssets.length > 0 &&
+    selectablePlanAssets.every((asset) => selectedPlanAssetIds.includes(asset.id));
+  const validatedArtifactNames = validatedPlan ? Object.keys(validatedPlan.artifacts) : [];
+  const selectedArtifact =
+    validatedPlan?.artifacts[selectedArtifactName] ??
+    (validatedArtifactNames.length ? validatedPlan?.artifacts[validatedArtifactNames[0]] : null);
   const currentGeneration: SavedHookImageGeneration = {
     id: activeGenerationId,
     sourceRunId: savedForActive?.sourceRunId ?? null,
@@ -3250,8 +3268,10 @@ export function HookImageCreator({
   useEffect(() => {
     if (!selectedAssetPackId) {
       setPackAssets([]);
-      setCandidateCompositions([]);
       setSelectedBrowserAssetId('');
+      setSelectedPlanAssetIds([]);
+      setMasterPrompt('');
+      setValidatedPlan(null);
       return;
     }
     void loadSelectedPackAssets(selectedAssetPackId);
@@ -3322,7 +3342,7 @@ export function HookImageCreator({
       setSelectedAssetPackId(preferredPackId || selectedAssetPackId || fallbackPackId);
       return packs;
     } catch (error) {
-      setCombinatorMessage(
+      setPlannerMessage(
         error instanceof Error ? error.message : 'Could not load saved asset packs.',
       );
       return [];
@@ -3331,7 +3351,7 @@ export function HookImageCreator({
 
   async function loadSelectedPackAssets(assetPackId: string): Promise<AssetLibraryItem[]> {
     try {
-      setCombinatorMessage('Loading selected pack assets...');
+      setPlannerMessage('Loading selected pack assets...');
       const assetsResponse = await fetch(
         `/api/orgs/${orgId}/assets?asset_pack_id=${assetPackId}&ready_status=ready&limit=200`,
         {
@@ -3345,119 +3365,103 @@ export function HookImageCreator({
       const assetRows = (await assetsResponse.json()) as AssetLibraryItemOut[];
       const mappedAssets = assetRows.map((row) => mapAssetLibraryItemOut(row, orgId));
       setPackAssets(mappedAssets);
-
-      const combinationsResponse = await fetch(
-        `/api/orgs/${orgId}/asset-packs/${assetPackId}/combinations`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Actor-Id': 'operator:ui-rebuild',
-          },
-          body: JSON.stringify({
-            target_reel_count: 12,
-            mode: 'balanced',
-            filters: {},
-          }),
-        },
+      setSelectedPlanAssetIds((current) =>
+        current.filter((assetId) => mappedAssets.some((asset) => asset.id === assetId)),
       );
-      if (combinationsResponse.ok) {
-        const combinations = (await combinationsResponse.json()) as AssetPackCombinationsResponse;
-        setCandidateCompositions(combinations.candidate_compositions);
-        setCombinatorMessage(
-          combinations.candidate_compositions.length
-            ? `Loaded ${combinations.candidate_compositions.length} combinations from ${combinations.asset_pack.name}.`
-            : `${combinations.asset_pack.name} has no backend combinations; the canvas will use its ready assets with generated hook text.`,
-        );
-      } else {
-        setCandidateCompositions([]);
-        setCombinatorMessage(
-          `Loaded pack assets, but backend combinations are unavailable: ${await apiErrorMessage(
-            combinationsResponse,
-          )}`,
-        );
-      }
+      setMasterPrompt('');
+      setValidatedPlan(null);
+      setPlannerMessage(`Loaded ${mappedAssets.length} ready assets for cinematic planning.`);
       return mappedAssets;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load pack assets.';
       setPackAssets([]);
-      setCandidateCompositions([]);
-      setCombinatorMessage(message);
+      setSelectedPlanAssetIds([]);
+      setPlannerMessage(message);
       return [];
     }
   }
 
-  async function approveCombinatorPack(pack: AssetPackRecord): Promise<AssetPackRecord> {
-    if (pack.status === 'approved' || pack.status === 'ready' || pack.status === 'generating') {
-      return pack;
+  function cinematicPlannerBody() {
+    if (!selectedPage || !selectedCombinatorPack) {
+      throw new Error('Choose an active saved pack first.');
     }
-    if (pack.status !== 'planned') {
-      throw new Error(`Asset pack is ${pack.status}; choose a planned or active pack.`);
+    if (!selectedPlanAssetIds.length) {
+      throw new Error('Select at least one ready asset for the planner.');
     }
-    const response = await fetch(`/api/orgs/${orgId}/asset-packs/${pack.id}/approve`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Actor-Id': 'operator:ui-rebuild',
-      },
-      body: JSON.stringify({
-        note: 'Approved from live hook image creator.',
-        metadata: { source: 'web_live_hook_image_creator' },
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(await apiErrorMessage(response));
-    }
-    const approved = (await response.json()) as AssetPackRecord;
-    await loadSavedAssetPacks(approved.id);
-    return approved;
+    const duration = Number.parseFloat(cinematicDuration || '0');
+    return {
+      page_id: selectedPage.id,
+      selected_asset_ids: selectedPlanAssetIds,
+      content_goal: cinematicContentGoal.trim() || null,
+      brand_persona_constraints: parseOptionalJsonObject(
+        brandPersonaConstraints,
+        'Brand/persona constraints',
+      ),
+      platform_constraints: parseOptionalJsonObject(platformConstraints, 'Platform constraints'),
+      duration_target_seconds: Number.isFinite(duration) && duration > 0 ? duration : null,
+      pinned_prompt_paths: commaSeparatedValues(pinnedPromptPaths),
+      banned_prompt_paths: commaSeparatedValues(bannedPromptPaths),
+    };
   }
 
-  async function queueCombinatorRender() {
-    if (!selectedPage || !selectedCombinatorPack) {
-      setCombinatorMessage('Choose an active saved pack first.');
+  async function generateCinematicPrompt() {
+    if (!selectedCombinatorPack) {
+      setPlannerMessage('Choose an active saved pack first.');
       return;
     }
-    setIsCombinatorRunning(true);
-    setWorkspaceMessage('Creating asset-led hook image...');
-    setCombinatorMessage('Creating selected hook image composition...');
+    setIsPlannerRunning(true);
+    setWorkspaceMessage('Generating cinematic planner prompt...');
     try {
-      const approved = await approveCombinatorPack(selectedCombinatorPack);
-      const backgroundCount = packAssets.filter((asset) => asset.kind === 'background').length;
-      const objectCount = packAssets.filter((asset) => asset.kind === 'object').length;
-      const planner: AssetPackPlannerState = {
-        name: approved.name,
-        totalAssetCount: approved.requested_asset_count ?? Math.max(1, packAssets.length),
-        backgroundCount,
-        objectCount,
-        qualityLevel: 'balanced',
-        format: 'proof reel',
-        style: 'clean product',
-        provider: 'runway',
-        model: 'gen4.5',
-        ratio: '9:16',
-      };
-      const baseCompositionManifest =
-        selectedCandidate?.composition_manifest ??
-        buildCompositionManifest({
-          assetPackId: approved.id,
-          assetPackName: approved.name,
-          planner,
-          selectedBackground: combinatorBackground,
-          selectedObject: combinatorObject,
-          selectedHook: combinatorHook,
-          selectedAudio: combinatorAudio,
-          selectedVideo: combinatorVideo,
-          outputScore: combinatorScore,
-        });
-      const compositionManifest = withHookLayoutIntent({
-        manifest: baseCompositionManifest,
-        selectedBackground: combinatorBackground,
-        selectedObject: combinatorObject,
-        selectedHook: combinatorHook,
-      });
       const response = await fetch(
-        `/api/orgs/${orgId}/asset-packs/${approved.id}/composition-renders`,
+        `/api/orgs/${orgId}/asset-packs/${selectedCombinatorPack.id}/cinematic-plan-prompt`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Actor-Id': 'operator:ui-rebuild',
+          },
+          body: JSON.stringify(cinematicPlannerBody()),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      const promptPackage = (await response.json()) as CinematicPlanPromptResponse;
+      setMasterPrompt(promptPackage.master_prompt);
+      setValidatedPlan(null);
+      setSelectedArtifactName('cinematic_reel_plan.json');
+      setPlannerMessage(
+        `Prompt ready for ${promptPackage.recommended_model}; ${promptPackage.selected_asset_ids.length} assets included.`,
+      );
+      setWorkspaceMessage('Cinematic planner prompt ready.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not generate prompt.';
+      setPlannerMessage(message);
+      setWorkspaceMessage(message);
+    } finally {
+      setIsPlannerRunning(false);
+    }
+  }
+
+  async function copyMasterPrompt() {
+    if (!masterPrompt) {
+      setPlannerMessage('Generate the master prompt first.');
+      return;
+    }
+    await navigator.clipboard.writeText(masterPrompt);
+    setPlannerMessage('Master prompt copied.');
+  }
+
+  async function validateCinematicPlanJson() {
+    if (!selectedCombinatorPack) {
+      setPlannerMessage('Choose an active saved pack first.');
+      return;
+    }
+    setIsPlannerRunning(true);
+    setWorkspaceMessage('Validating cinematic reel plan...');
+    try {
+      const response = await fetch(
+        `/api/orgs/${orgId}/asset-packs/${selectedCombinatorPack.id}/cinematic-plan-validate`,
         {
           method: 'POST',
           headers: {
@@ -3465,49 +3469,43 @@ export function HookImageCreator({
             'X-Actor-Id': 'operator:ui-rebuild',
           },
           body: JSON.stringify({
-            page_id: selectedPage.id,
-            composition_manifest: compositionManifest,
-            render_mode: 'preview',
-            dry_run: true,
-            idempotency_key: `hook-image-creator:${approved.id}:${Date.now()}`,
-            metadata: {
-              source: 'web_live_hook_image_creator',
-              page_id: selectedPage.id,
-            },
+            ...cinematicPlannerBody(),
+            raw_plan_json: pastedPlanJson,
           }),
         },
       );
       if (!response.ok) {
         throw new Error(await apiErrorMessage(response));
       }
-      const submitted = (await response.json()) as AssetPackRenderResponse;
-      setSelectedRunId(submitted.run_id);
-      setActiveGenerationId(submitted.run_id);
-      setGenerationName(`${approved.name} hook image`);
-      setSelectedBackgroundId(combinatorBackground.id);
-      setCustomBackground(
-        seedBackgrounds.some((asset) => asset.id === combinatorBackground.id)
-          ? null
-          : combinatorBackground,
-      );
-      const editorItems = asRecord(compositionManifest.editor_state)?.items;
-      setItems(
-        (Array.isArray(editorItems) ? editorItems : [])
-          .map(asHookCanvasItem)
-          .filter((item): item is HookCanvasItem => item !== null),
-      );
-      setSelectedItemId(null);
-      setCompositionPickIndex((current) => current + 1);
-      setCombinatorMessage(`Created hook image ${submitted.run_id.slice(0, 8)} on the canvas.`);
-      setWorkspaceMessage(`Created asset-led hook image ${submitted.run_id.slice(0, 8)}.`);
-      onRunsChanged();
+      const validated = (await response.json()) as CinematicPlanValidateResponse;
+      setValidatedPlan(validated);
+      const firstArtifact = Object.keys(validated.artifacts)[0] ?? 'cinematic_reel_plan.json';
+      setSelectedArtifactName(firstArtifact);
+      setPlannerMessage(`Plan validated. Hash ${validated.plan_hash.slice(0, 12)}.`);
+      setWorkspaceMessage('Cinematic reel plan validated.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not create hook image.';
-      setCombinatorMessage(message);
+      const message = error instanceof Error ? error.message : 'Could not validate plan.';
+      setValidatedPlan(null);
+      setPlannerMessage(message);
       setWorkspaceMessage(message);
     } finally {
-      setIsCombinatorRunning(false);
+      setIsPlannerRunning(false);
     }
+  }
+
+  async function copySelectedArtifact() {
+    if (!selectedArtifact) {
+      return;
+    }
+    await navigator.clipboard.writeText(formatJson(selectedArtifact));
+    setPlannerMessage(`${selectedArtifactName} copied.`);
+  }
+
+  function downloadSelectedArtifact() {
+    if (!selectedArtifact) {
+      return;
+    }
+    downloadJsonArtifact(selectedArtifactName, selectedArtifact);
   }
 
   function loadGenerationDraft(generation: SavedHookImageGeneration) {
@@ -3786,6 +3784,7 @@ export function HookImageCreator({
             </div>
 
             <div className="pack-browser-counts" aria-label="Live asset counts">
+              <span>{assetPackCountLabel(selectedCombinatorPack)}</span>
               <span>{visibleBackgroundCount} backgrounds</span>
               <span>{visibleObjectCount} objects</span>
             </div>
@@ -3909,8 +3908,8 @@ export function HookImageCreator({
           <div className="hook-control-group">
             <div className="section-heading is-compact">
               <div>
-                <h4>Asset combinator</h4>
-                <p className="muted">{combinatorMessage}</p>
+                <h4>Cinematic Planner</h4>
+                <p className="muted">{plannerMessage}</p>
               </div>
             </div>
             <label className="field">
@@ -3933,9 +3932,106 @@ export function HookImageCreator({
                 ))}
               </select>
             </label>
-            <div className="live-combinator-score">
-              <span>Score</span>
-              <strong>{combinatorScore}</strong>
+            <label className="field">
+              Content goal
+              <input
+                value={cinematicContentGoal}
+                onChange={(event) => setCinematicContentGoal(event.target.value)}
+                placeholder="Optional campaign or content objective"
+              />
+            </label>
+            <label className="field">
+              Duration seconds
+              <input
+                min="4"
+                max="60"
+                step="0.5"
+                type="number"
+                value={cinematicDuration}
+                onChange={(event) => setCinematicDuration(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              Brand/persona constraints JSON
+              <textarea
+                value={brandPersonaConstraints}
+                onChange={(event) => setBrandPersonaConstraints(event.target.value)}
+                placeholder='{"tone":"cinematic but practical"}'
+                rows={3}
+              />
+            </label>
+            <label className="field">
+              Platform constraints JSON
+              <textarea
+                value={platformConstraints}
+                onChange={(event) => setPlatformConstraints(event.target.value)}
+                rows={3}
+              />
+            </label>
+            <label className="field">
+              Pin prompt paths
+              <input
+                value={pinnedPromptPaths}
+                onChange={(event) => setPinnedPromptPaths(event.target.value)}
+                placeholder="cinematic_closeup, sensory_hook"
+              />
+            </label>
+            <label className="field">
+              Ban prompt paths
+              <input
+                value={bannedPromptPaths}
+                onChange={(event) => setBannedPromptPaths(event.target.value)}
+                placeholder="social_proof"
+              />
+            </label>
+            {selectablePlanAssets.length ? (
+              <div className="review-actions cinematic-asset-select-all">
+                <button
+                  type="button"
+                  className="utility-button"
+                  onClick={() =>
+                    setSelectedPlanAssetIds(selectablePlanAssets.map((asset) => asset.id))
+                  }
+                  disabled={allPlanAssetsSelected}
+                  aria-label="Select all ready assets for cinematic planning"
+                >
+                  Select all
+                </button>
+              </div>
+            ) : null}
+            <div className="cinematic-asset-select" aria-label="Selected planner assets">
+              {selectablePlanAssets.length ? (
+                selectablePlanAssets.map((asset) => (
+                  <label className="cinematic-asset-row" key={asset.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedPlanAssetIds.includes(asset.id)}
+                      onChange={() =>
+                        setSelectedPlanAssetIds((current) =>
+                          current.includes(asset.id)
+                            ? current.filter((assetId) => assetId !== asset.id)
+                            : [...current, asset.id],
+                        )
+                      }
+                    />
+                    <span className="asset-preview is-small" style={{ background: asset.previewTone }}>
+                      {asset.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={asset.imageUrl} alt="" />
+                      ) : null}
+                    </span>
+                    <span>
+                      <strong>{asset.title}</strong>
+                      <small>{asset.kind} / {asset.mediaType}</small>
+                    </span>
+                  </label>
+                ))
+              ) : (
+                <div className="empty-state">No ready assets loaded for cinematic planning.</div>
+              )}
+            </div>
+            <div className="planner-selected-count">
+              {selectedPlanAssets.length} selected for prompt planning
             </div>
             <div className="review-actions">
               <button
@@ -3948,12 +4044,74 @@ export function HookImageCreator({
               <button
                 className="primary-button"
                 type="button"
-                onClick={() => void queueCombinatorRender()}
-                disabled={isCombinatorRunning || !selectedCombinatorPack || !selectedPage}
+                onClick={() => void generateCinematicPrompt()}
+                disabled={isPlannerRunning || !selectedCombinatorPack || !selectedPage || !selectedPlanAssetIds.length}
               >
-                {isCombinatorRunning ? 'Working...' : 'Create on canvas'}
+                {isPlannerRunning ? 'Working...' : 'Generate master prompt'}
               </button>
             </div>
+            <label className="field">
+              Master prompt
+              <textarea readOnly value={masterPrompt} rows={8} />
+            </label>
+            <div className="review-actions">
+              <button
+                className="utility-button"
+                type="button"
+                onClick={() => void copyMasterPrompt()}
+                disabled={!masterPrompt}
+              >
+                Copy prompt
+              </button>
+            </div>
+            <label className="field">
+              Paste ChatGPT JSON
+              <textarea
+                value={pastedPlanJson}
+                onChange={(event) => setPastedPlanJson(event.target.value)}
+                rows={8}
+              />
+            </label>
+            <div className="review-actions">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void validateCinematicPlanJson()}
+                disabled={isPlannerRunning || !pastedPlanJson.trim() || !selectedPlanAssetIds.length}
+              >
+                Validate plan JSON
+              </button>
+            </div>
+            {validatedPlan ? (
+              <div className="cinematic-artifacts">
+                <div className="validation-status">
+                  <strong>Validation passed</strong>
+                  <span>{validatedPlan.plan_hash.slice(0, 16)}</span>
+                </div>
+                <label className="field">
+                  Artifact
+                  <select
+                    value={selectedArtifactName}
+                    onChange={(event) => setSelectedArtifactName(event.target.value)}
+                  >
+                    {validatedArtifactNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <pre className="artifact-preview">{formatJson(selectedArtifact ?? {})}</pre>
+                <div className="review-actions">
+                  <button className="utility-button" type="button" onClick={() => void copySelectedArtifact()}>
+                    Copy artifact
+                  </button>
+                  <button className="utility-button" type="button" onClick={downloadSelectedArtifact}>
+                    Download artifact
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -4488,6 +4646,35 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function commaSeparatedValues(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseOptionalJsonObject(value: string, label: string): Record<string, unknown> {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {};
+  }
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function downloadJsonArtifact(filename: string, value: unknown) {
+  const blob = new Blob([formatJson(value)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function layerColorForItem(item: HookCanvasItem): string {
   const palette = ['#5eead4', '#f59e0b', '#a78bfa', '#fb7185', '#38bdf8', '#84cc16'];
   return palette[hashString(`${item.id}:${item.asset.id}`) % palette.length];
@@ -4503,8 +4690,29 @@ function formatAssetMix(value: Record<string, unknown> | null): string {
 }
 
 function formatAssetPackOption(pack: AssetPackRecord): string {
-  const count = pack.requested_asset_count ?? '?';
-  return `${pack.name} - ${pack.status} - ${count} assets`;
+  return `${displayAssetPackName(pack)} - ${pack.status}`;
+}
+
+function assetPackCountLabel(pack: AssetPackRecord | null): string {
+  if (!pack) {
+    return '0 actual assets';
+  }
+  const count = pack.actual_asset_count ?? 0;
+  return `${count} actual ${count === 1 ? 'asset' : 'assets'}`;
+}
+
+function displayAssetPackName(pack: AssetPackRecord): string {
+  return stripLegacyAssetPackNameSuffix(pack.name);
+}
+
+function stripLegacyAssetPackNameSuffix(name: string): string {
+  const statusPattern = '(draft|planned|approved|rejected|generating|ready|failed|archived)';
+  const withoutStatusAndCount = name.replace(
+    new RegExp(`\\s+-\\s+${statusPattern}\\s+-\\s+\\d+\\s+assets?$`, 'i'),
+    '',
+  );
+  const withoutCount = withoutStatusAndCount.replace(/\s+-\s+\d+\s+assets?$/i, '');
+  return withoutCount.trim() || name;
 }
 
 function isCombinatorEligibleAssetPack(pack: AssetPackRecord): boolean {

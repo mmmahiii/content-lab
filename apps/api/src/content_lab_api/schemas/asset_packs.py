@@ -126,6 +126,7 @@ class AssetPackOut(BaseModel):
     purpose: str | None
     target_audience: str | None
     requested_asset_count: int
+    actual_asset_count: int = 0
     asset_mix_requested_json: dict[str, Any] | None
     asset_mix_final_json: dict[str, Any] | None
     status: AssetPackStatusValue
@@ -382,6 +383,68 @@ class AssetPackCompositionSubmitOut(BaseModel):
     status: str
     external_ref: str | None
     accepted_for_rendering: bool = True
+
+
+class CinematicPlanPromptRequest(BaseModel):
+    """Build a manual ChatGPT prompt from selected registry assets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page_id: uuid.UUID
+    selected_asset_ids: list[uuid.UUID] = Field(min_length=1)
+    content_goal: str | None = Field(default=None, max_length=1000)
+    brand_persona_constraints: dict[str, Any] = Field(default_factory=dict)
+    platform_constraints: dict[str, Any] = Field(default_factory=dict)
+    duration_target_seconds: float | None = Field(default=None, gt=0, le=180)
+    pinned_prompt_paths: list[str] = Field(default_factory=list)
+    banned_prompt_paths: list[str] = Field(default_factory=list)
+
+    @field_validator("selected_asset_ids")
+    @classmethod
+    def _dedupe_selected_assets(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        result: list[uuid.UUID] = []
+        for asset_id in value:
+            if asset_id not in result:
+                result.append(asset_id)
+        return result
+
+
+class CinematicPlanPromptOut(BaseModel):
+    """Exact prompt package to paste into ChatGPT."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recommended_model: str
+    planning_prompt_version: str
+    input_page_context_hash: str
+    selected_asset_ids: list[uuid.UUID]
+    suggested_prompt_paths: list[str]
+    master_prompt: str
+    planner_input: dict[str, Any]
+
+
+class CinematicPlanValidateRequest(CinematicPlanPromptRequest):
+    """Validate a pasted ChatGPT cinematic plan."""
+
+    raw_plan_json: str | None = None
+    plan: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _require_plan_payload(self) -> CinematicPlanValidateRequest:
+        if not self.raw_plan_json and self.plan is None:
+            raise ValueError("raw_plan_json or plan is required")
+        return self
+
+
+class CinematicPlanValidateOut(BaseModel):
+    """Validated canonical plan and derived JSON artifact files."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan: dict[str, Any]
+    validation_report: dict[str, Any]
+    plan_hash: str
+    artifacts: dict[str, Any]
 
 
 def _optional_filter_values(
