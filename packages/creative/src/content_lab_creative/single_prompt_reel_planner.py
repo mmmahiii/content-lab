@@ -16,6 +16,9 @@ from content_lab_creative.planning_schema import (
     CAMERA_MOVES,
     CINEMATIC_ROLES,
     CinematicReelPlan,
+    normalize_audio_role_value,
+    normalize_camera_move_value,
+    normalize_cinematic_role_value,
 )
 from content_lab_creative.prompt_paths import (
     PROMPT_PATH_DESCRIPTIONS,
@@ -45,15 +48,41 @@ ARTIFACT_FILENAMES: tuple[str, ...] = (
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL | re.IGNORECASE)
 
 _ROLE_ALIASES: dict[str, str] = {
+    "colour_contrast_subject": "supporting_subject",
+    "colour_contrast_ingredient": "supporting_subject",
+    "completed_prep_composition": "narrative_payoff",
+    "dominant_prep_ingredient": "hero_subject",
+    "dominant_subject": "hero_subject",
+    "eggplant_tactile_hook": "hero_subject",
+    "final_composed_prep_frame": "narrative_payoff",
+    "final_payoff_prop": "narrative_payoff",
+    "finished_topping_reveal": "narrative_payoff",
+    "fresh_finish_detail": "foreground_texture",
+    "fresh_finish_subject": "narrative_payoff",
+    "fresh_loop_detail": "foreground_texture",
+    "hero_ingredient": "hero_subject",
+    "hero_tomato_slice": "hero_subject",
     "hero_tomato": "hero_subject",
     "hero_tomato_loop": "hero_subject",
-    "loop_subject": "hero_subject",
-    "prep_bowl_anchor": "supporting_subject",
     "ingredient_step": "supporting_subject",
+    "loop_anchor_ingredient": "supporting_subject",
+    "loop_bridge_ingredient": "supporting_subject",
+    "loop_subject": "hero_subject",
+    "mise_en_place_ingredient_build": "supporting_subject",
+    "payoff_basil_garnish": "narrative_payoff",
+    "payoff_garnish": "narrative_payoff",
+    "payoff_prop": "narrative_payoff",
+    "prep_bowl_anchor": "supporting_subject",
     "finishing_garnish": "supporting_subject",
     "ratatouille_background_reveal": "background_reveal",
+    "support_eggplant_cut": "supporting_subject",
+    "supporting_colour_base": "supporting_subject",
+    "supporting_ingredient": "supporting_subject",
+    "supporting_prep_base": "supporting_subject",
+    "texture_accent": "foreground_texture",
 }
 _CAMERA_MOVE_ALIASES: dict[str, str] = {
+    "locked_off": "static_lockoff",
     "push_in": "slow_push_in",
     "pullback": "slow_pull_out",
     "pull_back": "slow_pull_out",
@@ -64,12 +93,21 @@ _CAMERA_MOVE_ALIASES: dict[str, str] = {
     "pan_right": "slight_pan_right",
     "static": "static_lockoff",
     "handheld": "handheld_micro_motion",
+    "lateral_slide": "slight_pan_right",
     "micro_motion": "handheld_micro_motion",
+    "slide_left": "slight_pan_left",
+    "slide_right": "slight_pan_right",
 }
 _AUDIO_ROLE_ALIASES: dict[str, str] = {
+    "ambient_kitchen_bed": "ambient_room",
+    "diegetic_food_movement_accents": "impact",
+    "final_ambience_hold": "ambient_room",
     "music_bed": "ambient_room",
     "foley_accents": "impact",
     "payoff_lift": "subtle_riser",
+    "payoff_reveal_lift": "subtle_riser",
+    "scene_slide_accent": "impact",
+    "tomato_and_pepper_placement_accents": "impact",
     "loop_tail": "soft_whoosh",
 }
 
@@ -176,6 +214,8 @@ Return only valid JSON. Do not wrap it in Markdown. Do not explain the JSON.
 Your only job is to produce one renderer-ready CinematicReelPlan.
 Do not generate images. Do not generate video. Do not call external image/video APIs.
 Do not request screenshots. Do not copy an existing reel. Do not hallucinate assets.
+Do not mention uploaded text files, screenshots, or external generation tools in render_notes,
+scene purpose, or realism_reason; describe only how stored selected assets should be arranged.
 Use only selected asset_ids from the input. You may reject irrelevant selected assets, but every
 unused selected asset must appear in provenance.rejected_assets with a reason.
 
@@ -201,10 +241,19 @@ Internal stages to perform before writing JSON:
 
 Enum discipline:
 - Use ONLY these exact TimelineObject.role and ScenePlan.dominant_focal_role values: {roles}
+- Use at most one hero_subject object and at most one narrative_payoff object in each scene.
+  Other visible ingredients or props should be supporting_subject or foreground_texture.
 - Use ONLY these exact CameraMove.move_type values: {camera_moves}
 - Use ONLY these exact AudioLayer.role values: {audio_roles}
 - Do not invent asset-specific roles such as hero_tomato, ingredient_step, music_bed,
   push_in, or payoff_lift.
+- If you are tempted to write labels like hero_ingredient, tomato foreground texture,
+  vegetable layer assembly, final garnish, ambient rhythmic kitchen bed, ingredient placement foley,
+  tilt_down, lateral_slide, or locked, replace them with the closest allowed enum before returning JSON.
+- If no selected audio asset exists for an audio layer, set asset_id to null and make audio_id begin
+  with placeholder_audio_; do not invent audio asset IDs.
+- Every enabled shadow_spec.source_light_id and lighting_shadow_plan.per_object_shadow_specs[].source_light_id
+  must reference one of lighting_shadow_plan.lights[].light_id. If unsure, use the first declared light_id.
 - Asset-specific labels belong in object_id, asset_label, purpose, and realism_reason,
   never in role, dominant_focal_role, camera_move.move_type, or audio role fields.
 - width_normalised and height_normalised must be greater than 0.0 and less than or equal to 1.0.
@@ -489,94 +538,19 @@ def _iter_dicts(value: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_cinematic_role(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    lowered = value.strip().lower()
-    if lowered in CINEMATIC_ROLES:
-        return lowered
-    if lowered in _ROLE_ALIASES:
-        return _ROLE_ALIASES[lowered]
-    if "transition" in lowered:
-        return "transition_element"
-    if "caption" in lowered:
-        return "caption_support"
-    if "logo" in lowered or "brand" in lowered:
-        return "brand_marker"
-    if "steam" in lowered or "atmosphere" in lowered or "overlay" in lowered:
-        return "atmospheric_layer"
-    if "background" in lowered or "reveal" in lowered:
-        return "background_reveal"
-    if "environment" in lowered or "base" in lowered:
-        return "environment_base"
-    if "texture" in lowered or "foreground" in lowered:
-        return "foreground_texture"
-    if "motion" in lowered:
-        return "motion_layer"
-    if "audio" in lowered or "sound" in lowered:
-        return "audio_layer"
-    if "payoff" in lowered or "final" in lowered:
-        return "narrative_payoff"
-    if "hero" in lowered or "main" in lowered or lowered.endswith("_subject"):
-        return "hero_subject"
-    if any(token in lowered for token in ("ingredient", "garnish", "bowl", "prop", "support")):
-        return "supporting_subject"
-    return None
+    return normalize_cinematic_role_value(value)
 
 
 def _normalize_camera_move(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    lowered = value.strip().lower()
-    if lowered in CAMERA_MOVES:
-        return lowered
-    if lowered in _CAMERA_MOVE_ALIASES:
-        return _CAMERA_MOVE_ALIASES[lowered]
-    if "speed" in lowered and "ramp" in lowered:
-        return "speed_ramp_focus"
-    if "snap" in lowered or "reframe" in lowered:
-        return "snap_reframe"
-    if "parallax" in lowered:
-        return "parallax_push"
-    if "push" in lowered:
-        return "slow_push_in"
-    if "pull" in lowered or "back" in lowered:
-        return "slow_pull_out"
-    if "pan" in lowered and "left" in lowered:
-        return "slight_pan_left"
-    if "pan" in lowered and "right" in lowered:
-        return "slight_pan_right"
-    if "handheld" in lowered or "micro" in lowered:
-        return "handheld_micro_motion"
-    if "static" in lowered or "lock" in lowered:
-        return "static_lockoff"
-    return None
+    return normalize_camera_move_value(value)
 
 
 def _normalize_audio_role(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    lowered = value.strip().lower()
-    if lowered in AUDIO_ROLES:
-        return lowered
-    if lowered in _AUDIO_ROLE_ALIASES:
-        return _AUDIO_ROLE_ALIASES[lowered]
-    if "sizzle" in lowered:
-        return "sensory_sizzle"
-    if "whoosh" in lowered or "loop" in lowered:
-        return "soft_whoosh"
-    if "transition" in lowered and "hit" in lowered:
-        return "transition_hit"
-    if "hit" in lowered or "accent" in lowered or "foley" in lowered or "impact" in lowered:
-        return "impact"
-    if "riser" in lowered or "lift" in lowered:
-        return "subtle_riser"
-    if "silence" in lowered:
-        return "silence_gap"
-    if "voice" in lowered:
-        return "voiceover_placeholder"
-    if "ambient" in lowered or "music" in lowered or "bed" in lowered or "room" in lowered:
-        return "ambient_room"
-    return None
+    return normalize_audio_role_value(value)
+
+
+def _alias_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
 
 
 def _normalize_audio_layer(

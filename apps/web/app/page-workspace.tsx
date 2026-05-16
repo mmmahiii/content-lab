@@ -2648,6 +2648,8 @@ export function AssetPackGenerationWorkspace({
     () => visiblePackAssets.map((asset) => asset.id).join('|'),
     [visiblePackAssets],
   );
+  const visibleBackgroundCount = browserAssetPool.filter((asset) => asset.kind === 'background').length;
+  const visibleObjectCount = browserAssetPool.filter((asset) => asset.kind === 'object').length;
   const combinatorAssetPacks = savedAssetPacks.filter(isCombinatorEligibleAssetPack);
   const selectedSavedPack =
     savedAssetPacks.find((pack) => pack.id === selectedAssetPackId) ?? assetPack ?? null;

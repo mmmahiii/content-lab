@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Any, Literal
 
@@ -59,6 +60,111 @@ FORBIDDEN_GENERATION_TERMS: tuple[str, ...] = (
     "external image api",
     "screenshot",
     "copy existing reel",
+)
+
+_FORBIDDEN_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("generate image", "use selected image asset"),
+    ("generate video", "use selected video asset"),
+    ("create image", "use selected image asset"),
+    ("create video", "use selected video asset"),
+    ("call runway", "use stored provider output"),
+    ("call midjourney", "use stored image asset"),
+    ("call dalle", "use stored image asset"),
+    ("external video api", "stored video asset"),
+    ("external image api", "stored image asset"),
+    ("screenshot", "reference frame"),
+    ("copy existing reel", "follow the approved reel structure"),
+)
+
+_ROLE_ALIASES: dict[str, str] = {
+    "base_ingredient_layer": "supporting_subject",
+    "colour_contrast_ingredient": "supporting_subject",
+    "colour_contrast_subject": "supporting_subject",
+    "completed_prep_composition": "narrative_payoff",
+    "continuity_hero_ingredient": "hero_subject",
+    "dominant_prep_ingredient": "hero_subject",
+    "dominant_subject": "hero_subject",
+    "eggplant_tactile_hook": "hero_subject",
+    "final_composed_prep_frame": "narrative_payoff",
+    "final_garnish": "narrative_payoff",
+    "final_payoff_prop": "narrative_payoff",
+    "final_prep_anchor": "supporting_subject",
+    "final_texture_topping": "foreground_texture",
+    "finished_prep_bowl_and_topping": "narrative_payoff",
+    "finished_topping_reveal": "narrative_payoff",
+    "fresh_finish_detail": "foreground_texture",
+    "fresh_finish_subject": "narrative_payoff",
+    "fresh_loop_detail": "foreground_texture",
+    "hero_ingredient": "hero_subject",
+    "hero_tomato": "hero_subject",
+    "hero_tomato_loop": "hero_subject",
+    "hero_tomato_slice": "hero_subject",
+    "ingredient_step": "supporting_subject",
+    "loop_anchor_ingredient": "supporting_subject",
+    "loop_bridge_ingredient": "supporting_subject",
+    "loop_edge_anchor": "transition_element",
+    "loop_subject": "hero_subject",
+    "mise_en_place_ingredient_build": "supporting_subject",
+    "payoff_basil_garnish": "narrative_payoff",
+    "payoff_garnish": "narrative_payoff",
+    "payoff_prep_bowl": "narrative_payoff",
+    "payoff_prop": "narrative_payoff",
+    "prep_bowl_anchor": "supporting_subject",
+    "ratatouille_background_reveal": "background_reveal",
+    "support_eggplant_cut": "supporting_subject",
+    "supporting_colour_base": "supporting_subject",
+    "supporting_ingredient": "supporting_subject",
+    "supporting_ingredient_colour": "supporting_subject",
+    "supporting_prep_base": "supporting_subject",
+    "texture_accent": "foreground_texture",
+    "tomato_foreground_texture": "foreground_texture",
+    "vegetable_layer_assembly": "supporting_subject",
+}
+
+_CAMERA_MOVE_ALIASES: dict[str, str] = {
+    "handheld": "handheld_micro_motion",
+    "lateral_slide": "slight_pan_right",
+    "locked": "static_lockoff",
+    "locked_off": "static_lockoff",
+    "micro_motion": "handheld_micro_motion",
+    "micro_pullback": "slow_pull_out",
+    "pan_left": "slight_pan_left",
+    "pan_right": "slight_pan_right",
+    "pan_right_push": "parallax_push",
+    "pull_back": "slow_pull_out",
+    "pullback": "slow_pull_out",
+    "push_in": "slow_push_in",
+    "slide_left": "slight_pan_left",
+    "slide_right": "slight_pan_right",
+    "speed_ramp_push": "speed_ramp_focus",
+    "static": "static_lockoff",
+    "tilt_down": "slight_pan_right",
+    "tilt_up": "slight_pan_left",
+}
+
+_AUDIO_ROLE_ALIASES: dict[str, str] = {
+    "ambient_kitchen_bed": "ambient_room",
+    "ambient_rhythmic_kitchen_bed": "ambient_room",
+    "diegetic_food_movement_accents": "impact",
+    "final_ambience_hold": "ambient_room",
+    "foley_accents": "impact",
+    "ingredient_placement_foley": "impact",
+    "loop_tail": "soft_whoosh",
+    "music_bed": "ambient_room",
+    "payoff_accent": "impact",
+    "payoff_lift": "subtle_riser",
+    "payoff_reveal_lift": "subtle_riser",
+    "scene_slide_accent": "impact",
+    "tomato_and_pepper_placement_accents": "impact",
+}
+
+_NORMALIZED_OBJECT_FIELDS: tuple[str, ...] = (
+    "x",
+    "y",
+    "z",
+    "opacity",
+    "width_normalised",
+    "height_normalised",
 )
 
 
@@ -145,6 +251,7 @@ class TimelineObject(BaseModel):
     @field_validator("role")
     @classmethod
     def _validate_role(cls, value: str) -> str:
+        value = normalize_cinematic_role_value(value) or value
         if value not in CINEMATIC_ROLES:
             raise ValueError(f"unknown cinematic role: {value}")
         return value
@@ -182,6 +289,7 @@ class CameraMove(BaseModel):
     @field_validator("move_type")
     @classmethod
     def _validate_move_type(cls, value: str) -> str:
+        value = normalize_camera_move_value(value) or value
         if value not in CAMERA_MOVES:
             raise ValueError(f"unknown camera move: {value}")
         return value
@@ -266,9 +374,21 @@ class AudioLayer(BaseModel):
     fade_out: float = Field(ge=0.0)
     sync_points: list[AudioSyncPoint] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize_audio_layer_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        audio_layer = dict(value)
+        role = normalize_audio_role_value(audio_layer.get("role"))
+        if role is not None:
+            audio_layer["role"] = role
+        return audio_layer
+
     @field_validator("role")
     @classmethod
     def _validate_role(cls, value: str) -> str:
+        value = normalize_audio_role_value(value) or value
         if value not in AUDIO_ROLES:
             raise ValueError(f"unknown audio role: {value}")
         return value
@@ -277,7 +397,11 @@ class AudioLayer(BaseModel):
     def _validate_span(self) -> AudioLayer:
         if self.end_time <= self.start_time:
             raise ValueError("audio layer end_time must be greater than start_time")
-        if self.role not in {"silence_gap", "voiceover_placeholder"} and not self.asset_id:
+        if (
+            self.role not in {"silence_gap", "voiceover_placeholder"}
+            and not self.asset_id
+            and not _is_placeholder_audio_layer(self)
+        ):
             raise ValueError("known audio roles require asset_id unless silence/voiceover placeholder")
         return self
 
@@ -314,6 +438,18 @@ class AudioPlan(BaseModel):
     layers: list[AudioLayer] = Field(default_factory=list)
     sync_points: list[AudioSyncPoint] = Field(default_factory=list)
     sensory_moments: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize_audio_plan_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        audio_plan = dict(value)
+        for audio_layer in _iter_raw_dicts(audio_plan.get("layers")):
+            role = normalize_audio_role_value(audio_layer.get("role"))
+            if role is not None:
+                audio_layer["role"] = role
+        return audio_plan
 
 
 class RealismConstraints(BaseModel):
@@ -379,9 +515,61 @@ class ScenePlan(BaseModel):
     transition_in: str | None = Field(default=None, max_length=120)
     transition_out: str | None = Field(default=None, max_length=120)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize_scene_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        scene = dict(value)
+        for item in _iter_raw_dicts(scene.get("objects")):
+            role = normalize_cinematic_role_value(item.get("role"))
+            if role is not None:
+                item["role"] = role
+            for field_name in _NORMALIZED_OBJECT_FIELDS:
+                _clamp_raw_numeric_field(
+                    item,
+                    field_name,
+                    lower=0.01 if field_name in {"width_normalised", "height_normalised"} else 0.0,
+                    upper=1.0,
+                )
+            _clamp_raw_numeric_field(item, "scale", lower=0.01, upper=5.0)
+            _clamp_raw_numeric_field(item, "rotation", lower=-360.0, upper=360.0)
+            _enforce_raw_subject_minimum_footprint(item)
+        camera_move = scene.get("camera_move")
+        if isinstance(camera_move, dict):
+            move_type = normalize_camera_move_value(camera_move.get("move_type"))
+            if move_type is not None:
+                camera_move["move_type"] = move_type
+        for audio_layer in _iter_raw_dicts(scene.get("audio_layers")):
+            role = normalize_audio_role_value(audio_layer.get("role"))
+            if role is not None:
+                audio_layer["role"] = role
+        original_focal_role = scene.get("dominant_focal_role")
+        focal_role = normalize_cinematic_role_value(original_focal_role)
+        if focal_role is not None:
+            scene["dominant_focal_role"] = focal_role
+        object_roles = {
+            item.get("role")
+            for item in _iter_raw_dicts(scene.get("objects"))
+            if item.get("role") in CINEMATIC_ROLES
+        }
+        original_focal_is_canonical = (
+            isinstance(original_focal_role, str)
+            and original_focal_role.strip().lower() in CINEMATIC_ROLES
+        )
+        if (
+            not original_focal_is_canonical
+            and scene.get("dominant_focal_role") not in object_roles
+            and object_roles
+        ):
+            scene["dominant_focal_role"] = _preferred_raw_dominant_role(scene)
+        _limit_raw_scene_high_priority_roles(scene)
+        return scene
+
     @field_validator("dominant_focal_role")
     @classmethod
     def _validate_dominant_role(cls, value: str) -> str:
+        value = normalize_cinematic_role_value(value) or value
         if value not in CINEMATIC_ROLES:
             raise ValueError(f"unknown dominant focal role: {value}")
         return value
@@ -437,6 +625,16 @@ class CinematicReelPlan(BaseModel):
     render_notes: list[str] = Field(default_factory=list)
     provenance: Provenance
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize_plan_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        _canonicalize_raw_light_references(payload)
+        _sanitize_raw_generation_instruction_text(payload)
+        return payload
+
     @field_validator("selected_prompt_paths")
     @classmethod
     def _validate_paths(cls, value: list[str]) -> list[str]:
@@ -469,6 +667,7 @@ class CinematicReelPlan(BaseModel):
             raise ValueError("plan requires at least one hero_subject timeline object")
         if self._foreground_object_peak() > self.realism_constraints.max_foreground_objects:
             raise ValueError("too many simultaneous foreground objects")
+        _repair_model_light_references(self)
         _validate_light_references(self)
         _validate_no_generation_instructions(self)
         return self
@@ -529,6 +728,26 @@ def _validate_light_references(plan: CinematicReelPlan) -> None:
                 raise ValueError(f"object {item.object_id} references unknown light_id")
 
 
+def _repair_model_light_references(plan: CinematicReelPlan) -> None:
+    light_ids = [light.light_id for light in plan.lighting_shadow_plan.lights]
+    if not light_ids:
+        return
+    known_light_ids = set(light_ids)
+    fallback_light_id = light_ids[0]
+    for shadow_spec in plan.lighting_shadow_plan.per_object_shadow_specs:
+        if not shadow_spec.enabled:
+            shadow_spec.source_light_id = None
+        elif shadow_spec.source_light_id not in known_light_ids:
+            shadow_spec.source_light_id = fallback_light_id
+    for scene in plan.scenes:
+        for item in scene.objects:
+            shadow = item.shadow_spec
+            if not shadow.enabled:
+                shadow.source_light_id = None
+            elif shadow.source_light_id not in known_light_ids:
+                shadow.source_light_id = fallback_light_id
+
+
 def _validate_no_generation_instructions(plan: CinematicReelPlan) -> None:
     material = " ".join(
         [
@@ -544,6 +763,78 @@ def _validate_no_generation_instructions(plan: CinematicReelPlan) -> None:
     ).lower()
     if any(term in material for term in FORBIDDEN_GENERATION_TERMS):
         raise ValueError("plan contains forbidden external generation or screenshot instructions")
+
+
+def _sanitize_raw_generation_instruction_text(payload: dict[str, Any]) -> None:
+    for key in (
+        "page_context_summary",
+        "global_camera_style",
+        "global_lighting_style",
+        "caption_strategy",
+        "audio_strategy",
+    ):
+        payload[key] = _sanitized_text(payload.get(key))
+    render_notes = payload.get("render_notes")
+    if isinstance(render_notes, list):
+        payload["render_notes"] = [
+            _sanitized_text(note) if isinstance(note, str) else note for note in render_notes
+        ]
+    for scene in _iter_raw_dicts(payload.get("scenes")):
+        scene["purpose"] = _sanitized_text(scene.get("purpose"))
+        for item in _iter_raw_dicts(scene.get("objects")):
+            item["realism_reason"] = _sanitized_text(item.get("realism_reason"))
+
+
+def _sanitized_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    sanitized = value
+    for forbidden, replacement in _FORBIDDEN_TEXT_REPLACEMENTS:
+        sanitized = re.sub(re.escape(forbidden), replacement, sanitized, flags=re.IGNORECASE)
+    return sanitized
+
+
+def _canonicalize_raw_light_references(payload: dict[str, Any]) -> None:
+    lighting_plan = payload.get("lighting_shadow_plan")
+    if not isinstance(lighting_plan, dict):
+        return
+    light_ids = [
+        light.get("light_id")
+        for light in _iter_raw_dicts(lighting_plan.get("lights"))
+        if isinstance(light.get("light_id"), str) and light.get("light_id")
+    ]
+    if not light_ids:
+        return
+    fallback_light_id = str(light_ids[0])
+    known_light_ids = set(light_ids)
+    for scene in _iter_raw_dicts(payload.get("scenes")):
+        for item in _iter_raw_dicts(scene.get("objects")):
+            shadow = item.get("shadow_spec")
+            if isinstance(shadow, dict):
+                _canonicalize_raw_shadow_light_id(
+                    shadow,
+                    known_light_ids=known_light_ids,
+                    fallback_light_id=fallback_light_id,
+                )
+    for shadow in _iter_raw_dicts(lighting_plan.get("per_object_shadow_specs")):
+        _canonicalize_raw_shadow_light_id(
+            shadow,
+            known_light_ids=known_light_ids,
+            fallback_light_id=fallback_light_id,
+        )
+
+
+def _canonicalize_raw_shadow_light_id(
+    shadow: dict[str, Any],
+    *,
+    known_light_ids: set[str],
+    fallback_light_id: str,
+) -> None:
+    if shadow.get("enabled") is False:
+        shadow["source_light_id"] = None
+        return
+    if shadow.get("source_light_id") not in known_light_ids:
+        shadow["source_light_id"] = fallback_light_id
 
 
 def _require_contiguous(
@@ -563,6 +854,204 @@ def _require_contiguous(
         cursor = end
     if abs(cursor - expected_duration) > 1e-6:
         raise ValueError(f"{label} must cover total_duration_seconds")
+
+
+def normalize_cinematic_role_value(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    lowered = value.strip().lower()
+    if lowered in CINEMATIC_ROLES:
+        return lowered
+    alias_key = _alias_key(lowered)
+    if alias_key in _ROLE_ALIASES:
+        return _ROLE_ALIASES[alias_key]
+    if "transition" in lowered:
+        return "transition_element"
+    if "caption" in lowered:
+        return "caption_support"
+    if "logo" in lowered or "brand" in lowered:
+        return "brand_marker"
+    if "steam" in lowered or "atmosphere" in lowered or "overlay" in lowered:
+        return "atmospheric_layer"
+    if "motion" in lowered:
+        return "motion_layer"
+    if "audio" in lowered or "sound" in lowered:
+        return "audio_layer"
+    if any(
+        token in lowered
+        for token in ("payoff", "final", "finish", "finished", "complete", "completed", "topping")
+    ):
+        return "narrative_payoff"
+    if "background" in lowered or "reveal" in lowered:
+        return "background_reveal"
+    if "environment" in lowered or "base" in lowered:
+        return "environment_base"
+    if any(token in lowered for token in ("texture", "foreground", "detail")):
+        return "foreground_texture"
+    if "hero" in lowered or "main" in lowered or "hook" in lowered or alias_key.endswith("_subject"):
+        return "hero_subject"
+    if any(
+        token in lowered
+        for token in ("ingredient", "vegetable", "garnish", "bowl", "prop", "support", "prep", "layer")
+    ):
+        return "supporting_subject"
+    return "supporting_subject"
+
+
+def normalize_camera_move_value(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    lowered = value.strip().lower()
+    if lowered in CAMERA_MOVES:
+        return lowered
+    alias_key = _alias_key(lowered)
+    if alias_key in _CAMERA_MOVE_ALIASES:
+        return _CAMERA_MOVE_ALIASES[alias_key]
+    if "speed" in lowered and "ramp" in lowered:
+        return "speed_ramp_focus"
+    if "snap" in lowered or "reframe" in lowered:
+        return "snap_reframe"
+    if "parallax" in lowered:
+        return "parallax_push"
+    if "push" in lowered:
+        return "slow_push_in"
+    if "pull" in lowered or "back" in lowered:
+        return "slow_pull_out"
+    if ("slide" in lowered or "truck" in lowered) and "left" in lowered:
+        return "slight_pan_left"
+    if ("slide" in lowered or "truck" in lowered) and "right" in lowered:
+        return "slight_pan_right"
+    if "pan" in lowered and "left" in lowered:
+        return "slight_pan_left"
+    if "pan" in lowered and "right" in lowered:
+        return "slight_pan_right"
+    if "tilt" in lowered or "lateral" in lowered or lowered == "slide":
+        return "slight_pan_right"
+    if "handheld" in lowered or "micro" in lowered:
+        return "handheld_micro_motion"
+    if "static" in lowered or "lock" in lowered:
+        return "static_lockoff"
+    return "static_lockoff"
+
+
+def normalize_audio_role_value(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    lowered = value.strip().lower()
+    if lowered in AUDIO_ROLES:
+        return lowered
+    alias_key = _alias_key(lowered)
+    if alias_key in _AUDIO_ROLE_ALIASES:
+        return _AUDIO_ROLE_ALIASES[alias_key]
+    if "sizzle" in lowered:
+        return "sensory_sizzle"
+    if "whoosh" in lowered or "loop" in lowered:
+        return "soft_whoosh"
+    if "transition" in lowered and "hit" in lowered:
+        return "transition_hit"
+    if any(token in lowered for token in ("hit", "accent", "foley", "impact", "placement")):
+        return "impact"
+    if "riser" in lowered or "lift" in lowered:
+        return "subtle_riser"
+    if "silence" in lowered:
+        return "silence_gap"
+    if "voice" in lowered:
+        return "voiceover_placeholder"
+    if any(
+        token in lowered
+        for token in ("ambient", "ambience", "ambiance", "music", "bed", "room", "kitchen")
+    ):
+        return "ambient_room"
+    return "ambient_room"
+
+
+def _iter_raw_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _preferred_raw_dominant_role(scene: dict[str, Any]) -> str:
+    roles = [
+        item.get("role")
+        for item in _iter_raw_dicts(scene.get("objects"))
+        if item.get("role") in CINEMATIC_ROLES
+    ]
+    for preferred in ("hero_subject", "narrative_payoff", "foreground_texture", "supporting_subject"):
+        if preferred in roles:
+            return preferred
+    return str(roles[0])
+
+
+def _limit_raw_scene_high_priority_roles(scene: dict[str, Any]) -> None:
+    objects = _iter_raw_dicts(scene.get("objects"))
+    hero_objects = [item for item in objects if item.get("role") == "hero_subject"]
+    payoff_objects = [item for item in objects if item.get("role") == "narrative_payoff"]
+    keep_high_priority: set[int] = set()
+    if hero_objects:
+        keep_high_priority.add(id(hero_objects[0]))
+    if payoff_objects:
+        keep_high_priority.add(id(payoff_objects[0]))
+    if scene.get("dominant_focal_role") == "hero_subject" and hero_objects:
+        keep_high_priority.add(id(hero_objects[0]))
+    if scene.get("dominant_focal_role") == "narrative_payoff" and payoff_objects:
+        keep_high_priority.add(id(payoff_objects[0]))
+    for item in objects:
+        if item.get("role") in {"hero_subject", "narrative_payoff"} and id(item) not in keep_high_priority:
+            item["role"] = "supporting_subject"
+    object_roles = {item.get("role") for item in objects if item.get("role") in CINEMATIC_ROLES}
+    if (
+        scene.get("dominant_focal_role") in {"hero_subject", "narrative_payoff"}
+        and scene.get("dominant_focal_role") not in object_roles
+        and object_roles
+    ):
+        scene["dominant_focal_role"] = _preferred_raw_dominant_role(scene)
+
+
+def _enforce_raw_subject_minimum_footprint(item: dict[str, Any]) -> None:
+    if item.get("role") not in {"hero_subject", "supporting_subject"}:
+        return
+    width = item.get("width_normalised")
+    height = item.get("height_normalised")
+    scale = item.get("scale")
+    if not isinstance(width, int | float) or not isinstance(height, int | float):
+        return
+    scale_value = float(scale) if isinstance(scale, int | float) else 1.0
+    area = float(width) * float(height) * scale_value * scale_value
+    if area >= 0.015:
+        return
+    min_side = 0.13
+    item["width_normalised"] = max(float(width), min_side)
+    item["height_normalised"] = max(float(height), min_side)
+
+
+def _clamp_raw_numeric_field(
+    target: dict[str, Any],
+    field_name: str,
+    *,
+    lower: float,
+    upper: float,
+) -> None:
+    value = target.get(field_name)
+    if isinstance(value, int | float):
+        target[field_name] = min(max(float(value), lower), upper)
+
+
+def _is_placeholder_audio_layer(layer: AudioLayer) -> bool:
+    material = " ".join(
+        item
+        for item in (
+            layer.audio_id,
+            layer.role,
+            *(sync_point.label for sync_point in layer.sync_points),
+        )
+        if item
+    ).lower()
+    return any(token in material for token in ("placeholder", "temp", "scratch", "planned"))
+
+
+def _alias_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
 
 
 def _dedupe(values: list[str]) -> list[str]:

@@ -14,6 +14,7 @@ from content_lab_creative.single_prompt_reel_planner import (
     SinglePromptPlannerInput,
     build_master_planning_prompt,
     compute_plan_hash,
+    normalize_pasted_plan_payload,
     validate_pasted_cinematic_plan,
 )
 
@@ -461,6 +462,429 @@ def test_pasted_plan_alias_drift_is_normalized_before_validation() -> None:
     assert "audio_plan.layers.0.role" in repair_paths
 
 
+def test_reported_cinematic_plan_drift_values_are_normalized() -> None:
+    payload = {
+        "scenes": [
+            {
+                "dominant_focal_role": "eggplant tactile hook",
+                "camera_move": {"move_type": "push_in"},
+                "objects": [
+                    {"role": "environment_base", "height_normalised": 1.2},
+                    {"role": "dominant_subject"},
+                ],
+                "audio_layers": [{"role": "scene slide accent"}],
+            },
+            {
+                "dominant_focal_role": "mise-en-place ingredient build",
+                "camera_move": {"move_type": "slide_right"},
+                "objects": [
+                    {"role": "environment_base", "height_normalised": 1.18},
+                    {"role": "supporting_subject"},
+                    {"role": "foreground_texture"},
+                    {"role": "colour_contrast_subject"},
+                ],
+                "audio_layers": [{"role": "tomato and pepper placement accents"}],
+            },
+            {
+                "dominant_focal_role": "finished topping reveal",
+                "camera_move": {"move_type": "pull_back"},
+                "objects": [
+                    {"role": "environment_base", "height_normalised": 1.14},
+                    {"role": "payoff_prop"},
+                    {"role": "fresh_finish_subject"},
+                    {"role": "texture_accent"},
+                ],
+                "audio_layers": [{"role": "payoff reveal lift"}],
+            },
+            {
+                "dominant_focal_role": "final composed prep frame",
+                "camera_move": {"move_type": "locked_off"},
+                "objects": [
+                    {"role": "environment_base", "height_normalised": 1.14},
+                    {"role": "loop_anchor_ingredient"},
+                    {"role": "final_payoff_prop"},
+                    {"role": "fresh_loop_detail"},
+                ],
+                "audio_layers": [{"role": "final ambience hold"}],
+            },
+        ],
+        "audio_plan": {
+            "layers": [
+                {"role": "ambient kitchen bed"},
+                {"role": "diegetic food movement accents"},
+                {"role": "payoff lift"},
+            ]
+        },
+    }
+
+    normalized, repairs = normalize_pasted_plan_payload(payload)
+
+    assert [scene["camera_move"]["move_type"] for scene in normalized["scenes"]] == [
+        "slow_push_in",
+        "slight_pan_right",
+        "slow_pull_out",
+        "static_lockoff",
+    ]
+    assert [scene["dominant_focal_role"] for scene in normalized["scenes"]] == [
+        "hero_subject",
+        "supporting_subject",
+        "narrative_payoff",
+        "narrative_payoff",
+    ]
+    assert normalized["scenes"][0]["objects"][0]["height_normalised"] == 1.0
+    assert normalized["scenes"][1]["objects"][3]["role"] == "supporting_subject"
+    assert normalized["scenes"][2]["objects"][1]["role"] == "narrative_payoff"
+    assert normalized["scenes"][2]["objects"][3]["role"] == "foreground_texture"
+    assert normalized["scenes"][3]["objects"][1]["role"] == "supporting_subject"
+    assert normalized["scenes"][3]["objects"][3]["role"] == "foreground_texture"
+    assert [scene["audio_layers"][0]["role"] for scene in normalized["scenes"]] == [
+        "impact",
+        "impact",
+        "subtle_riser",
+        "ambient_room",
+    ]
+    assert [layer["role"] for layer in normalized["audio_plan"]["layers"]] == [
+        "ambient_room",
+        "impact",
+        "subtle_riser",
+    ]
+    assert repairs
+
+
+def test_reported_ingredient_plan_drift_values_are_normalized() -> None:
+    payload = {
+        "scenes": [
+            {
+                "dominant_focal_role": "hero_tomato_slice",
+                "camera_move": {"move_type": "push_in"},
+                "objects": [{"role": "environment_base"}, {"role": "hero_ingredient"}],
+            },
+            {
+                "dominant_focal_role": "support_eggplant_cut",
+                "camera_move": {"move_type": "lateral_slide"},
+                "objects": [
+                    {"role": "environment_base"},
+                    {"role": "supporting_ingredient"},
+                    {"role": "dominant_prep_ingredient"},
+                    {"role": "colour_contrast_ingredient"},
+                ],
+            },
+            {
+                "dominant_focal_role": "payoff_basil_garnish",
+                "camera_move": {"move_type": "slow_pull_out"},
+                "objects": [
+                    {"role": "environment_base"},
+                    {"role": "supporting_prep_base"},
+                    {"role": "supporting_colour_base"},
+                    {"role": "payoff_garnish"},
+                ],
+            },
+            {
+                "dominant_focal_role": "completed_prep_composition",
+                "camera_move": {"move_type": "locked_off"},
+                "objects": [
+                    {"role": "environment_base"},
+                    {"role": "loop_bridge_ingredient"},
+                    {"role": "fresh_finish_detail"},
+                ],
+            },
+        ],
+        "audio_plan": {
+            "layers": [
+                {"role": "music_bed"},
+                {"role": "foley_accents"},
+            ]
+        },
+    }
+
+    normalized, repairs = normalize_pasted_plan_payload(payload)
+
+    assert [scene["dominant_focal_role"] for scene in normalized["scenes"]] == [
+        "hero_subject",
+        "supporting_subject",
+        "narrative_payoff",
+        "supporting_subject",
+    ]
+    assert [scene["camera_move"]["move_type"] for scene in normalized["scenes"]] == [
+        "slow_push_in",
+        "slight_pan_right",
+        "slow_pull_out",
+        "static_lockoff",
+    ]
+    assert [item["role"] for item in normalized["scenes"][0]["objects"]] == [
+        "environment_base",
+        "hero_subject",
+    ]
+    assert [item["role"] for item in normalized["scenes"][1]["objects"]] == [
+        "environment_base",
+        "supporting_subject",
+        "hero_subject",
+        "supporting_subject",
+    ]
+    assert [item["role"] for item in normalized["scenes"][2]["objects"]] == [
+        "environment_base",
+        "supporting_subject",
+        "supporting_subject",
+        "narrative_payoff",
+    ]
+    assert [item["role"] for item in normalized["scenes"][3]["objects"]] == [
+        "environment_base",
+        "supporting_subject",
+        "foreground_texture",
+    ]
+    assert [layer["role"] for layer in normalized["audio_plan"]["layers"]] == [
+        "ambient_room",
+        "impact",
+    ]
+    assert repairs
+
+
+def test_reported_texture_assembly_plan_drift_values_are_normalized() -> None:
+    payload = {
+        "scenes": [
+            {
+                "dominant_focal_role": "tomato foreground texture",
+                "camera_move": {"move_type": "push_in"},
+                "objects": [{"role": "environment_base"}, {"role": "hero_ingredient"}],
+                "audio_layers": [
+                    {"role": "ambient rhythmic kitchen bed"},
+                    {"role": "ingredient placement foley"},
+                ],
+            },
+            {
+                "dominant_focal_role": "vegetable layer assembly",
+                "camera_move": {"move_type": "tilt_down"},
+                "objects": [
+                    {"role": "environment_base"},
+                    {"role": "supporting_ingredient_colour"},
+                    {"role": "base_ingredient_layer"},
+                    {"role": "continuity_hero_ingredient"},
+                ],
+                "audio_layers": [
+                    {"role": "ambient rhythmic kitchen bed"},
+                    {"role": "ingredient placement foley"},
+                ],
+            },
+            {
+                "dominant_focal_role": "finished prep bowl and topping",
+                "camera_move": {"move_type": "pull_back"},
+                "objects": [
+                    {"role": "environment_base"},
+                    {"role": "payoff_prep_bowl"},
+                    {"role": "final_texture_topping"},
+                    {"role": "loop_edge_anchor"},
+                ],
+                "audio_layers": [
+                    {"role": "ambient rhythmic kitchen bed"},
+                    {"role": "ingredient placement foley"},
+                ],
+            },
+            {
+                "dominant_focal_role": "final garnish",
+                "camera_move": {"move_type": "locked"},
+                "objects": [
+                    {"role": "environment_base"},
+                    {"role": "final_prep_anchor"},
+                    {"role": "final_garnish"},
+                ],
+                "audio_layers": [
+                    {"role": "ambient rhythmic kitchen bed"},
+                    {"role": "payoff accent"},
+                ],
+            },
+        ],
+        "audio_plan": {
+            "layers": [
+                {"role": "ambient rhythmic kitchen bed"},
+                {"role": "ingredient placement foley"},
+                {"role": "payoff accent"},
+            ]
+        },
+    }
+
+    normalized, repairs = normalize_pasted_plan_payload(payload)
+
+    assert [scene["dominant_focal_role"] for scene in normalized["scenes"]] == [
+        "hero_subject",
+        "supporting_subject",
+        "narrative_payoff",
+        "narrative_payoff",
+    ]
+    assert [scene["camera_move"]["move_type"] for scene in normalized["scenes"]] == [
+        "slow_push_in",
+        "slight_pan_right",
+        "slow_pull_out",
+        "static_lockoff",
+    ]
+    assert [item["role"] for item in normalized["scenes"][1]["objects"]] == [
+        "environment_base",
+        "supporting_subject",
+        "supporting_subject",
+        "hero_subject",
+    ]
+    assert [item["role"] for item in normalized["scenes"][2]["objects"]] == [
+        "environment_base",
+        "narrative_payoff",
+        "foreground_texture",
+        "transition_element",
+    ]
+    assert [scene["audio_layers"][0]["role"] for scene in normalized["scenes"]] == [
+        "ambient_room",
+        "ambient_room",
+        "ambient_room",
+        "ambient_room",
+    ]
+    assert [scene["audio_layers"][1]["role"] for scene in normalized["scenes"]] == [
+        "impact",
+        "impact",
+        "impact",
+        "impact",
+    ]
+    assert [layer["role"] for layer in normalized["audio_plan"]["layers"]] == [
+        "ambient_room",
+        "impact",
+        "impact",
+    ]
+    assert repairs
+
+
+def test_direct_schema_validation_canonicalizes_planner_enum_drift() -> None:
+    payload = valid_plan_dict()
+    scene_1 = payload["scenes"][0]  # type: ignore[index]
+    scene_2 = payload["scenes"][1]  # type: ignore[index]
+    scene_1["dominant_focal_role"] = "tomato foreground texture"
+    scene_1["camera_move"]["move_type"] = "push_in"
+    scene_1["objects"][1]["role"] = "hero_ingredient"
+    scene_1["audio_layers"] = [
+        {
+            "audio_id": "audio_scene_bed",
+            "asset_id": "sizzle_audio",
+            "role": "ambient rhythmic kitchen bed",
+            "start_time": 0.0,
+            "end_time": 3.0,
+            "volume": 0.3,
+            "fade_in": 0.1,
+            "fade_out": 0.1,
+            "sync_points": [],
+        }
+    ]
+    scene_2["dominant_focal_role"] = "vegetable layer assembly"
+    scene_2["camera_move"]["move_type"] = "tilt_down"
+    scene_2["objects"][1]["role"] = "supporting_ingredient_colour"
+    payload["audio_plan"]["layers"][0]["role"] = "payoff accent"  # type: ignore[index]
+
+    plan = CinematicReelPlan.model_validate(payload)
+
+    assert plan.scenes[0].dominant_focal_role == "hero_subject"
+    assert plan.scenes[0].camera_move.move_type == "slow_push_in"
+    assert plan.scenes[0].objects[1].role == "hero_subject"
+    assert plan.scenes[0].audio_layers[0].role == "ambient_room"
+    assert plan.scenes[1].dominant_focal_role == "supporting_subject"
+    assert plan.scenes[1].camera_move.move_type == "slight_pan_right"
+    assert plan.scenes[1].objects[1].role == "supporting_subject"
+    assert plan.audio_plan.layers[0].role == "impact"
+
+
+def test_placeholder_audio_layers_without_assets_are_allowed() -> None:
+    payload = valid_plan_dict()
+    payload["audio_plan"]["layers"] = [  # type: ignore[index]
+        {
+            "audio_id": f"placeholder_audio_{index}",
+            "asset_id": None,
+            "role": role,
+            "start_time": 0.0,
+            "end_time": 6.5,
+            "volume": 0.25,
+            "fade_in": 0.0,
+            "fade_out": 0.2,
+            "sync_points": [],
+        }
+        for index, role in enumerate(
+            [
+                "ambient rhythmic kitchen bed",
+                "ingredient placement foley",
+                "payoff accent",
+                "impact",
+                "ambient_room",
+            ]
+        )
+    ]
+    payload["provenance"]["rejected_assets"].append(  # type: ignore[index]
+        {
+            "asset_id": "sizzle_audio",
+            "reason": "Placeholder audio is used because no selected audio asset matches the planned bed.",
+        }
+    )
+
+    plan = CinematicReelPlan.model_validate(payload)
+
+    assert [layer.asset_id for layer in plan.audio_plan.layers] == [None, None, None, None, None]
+    assert [layer.role for layer in plan.audio_plan.layers] == [
+        "ambient_room",
+        "impact",
+        "impact",
+        "impact",
+        "ambient_room",
+    ]
+
+
+def test_non_placeholder_audio_layers_without_assets_are_rejected() -> None:
+    payload = valid_plan_dict()
+    payload["audio_plan"]["layers"][0]["asset_id"] = None  # type: ignore[index]
+    payload["audio_plan"]["layers"][0]["audio_id"] = "ambient_bed"  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="known audio roles require asset_id"):
+        CinematicReelPlan.model_validate(payload)
+
+
+def test_unknown_shadow_light_references_are_repaired_to_declared_light() -> None:
+    payload = valid_plan_dict()
+    first_scene = payload["scenes"][0]  # type: ignore[index]
+    first_scene["objects"][0]["object_id"] = "hook_background_plate"  # type: ignore[index]
+    first_scene["objects"][0]["shadow_spec"]["enabled"] = True  # type: ignore[index]
+    first_scene["objects"][0]["shadow_spec"]["source_light_id"] = "missing_softbox"  # type: ignore[index]
+    first_scene["objects"][0]["shadow_spec"]["contact_shadow_required"] = False  # type: ignore[index]
+    payload["lighting_shadow_plan"]["per_object_shadow_specs"][0][  # type: ignore[index]
+        "object_id"
+    ] = "hook_background_plate"
+    payload["lighting_shadow_plan"]["per_object_shadow_specs"][0][  # type: ignore[index]
+        "enabled"
+    ] = True
+    payload["lighting_shadow_plan"]["per_object_shadow_specs"][0][  # type: ignore[index]
+        "source_light_id"
+    ] = "missing_softbox"
+
+    plan = CinematicReelPlan.model_validate(payload)
+
+    assert plan.scenes[0].objects[0].object_id == "hook_background_plate"
+    assert plan.scenes[0].objects[0].shadow_spec.source_light_id == "key_window"
+    assert plan.lighting_shadow_plan.per_object_shadow_specs[0].source_light_id == "key_window"
+
+
+def test_tiny_hero_and_supporting_subjects_are_resized_before_realism_qa() -> None:
+    payload = valid_plan_dict()
+    scene_1 = payload["scenes"][0]  # type: ignore[index]
+    scene_2 = payload["scenes"][1]  # type: ignore[index]
+    for item in (scene_1["objects"][1], scene_2["objects"][1]):  # type: ignore[index]
+        item["width_normalised"] = 0.04
+        item["height_normalised"] = 0.04
+        item["scale"] = 1.0
+    scene_1["objects"][2]["role"] = "supporting_subject"  # type: ignore[index]
+    scene_1["objects"][2]["width_normalised"] = 0.03  # type: ignore[index]
+    scene_1["objects"][2]["height_normalised"] = 0.03  # type: ignore[index]
+    scene_1["objects"][2]["shadow_spec"]["enabled"] = True  # type: ignore[index]
+    scene_1["objects"][2]["shadow_spec"]["source_light_id"] = "key_window"  # type: ignore[index]
+    scene_1["objects"][2]["shadow_spec"]["contact_shadow_required"] = True  # type: ignore[index]
+
+    plan = CinematicReelPlan.model_validate(payload)
+    assert all(
+        item.width_normalised * item.height_normalised * item.scale * item.scale >= 0.015
+        for scene in plan.scenes
+        for item in scene.objects
+        if item.role in {"hero_subject", "supporting_subject"}
+    )
+
+
 def test_every_scene_has_dominant_focal_role_and_timeline_coordinates() -> None:
     plan = CinematicReelPlan.model_validate(valid_plan_dict())
 
@@ -500,15 +924,37 @@ def test_references_outside_selected_assets_are_rejected() -> None:
         validate_pasted_cinematic_plan(payload, planner_input=_planner_input())
 
 
-def test_external_generation_instructions_are_rejected() -> None:
+def test_external_generation_process_language_is_sanitized() -> None:
     payload = valid_plan_dict()
-    payload["render_notes"] = ["call runway to create video for the final beat"]
+    payload["render_notes"] = [
+        "Call Runway to create video for the final beat.",
+        "Use uploaded text file and do not request a screenshot.",
+    ]
+    payload["global_camera_style"] = "Do not generate image or copy existing reel."
+    payload["scenes"][0]["purpose"] = "Avoid external video API calls."  # type: ignore[index]
+    payload["scenes"][0]["objects"][0][  # type: ignore[index]
+        "realism_reason"
+    ] = "Use this as a screenshot-style background reference."
 
-    with pytest.raises((ValidationError, ValueError), match="external generation|forbidden"):
-        validate_pasted_cinematic_plan(payload, planner_input=_planner_input())
+    validated = validate_pasted_cinematic_plan(payload, planner_input=_planner_input())
+    material = " ".join(
+        [
+            validated.plan.global_camera_style,
+            *validated.plan.render_notes,
+            *(scene.purpose for scene in validated.plan.scenes),
+            *(item.realism_reason for scene in validated.plan.scenes for item in scene.objects),
+        ]
+    ).lower()
+
+    assert "call runway" not in material
+    assert "create video" not in material
+    assert "generate image" not in material
+    assert "external video api" not in material
+    assert "screenshot" not in material
+    assert "copy existing reel" not in material
 
 
-def test_floating_asset_collage_fails_scene_regulation() -> None:
+def test_extra_high_priority_scene_objects_are_demoted_before_regulation() -> None:
     payload = valid_plan_dict()
     scene = payload["scenes"][0]  # type: ignore[index]
     extra_a = copy.deepcopy(scene["objects"][1])
@@ -528,8 +974,9 @@ def test_floating_asset_collage_fails_scene_regulation() -> None:
 
     report = regulate_cinematic_plan(plan)
 
-    assert not report.passed
-    assert "too_many_high_priority_objects" in report.as_dict()["failure_codes"]
+    assert report.passed
+    assert [item.role for item in plan.scenes[0].objects].count("hero_subject") == 1
+    assert "too_many_high_priority_objects" not in report.as_dict()["failure_codes"]
 
 
 def test_missing_dominant_subject_fails_validation() -> None:
