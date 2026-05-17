@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from collections.abc import Mapping
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -387,6 +388,8 @@ def _selected_cinematic_asset_descriptors(
             "content_hash": asset.content_hash,
             "asset_pack_niche": asset_pack.niche,
         }
+        if _is_cinematic_object_asset(item.asset_kind, item.pack_role, metadata):
+            _ensure_cinematic_object_is_png(item.asset_id, item.asset_kind, metadata)
         descriptor = normalize_asset_for_cinematic_planning(
             {
                 "asset_id": str(item.asset_id),
@@ -399,6 +402,62 @@ def _selected_cinematic_asset_descriptors(
         )
         descriptors.append(descriptor.model_dump(mode="json"))
     return descriptors
+
+
+def _is_cinematic_object_asset(
+    asset_kind: str,
+    pack_role: str | None,
+    metadata: Mapping[str, Any],
+) -> bool:
+    text = " ".join(
+        str(value or "").lower()
+        for value in (
+            asset_kind,
+            pack_role,
+            metadata.get("asset_kind"),
+            metadata.get("pack_role"),
+            metadata.get("category"),
+        )
+    )
+    return any(
+        token in text
+        for token in (
+            "object",
+            "subject",
+            "hero",
+            "foreground",
+            "cutout",
+            "prop",
+            "ingredient",
+            "transparent",
+            "garnish",
+            "bowl",
+        )
+    )
+
+
+def _ensure_cinematic_object_is_png(
+    asset_id: uuid.UUID | None,
+    asset_kind: str,
+    metadata: Mapping[str, Any],
+) -> None:
+    storage = metadata.get("storage") if isinstance(metadata.get("storage"), Mapping) else {}
+    content_type = str(
+        metadata.get("content_type")
+        or storage.get("content_type")
+        or metadata.get("media_type")
+        or ""
+    ).lower()
+    storage_uri = str(metadata.get("storage_uri") or storage.get("storage_uri") or "").lower()
+    is_png = content_type in {"image/png", "png"} or storage_uri.endswith(".png")
+    if not is_png:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "cinematic planner object assets must be PNG files; "
+                f"asset {asset_id} ({asset_kind}) is not PNG"
+            ),
+        )
 
 
 def _intentional_hook_layout(
@@ -538,6 +597,138 @@ def _composition_hook_cover_payload(
         },
         "task_id": str(task.id),
     }
+
+
+def _is_cinematic_plan_manifest(manifest: dict[str, Any]) -> bool:
+    return (
+        manifest.get("schema_version") == "cinematic_reel_plan_manifest.v1"
+        or manifest.get("output_type") == "cinematic_reel_plan"
+        or manifest.get("output_type") == "cinematic_reel_preview"
+    )
+
+
+def _cinematic_plan_package_payload(
+    *,
+    run: Run,
+    reel: Reel,
+    task: Task,
+    manifest: dict[str, Any],
+    source_plan: dict[str, Any],
+    render_mode: str,
+) -> dict[str, Any]:
+    artifacts_raw = manifest.get("cinematic_artifacts")
+    artifacts = cast(dict[str, Any], artifacts_raw) if isinstance(artifacts_raw, dict) else {}
+    packaged_artifacts = [
+        {
+            "name": str(name),
+            "filename": str(name),
+            "kind": "json",
+            "content_type": "application/json",
+        }
+        for name in sorted(artifacts)
+    ]
+    plan = manifest.get("cinematic_plan") if isinstance(manifest.get("cinematic_plan"), dict) else {}
+    validation_report = (
+        manifest.get("validation_report")
+        if isinstance(manifest.get("validation_report"), dict)
+        else {}
+    )
+    package = {
+        "reel_id": str(reel.id),
+        "manifest": {
+            "version": 1,
+            "complete": True,
+            "artifact_count": len(packaged_artifacts),
+            "artifacts": packaged_artifacts,
+        },
+        "caption_variants": source_plan.get("caption_angles", []),
+        "composition_manifest": manifest,
+        "cinematic_plan": plan,
+        "cinematic_artifacts": artifacts,
+        "validation_report": validation_report,
+        "artifacts": [],
+    }
+    return {
+        "workflow_stage": "cinematic_plan_package",
+        "output_type": "cinematic_reel_plan",
+        "ready_for_publish": False,
+        "reel_id": str(reel.id),
+        "run_id": str(run.id),
+        "render_mode": render_mode,
+        "package": package,
+        "step_outputs": {
+            "planning": {
+                "status": "succeeded",
+                "cinematic_plan": plan,
+                "plan_hash": manifest.get("plan_hash"),
+            },
+            "asset": {
+                "status": "skipped",
+                "message": "Validated plan references existing asset ids only; no image generation was requested.",
+            },
+            "editing": {
+                "status": "not_started",
+                "message": "Cinematic renderer is not wired to this preview endpoint yet.",
+            },
+            "qa": {
+                "status": "succeeded",
+                "validation_report": validation_report,
+            },
+            "packaging": {
+                "status": "succeeded",
+                "artifact_count": len(packaged_artifacts),
+                "artifacts": packaged_artifacts,
+            },
+        },
+        "task_statuses": {
+            "asset_resolution": "skipped",
+            "creative_planning": "succeeded",
+            "editing": "not_started",
+            "packaging": "succeeded",
+            "process_reel": "succeeded",
+            "qa": "succeeded",
+        },
+        "task_id": str(task.id),
+    }
+
+
+def _composition_submit_out_from_existing_run(
+    db: Session,
+    *,
+    org_id: uuid.UUID,
+    idempotency_key: str,
+) -> AssetPackCompositionSubmitOut | None:
+    existing_run = (
+        db.query(Run)
+        .filter(Run.org_id == org_id, Run.idempotency_key == idempotency_key)
+        .one_or_none()
+    )
+    if existing_run is None:
+        return None
+    existing_task = (
+        db.query(Task)
+        .filter(Task.org_id == org_id, Task.idempotency_key == idempotency_key)
+        .one_or_none()
+    )
+    if existing_task is None:
+        return None
+    input_params = (
+        cast(dict[str, Any], existing_run.input_params)
+        if isinstance(existing_run.input_params, dict)
+        else {}
+    )
+    reel_id = input_params.get("reel_id")
+    family_id = input_params.get("reel_family_id")
+    if reel_id is None or family_id is None:
+        return None
+    return AssetPackCompositionSubmitOut(
+        run_id=existing_run.id,
+        task_id=existing_task.id,
+        reel_id=uuid.UUID(str(reel_id)),
+        reel_family_id=uuid.UUID(str(family_id)),
+        status=existing_run.status,
+        external_ref=existing_run.external_ref,
+    )
 
 
 @router.post("", response_model=AssetPackOut, status_code=status.HTTP_201_CREATED)
@@ -813,6 +1004,13 @@ def submit_asset_pack_composition_render(
         f"asset-composition-render:{asset_pack_id}:"
         f"{body.render_mode}:{manifest.get('composition_id') or uuid.uuid4()}"
     )
+    existing_submission = _composition_submit_out_from_existing_run(
+        db,
+        org_id=org_id,
+        idempotency_key=idempotency_key,
+    )
+    if existing_submission is not None:
+        return existing_submission
     source_plan = _composition_source_plan(
         asset_pack=asset_pack,
         manifest=manifest,
@@ -893,6 +1091,13 @@ def submit_asset_pack_composition_render(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
+        existing = _composition_submit_out_from_existing_run(
+            db,
+            org_id=org_id,
+            idempotency_key=idempotency_key,
+        )
+        if existing is not None:
+            return existing
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A matching composition render run already exists for the org",
@@ -911,6 +1116,13 @@ def submit_asset_pack_composition_render(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
+        existing = _composition_submit_out_from_existing_run(
+            db,
+            org_id=org_id,
+            idempotency_key=idempotency_key,
+        )
+        if existing is not None:
+            return existing
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A matching composition render task already exists for the org",
@@ -938,7 +1150,9 @@ def submit_asset_pack_composition_render(
     run.external_ref = f"outbox:{event.id}"
     run_metadata = dict(run.run_metadata or {})
     run_metadata["orchestration"] = {
-        "backend": "local_hook_cover",
+        "backend": "cinematic_plan_package"
+        if _is_cinematic_plan_manifest(manifest)
+        else "local_hook_cover",
         "event_type": event.event_type,
         "outbox_event_id": str(event.id),
     }
@@ -962,15 +1176,25 @@ def submit_asset_pack_composition_render(
     run.status = RunStatus.SUCCEEDED.value
     task.status = TaskStatus.SUCCEEDED.value
     reel.status = GeneratedReelStatus.READY.value
-    output_payload = _composition_hook_cover_payload(
-        asset_pack=asset_pack,
-        run=run,
-        reel=reel,
-        task=task,
-        manifest=manifest,
-        source_plan=source_plan,
-        render_mode=body.render_mode,
-    )
+    if _is_cinematic_plan_manifest(manifest):
+        output_payload = _cinematic_plan_package_payload(
+            run=run,
+            reel=reel,
+            task=task,
+            manifest=manifest,
+            source_plan=source_plan,
+            render_mode=body.render_mode,
+        )
+    else:
+        output_payload = _composition_hook_cover_payload(
+            asset_pack=asset_pack,
+            run=run,
+            reel=reel,
+            task=task,
+            manifest=manifest,
+            source_plan=source_plan,
+            render_mode=body.render_mode,
+        )
     run.output_payload = output_payload
     task.result = output_payload
     db.commit()

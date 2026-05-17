@@ -6,7 +6,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import insert
+from sqlalchemy import insert, update
 from sqlalchemy.orm import Session
 
 from content_lab_api.deps import get_db
@@ -54,7 +54,7 @@ def _seed_pack(db_session: Session) -> dict[str, uuid.UUID]:
     )
     for asset_id, storage_uri in {
         bg_id: "s3://content-lab/assets/kitchen-bg.mp4",
-        subject_id: "s3://content-lab/assets/steak-closeup.mp4",
+        subject_id: "s3://content-lab/assets/steak-closeup.png",
         audio_id: "s3://content-lab/assets/sizzle.wav",
     }.items():
         db_session.execute(
@@ -69,7 +69,7 @@ def _seed_pack(db_session: Session) -> dict[str, uuid.UUID]:
     for priority, (asset_id, asset_kind, pack_role, title) in enumerate(
         [
         (bg_id, "background_video", "background", "Kitchen background"),
-        (subject_id, "subject_video", "hero", "Steak closeup"),
+        (subject_id, "transparent_cutout_png", "hero subject", "Steak closeup"),
         (audio_id, "sound_effect", "audio", "Oil sizzle"),
         ]
     ):
@@ -338,7 +338,38 @@ def test_cinematic_prompt_endpoint_builds_manual_master_prompt(
     assert payload["selected_asset_ids"] == [str(ids["bg_id"]), str(ids["subject_id"]), str(ids["audio_id"])]
     assert "Return only valid JSON" in payload["master_prompt"]
     assert "Do not request screenshots" in payload["master_prompt"]
+    assert "CRITICAL MANUAL-MODE RULE" in payload["master_prompt"]
+    assert "Use the minimum number of selected assets" in payload["master_prompt"]
+    assert "no more than 3 visible foreground objects" in payload["master_prompt"]
+    assert "Every scene must begin with an environment_base object" in payload["master_prompt"]
+    assert "Before returning, silently check" in payload["master_prompt"]
     assert payload["planner_input"]["selected_assets"][0]["possible_cinematic_roles"]
+
+
+def test_cinematic_prompt_endpoint_rejects_non_png_object_assets(
+    cinematic_client: TestClient,
+    db_session: Session,
+) -> None:
+    ids = _seed_pack(db_session)
+    db_session.execute(
+        update(Asset)
+        .where(Asset.id == ids["subject_id"])
+        .values(storage_uri="s3://content-lab/assets/steak-closeup.jpg")
+    )
+    db_session.execute(
+        update(AssetPackItem)
+        .where(AssetPackItem.asset_id == ids["subject_id"])
+        .values(asset_kind="object_image", pack_role="hero subject")
+    )
+    db_session.flush()
+
+    response = cinematic_client.post(
+        f"/orgs/{ids['org_id']}/asset-packs/{ids['pack_id']}/cinematic-plan-prompt",
+        json=_prompt_body(ids),
+    )
+
+    assert response.status_code == 422
+    assert "object assets must be PNG files" in response.json()["detail"]
 
 
 def test_asset_pack_list_reports_actual_asset_count(

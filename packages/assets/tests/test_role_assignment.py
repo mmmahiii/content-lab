@@ -15,6 +15,10 @@ def test_normalize_asset_assigns_environment_and_prompt_safe_metadata() -> None:
             "metadata": {
                 "title": "Warm kitchen background",
                 "description": "window-lit cooking counter",
+                "width": 1080,
+                "height": 1920,
+                "tags": ["kitchen", "warm", 42],
+                "transparency": {"has_transparency": True},
                 "secret_operator_note": "do not leak",
             },
         }
@@ -24,6 +28,10 @@ def test_normalize_asset_assigns_environment_and_prompt_safe_metadata() -> None:
     assert descriptor.media_type == "video"
     assert "environment_base" in descriptor.possible_cinematic_roles
     assert "background_reveal" in descriptor.possible_cinematic_roles
+    assert descriptor.transparent is True
+    assert descriptor.width == 1080
+    assert descriptor.height == 1920
+    assert descriptor.tags == ["kitchen", "warm", "42"]
     assert "secret_operator_note" not in descriptor.metadata
 
 

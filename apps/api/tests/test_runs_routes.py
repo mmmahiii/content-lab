@@ -21,6 +21,7 @@ from content_lab_api.models import (
     Run,
     Task,
 )
+from content_lab_api.routes import runs as runs_route
 from content_lab_api.routes.runs import OrchestrationTriggerResult, get_orchestration_backend
 from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
 
@@ -569,6 +570,105 @@ def test_update_run_hook_cover_persists_editor_state(
     assert payload["output_payload"]["hook_cover"]["editor_state"]["items"] == [{"id": "copy-1"}]
     db_session.refresh(task)
     assert task.result["hook_cover"]["title"] == "Edited hook"
+
+
+def test_generate_package_from_cinematic_plan_run_merges_plan_and_package_steps(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = seeded_run_scope["org_id"]
+    page_id = seeded_run_scope["page_id"]
+    plan_run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="manual",
+        status="succeeded",
+        input_params={
+            "page_id": str(page_id),
+            "workflow_stage": "asset_composition_render",
+        },
+        run_metadata={"client": {"workflow_stage": "asset_composition_render"}},
+        output_payload={
+            "output_type": "cinematic_reel_plan",
+            "package": {
+                "composition_manifest": {
+                    "schema_version": "cinematic_reel_plan_manifest.v1",
+                    "roles": {
+                        "background": {
+                            "asset_id": "tomato-bg",
+                            "asset_kind": "background",
+                            "metadata": {
+                                "storage_uri": "s3://content-lab/assets/tomato-bg.png",
+                                "media_type": "image/png",
+                            },
+                        }
+                    },
+                },
+                "cinematic_plan": {
+                    "plan_id": "cinematic-1",
+                    "content_goal": "Make ratatouille prep feel vivid and practical.",
+                    "total_duration_seconds": 7.0,
+                    "narrative_arc": {
+                        "hook": "Tomato slices pull the eye into the prep.",
+                        "development": "Eggplant and pepper build a layered colour stack.",
+                        "reveal_payoff": "Basil finishes the bowl.",
+                    },
+                    "scenes": [
+                        {
+                            "scene_id": "hook",
+                            "start_time": 0,
+                            "end_time": 3,
+                            "purpose": "Open on tomato texture.",
+                            "captions": [{"text": "Tomato texture starts the stack"}],
+                        },
+                        {
+                            "scene_id": "payoff",
+                            "start_time": 3,
+                            "end_time": 7,
+                            "purpose": "Finish on basil garnish.",
+                            "captions": [{"text": "Basil makes it ready"}],
+                        },
+                    ],
+                },
+                "cinematic_artifacts": {
+                    "reel_timeline.json": {
+                        "total_duration_seconds": 7.0,
+                    }
+                },
+            },
+        },
+    )
+    db_session.add(plan_run)
+    db_session.flush()
+    monkeypatch.setattr(
+        runs_route,
+        "_launch_process_reel_flow",
+        lambda **_: {"pid": 12345, "mode": "test"},
+    )
+
+    response = runs_client.post(
+        f"/orgs/{org_id}/pages/{page_id}/cinematic-plans/{plan_run.id}/generate-package",
+        json={"generation_mode": "smoke_test"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    package_run = db_session.get(Run, uuid.UUID(payload["id"]))
+    db_session.refresh(plan_run)
+    assert package_run is not None
+    assert package_run.input_params["workflow_stage"] == "package_generation"
+    assert package_run.input_params["source_plan_stage"] == "cinematic_plan_package"
+    assert package_run.input_params["generation_mode"] == "smoke_test"
+    assert package_run.input_params["dry_run"] is False
+    reel = db_session.get(Reel, uuid.UUID(package_run.input_params["reel_id"]))
+    assert reel.metadata_["duration_seconds"] == 10
+    assert reel.metadata_["idea_plan"]["hook"] == "Tomato texture starts the stack"
+    assert reel.metadata_["idea_plan"]["beats"][1]["text"] == "Basil makes it ready"
+    assert reel.metadata_["idea_plan"]["composition_manifest"]["roles"]["background"]["asset_id"] == "tomato-bg"
+    assert plan_run.output_payload["used_in_package_run_id"] == str(package_run.id)
+    assert package_run.external_ref == "local-process:12345"
 
 
 def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(

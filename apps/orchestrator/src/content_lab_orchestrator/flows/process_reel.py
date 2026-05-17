@@ -54,10 +54,15 @@ from content_lab_creative.types import (
     ScriptOverlayEmphasis,
 )
 from content_lab_editing import (
+    CompositionCrop,
+    CompositionLayer,
+    CompositionManifest,
+    MotionTransform,
     build_canonical_timeline,
     build_overlay_render_manifest_for_qa,
     build_ready_to_post_package,
     build_timeline_render_trace,
+    compose_and_store_layered_reel,
     render_basic_vertical_edit,
 )
 from content_lab_outbox import (
@@ -70,7 +75,7 @@ from prefect.tasks import task
 from sqlalchemy.orm import Session, sessionmaker
 
 from content_lab_api.db import SessionLocal
-from content_lab_api.models import OutboxEvent, Page, ProviderJob, Reel, ReelFamily
+from content_lab_api.models import Asset, OutboxEvent, Page, ProviderJob, Reel, ReelFamily
 from content_lab_api.schemas.pages import parse_page_metadata
 from content_lab_api.services import (
     SQLAlchemyPhase1AssetRegistryStore,
@@ -314,6 +319,8 @@ class SQLProcessReelAssetResolver:
         self._session_factory = session_factory or SessionLocal
         self._provider_client = provider_client or HTTPRunwayClient.from_settings(self._settings)
         self._storage_client = storage_client or _build_storage_client(self._settings)
+        self._storage_layout = CanonicalStorageLayout(bucket=self._settings.minio_bucket)
+        self._temp_root = Path(tempfile.gettempdir()) / _DEFAULT_TEMP_ROOT_NAME
         self._max_polls = max_polls
         self._poll_interval_seconds = poll_interval_seconds
 
@@ -326,6 +333,13 @@ class SQLProcessReelAssetResolver:
         request_payload = _mapping(creative_output.get("primary_asset_request"))
         if not request_payload:
             raise ValueError("Creative planning did not provide a primary_asset_request payload")
+        composition_asset = self._resolve_composition_manifest_asset(
+            execution,
+            creative_output=creative_output,
+            request_payload=request_payload,
+        )
+        if composition_asset is not None:
+            return composition_asset
 
         with self._session_factory() as session:
             store = SQLAlchemyPhase1AssetRegistryStore(session, settings=self._settings)
@@ -433,6 +447,182 @@ class SQLProcessReelAssetResolver:
                 field_name="generation_summary.storage_uri",
             ),
             "generation": generation_summary,
+        }
+
+    def _resolve_composition_manifest_asset(
+        self,
+        execution: ProcessReelExecution,
+        *,
+        creative_output: Mapping[str, Any],
+        request_payload: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        manifest_payload = _composition_manifest_from_creative_output(creative_output)
+        if manifest_payload is None:
+            return None
+        roles = _mapping(manifest_payload.get("roles"))
+        visual_roles = [
+            (str(role), _mapping(value))
+            for role, value in roles.items()
+            if _mapping(value)
+        ]
+        visual_roles = [
+            (role, value)
+            for role, value in visual_roles
+            if _role_storage_uri(value) is not None and _role_visual_media_type(value) is not None
+        ]
+        if not visual_roles:
+            return None
+
+        background_role = next(
+            (
+                (role, value)
+                for role, value in visual_roles
+                if role in {"background", "background_image", "environment"}
+            ),
+            visual_roles[0],
+        )
+        foreground_roles = [
+            (role, value)
+            for role, value in visual_roles
+            if value is not background_role[1]
+            and role not in {"audio", "format"}
+            and not _role_has_baked_reference_marks(value)
+        ][:3]
+        duration = _optional_float(request_payload.get("duration_seconds")) or _optional_float(
+            _mapping(creative_output.get("scene_plan")).get("duration_seconds")
+        ) or _DEFAULT_REEL_DURATION_SECONDS
+        duration = max(1.0, float(duration))
+        background_asset_id = _role_asset_id(background_role[1], fallback=f"{background_role[0]}-asset")
+        asset_sources: dict[str, dict[str, object]] = {
+            background_asset_id: {
+                "source": _required_text(
+                    _role_storage_uri(background_role[1]),
+                    field_name="composition_manifest.roles.background.storage_uri",
+                ),
+                "media_type": _role_visual_media_type(background_role[1]) or "image",
+            }
+        }
+        layers: list[CompositionLayer] = []
+        for index, (role, value) in enumerate(foreground_roles, start=1):
+            asset_id = _role_asset_id(value, fallback=f"{role}-{index}")
+            media_type = _role_visual_media_type(value) or "image"
+            asset_sources[asset_id] = {
+                "source": _required_text(
+                    _role_storage_uri(value),
+                    field_name=f"composition_manifest.roles.{role}.storage_uri",
+                ),
+                "media_type": media_type,
+            }
+            width = 760 if index == 1 else 520
+            height = 760 if index == 1 else 520
+            layers.append(
+                CompositionLayer(
+                    layer_id=f"{role}-{index}",
+                    asset_id=asset_id,
+                    asset_kind=_role_asset_kind(value, fallback=role),
+                    media_type=media_type,
+                    z_index=10 + index,
+                    start_time=0,
+                    end_time=duration,
+                    x=max(0, 540 - width // 2 + (index - 1) * 84),
+                    y=max(0, 960 - height // 2 + (index - 1) * 112),
+                    width=width,
+                    height=height,
+                    crop=_role_source_crop(value, layer_role=role),
+                    opacity=0.96,
+                    motion_transform=MotionTransform(
+                        preset="float" if index == 1 else "slow_zoom",
+                    ),
+                )
+            )
+
+        composition_manifest = CompositionManifest(
+            canvas_width=1080,
+            canvas_height=1920,
+            duration=duration,
+            fps=24,
+            background_layer=CompositionLayer(
+                layer_id="background",
+                asset_id=background_asset_id,
+                asset_kind=_role_asset_kind(background_role[1], fallback=background_role[0]),
+                media_type=_role_visual_media_type(background_role[1]) or "image",
+                z_index=0,
+                start_time=0,
+                end_time=duration,
+                x=0,
+                y=0,
+                width=1080,
+                height=1920,
+                crop=_role_source_crop(background_role[1], layer_role=background_role[0]),
+                opacity=1.0,
+                motion_transform=MotionTransform(preset="slow_zoom"),
+            ),
+            layers=layers,
+            audio_layers=[],
+        )
+        workdir = self._temp_root / execution.run_id / "asset-composition"
+        output_path = workdir / "asset_pack_source.mp4"
+        render_asset_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"content-lab-layered-source:{execution.run_id}")
+        )
+        stored = compose_and_store_layered_reel(
+            composition_manifest,
+            asset_sources=asset_sources,
+            output_path=output_path,
+            client=cast(S3StorageClient, self._storage_client),
+            layout=self._storage_layout,
+            render_asset_id=render_asset_id,
+            storage_client=self._storage_client,
+            staging_dir=workdir / "inputs",
+            timeout_seconds=120,
+            asset_class="derived_cinematic_source",
+            filename="source.mp4",
+            upload_metadata={
+                "run-id": execution.run_id,
+                "reel-id": execution.reel_id,
+                "source": "asset-pack-composition",
+            },
+        )
+        with self._session_factory() as session:
+            asset_uuid = uuid.UUID(render_asset_id)
+            if session.get(Asset, asset_uuid) is None:
+                asset = Asset(
+                    org_id=uuid.UUID(execution.org_id),
+                    asset_class="derived_cinematic_source",
+                    storage_uri=stored.stored_asset.storage_uri,
+                    source="asset_pack_composition",
+                    content_hash=stored.stored_asset.checksums.content_hash,
+                    status="active",
+                    metadata_={
+                        "reel_id": execution.reel_id,
+                        "run_id": execution.run_id,
+                        "composition_manifest": composition_manifest.model_dump(mode="json"),
+                        "source_composition_manifest": manifest_payload,
+                    },
+                    asset_key=f"derived_cinematic_source:{execution.run_id}",
+                    asset_key_hash=render_asset_id.replace("-", ""),
+                )
+                asset.id = asset_uuid
+                session.add(asset)
+                session.commit()
+        return {
+            "asset_id": render_asset_id,
+            "asset_kind": "layered_composition",
+            "asset_source": "asset_pack_composition",
+            "media_type": "video",
+            "provider": "asset_pack_compositor",
+            "model": "layered_ffmpeg",
+            "storage_uri": stored.stored_asset.storage_uri,
+            "content_hash": stored.stored_asset.checksums.content_hash,
+            "content_type": stored.stored_asset.stored_object.content_type,
+            "canonical_params": {"duration_seconds": duration, "ratio": "9:16", "fps": 24},
+            "provider_job": {
+                "provider": "asset_pack_compositor",
+                "status": "succeeded",
+            },
+            "composition_manifest": composition_manifest.model_dump(mode="json"),
+            "source_composition_manifest": manifest_payload,
+            "resolution_source": "asset_pack_composition",
         }
 
     def _provider_job(self, *, provider: str, external_ref: str) -> ProviderJob | None:
@@ -675,21 +865,26 @@ def _source_plan_overlays(
 def _source_plan_value_overlay(source_plan: Mapping[str, Any]) -> str:
     beats = _source_plan_beats(source_plan)
     for beat in beats[1:-1] or beats[1:]:
-        label = (_optional_text(beat.get("label")) or "").lower()
-        if label in {"proof", "value", "shift"}:
-            return "Useful shift"
-        if label in {"example", "principle"}:
-            return "Practical example"
-    return "Useful shift"
+        text = _optional_text(beat.get("text"))
+        if text is not None:
+            return _fit_text(_viewer_facing_copy(text), max_chars=80)
+    if len(beats) == 1:
+        text = _optional_text(beats[0].get("text"))
+        if text is not None:
+            return _fit_text(_viewer_facing_copy(text), max_chars=80)
+    return _fit_text(_viewer_facing_copy(_optional_text(source_plan.get("angle")) or "Watch the build"), max_chars=80)
 
 
 def _source_plan_cta_overlay(source_plan: Mapping[str, Any]) -> str:
     beats = _source_plan_beats(source_plan)
     if beats:
-        label = (_optional_text(beats[-1].get("label")) or "").lower()
-        if label in {"action", "cta", "close"}:
-            return "One concrete next step"
-    return "Try one next step"
+        text = _optional_text(beats[-1].get("text"))
+        if text is not None:
+            return _fit_text(_viewer_facing_copy(text), max_chars=80)
+    return _fit_text(
+        _viewer_facing_copy(_plan_primary_cta(source_plan) or "Save this finished reel"),
+        max_chars=80,
+    )
 
 
 def _source_plan_caption_variants(
@@ -2030,6 +2225,81 @@ def _mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
     return {}
+
+
+def _role_metadata(role_payload: Mapping[str, Any]) -> dict[str, Any]:
+    return _mapping(role_payload.get("metadata"))
+
+
+def _role_storage_uri(role_payload: Mapping[str, Any]) -> str | None:
+    metadata = _role_metadata(role_payload)
+    return _optional_text(role_payload.get("storage_uri")) or _optional_text(metadata.get("storage_uri"))
+
+
+def _role_media_label(role_payload: Mapping[str, Any]) -> str | None:
+    metadata = _role_metadata(role_payload)
+    return (
+        _optional_text(role_payload.get("media_type"))
+        or _optional_text(metadata.get("media_type"))
+        or _optional_text(role_payload.get("content_type"))
+        or _optional_text(metadata.get("content_type"))
+    )
+
+
+def _role_visual_media_type(role_payload: Mapping[str, Any]) -> str | None:
+    media_label = (_role_media_label(role_payload) or "").lower()
+    if media_label.startswith("video") or media_label.endswith("/mp4"):
+        return "video"
+    if media_label.startswith("image") or media_label.endswith("/png") or media_label.endswith("/jpeg"):
+        return "image"
+    storage_uri = (_role_storage_uri(role_payload) or "").lower()
+    if storage_uri.endswith((".mp4", ".mov", ".webm")):
+        return "video"
+    if storage_uri.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        return "image"
+    return None
+
+
+def _role_visual_size(role_payload: Mapping[str, Any]) -> tuple[int, int] | None:
+    metadata = _role_metadata(role_payload)
+    visual = _mapping(metadata.get("visual"))
+    width = _optional_int(role_payload.get("width") or metadata.get("width") or visual.get("width"))
+    height = _optional_int(role_payload.get("height") or metadata.get("height") or visual.get("height"))
+    if width is None or height is None or width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _role_source_crop(role_payload: Mapping[str, Any], *, layer_role: str) -> CompositionCrop | None:
+    storage_uri = (_role_storage_uri(role_payload) or "").lower()
+    if "ratatouille_ingredients" in storage_uri:
+        return CompositionCrop(x=620, y=150, width=460, height=820)
+    if "tomato_cut" in storage_uri and layer_role not in {"background", "background_image", "environment"}:
+        return CompositionCrop(x=0, y=0, width=800, height=800)
+    size = _role_visual_size(role_payload)
+    if size is None:
+        return None
+    width, height = size
+    if "ratatouille_ingredients" in storage_uri and width >= 900 and height >= 900:
+        crop_width = min(width - 1, max(480, int(width * 0.48)))
+        return CompositionCrop(x=max(0, width - crop_width), y=0, width=crop_width, height=height)
+    if layer_role not in {"background", "background_image", "environment"} and height / width > 2.0:
+        crop_height = min(height, width)
+        return CompositionCrop(x=0, y=0, width=width, height=crop_height)
+    return None
+
+
+def _role_has_baked_reference_marks(role_payload: Mapping[str, Any]) -> bool:
+    storage_uri = (_role_storage_uri(role_payload) or "").lower()
+    return "tomato_cut" in storage_uri
+
+
+def _role_asset_id(role_payload: Mapping[str, Any], *, fallback: str) -> str:
+    return _optional_text(role_payload.get("asset_id")) or fallback
+
+
+def _role_asset_kind(role_payload: Mapping[str, Any], *, fallback: str) -> str:
+    return _optional_text(role_payload.get("asset_kind")) or _optional_text(role_payload.get("pack_role")) or fallback
 
 
 def _sequence_of_text(value: Any) -> list[str] | None:

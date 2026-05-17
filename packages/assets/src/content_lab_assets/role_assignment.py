@@ -35,6 +35,10 @@ class CinematicAssetDescriptor(BaseModel):
     asset_kind: str = Field(min_length=1)
     media_type: str = Field(min_length=1)
     pack_role: str | None = None
+    transparent: bool = False
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+    tags: list[str] = Field(default_factory=list)
     possible_cinematic_roles: list[str] = Field(default_factory=list, min_length=1)
     compatibility: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -82,6 +86,10 @@ def normalize_asset_for_cinematic_planning(item: Mapping[str, Any]) -> Cinematic
         asset_kind=asset_kind,
         media_type=media_type,
         pack_role=pack_role,
+        transparent=_has_transparency(metadata),
+        width=_positive_int(metadata.get("width") or _mapping(metadata.get("visual")).get("width")),
+        height=_positive_int(metadata.get("height") or _mapping(metadata.get("visual")).get("height")),
+        tags=_string_list(metadata.get("tags"))[:8],
         possible_cinematic_roles=list(
             cinematic_roles_for_asset(
                 asset_kind=asset_kind,
@@ -159,6 +167,27 @@ def _prompt_safe_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "fps",
     }
     return {str(key): value for key, value in metadata.items() if str(key) in allowed_keys}
+
+
+def _has_transparency(metadata: Mapping[str, Any]) -> bool:
+    transparency = _mapping(metadata.get("transparency"))
+    return bool(transparency.get("has_transparency"))
+
+
+def _positive_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError):
+        return None
+    return resolved if resolved > 0 else None
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
+        return []
+    return [text for text in (_optional_text(item) for item in value) if text is not None]
 
 
 def _metadata_hints(metadata: Mapping[str, Any]) -> list[str]:

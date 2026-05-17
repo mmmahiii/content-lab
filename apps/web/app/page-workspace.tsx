@@ -578,8 +578,23 @@ function isPackageGenerationRun(run: RunRecord): boolean {
   return workflowStage(run) === 'package_generation';
 }
 
+function isCinematicPackageRun(run: RunRecord | null): boolean {
+  const client = asRecord(run?.run_metadata?.client);
+  return (
+    run?.input_params?.source_plan_stage === 'cinematic_plan_package' ||
+    client?.source_plan_stage === 'cinematic_plan_package'
+  );
+}
+
 function isAssetCompositionRun(run: RunRecord): boolean {
   return workflowStage(run) === 'asset_composition_render';
+}
+
+function isCinematicPlanRun(run: RunRecord | null): boolean {
+  return (
+    run?.output_payload?.output_type === 'cinematic_reel_plan' ||
+    Boolean(asRecord(run?.output_payload?.package)?.cinematic_plan)
+  );
 }
 
 function isGeneratedOutputRun(run: RunRecord): boolean {
@@ -971,6 +986,19 @@ function runTextForTab(run: RunRecord | null, tab: ArtifactTab): string | null {
   return null;
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function clientRequestId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}:${crypto.randomUUID()}`;
+  }
+  return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+}
+
 function hookImageStorageKey(orgId: string, pageId: string): string {
   return `content-lab:hook-images:${orgId}:${pageId}`;
 }
@@ -1086,6 +1114,48 @@ function stepStatus(run: RunRecord | null, stepKey: string): string {
   return typeof value === 'string' ? value : run?.status === 'succeeded' ? 'succeeded' : 'pending';
 }
 
+function reelOutputProgress(run: RunRecord | null, detail: PackageDetail | null, isCreating: boolean): number {
+  if (detail && artifactByName(detail, ['final_video'])) {
+    return 100;
+  }
+  if (run?.status === 'succeeded') {
+    return 100;
+  }
+  if (run?.status === 'failed' || run?.status === 'cancelled') {
+    return 100;
+  }
+  if (!run) {
+    return isCreating ? 8 : 0;
+  }
+  const statuses = workflowSteps.map((step) => stepStatus(run, step.key));
+  const completed = statuses.filter((status) => status === 'succeeded').length;
+  const active = statuses.some((status) => status === 'running') ? 0.5 : 0;
+  const progress = Math.round(((completed + active) / workflowSteps.length) * 100);
+  return Math.min(94, Math.max(run.status === 'queued' ? 12 : 18, progress));
+}
+
+function reelOutputStatusLabel(run: RunRecord | null, detail: PackageDetail | null, isCreating: boolean): string {
+  if (detail && artifactByName(detail, ['final_video'])) {
+    return 'Ready';
+  }
+  if (run?.status === 'failed') {
+    return 'Failed';
+  }
+  if (run?.status === 'cancelled') {
+    return 'Cancelled';
+  }
+  if (run?.status === 'succeeded') {
+    return 'Finalizing output';
+  }
+  if (run?.status === 'running') {
+    return 'Rendering';
+  }
+  if (run?.status === 'queued' || isCreating) {
+    return 'Pending';
+  }
+  return 'Not started';
+}
+
 export function PageWorkspace() {
   const [orgs, setOrgs] = useState<OrgRecord[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string>(DEFAULT_ORG_ID);
@@ -1124,13 +1194,28 @@ export function PageWorkspace() {
     [planRuns, selectedPlanRunId],
   );
   const packageGenerationRuns = useMemo(() => runs.filter(isPackageGenerationRun), [runs]);
+  const twoButtonPackageGenerationRuns = useMemo(
+    () => packageGenerationRuns.filter((run) => !isCinematicPackageRun(run)),
+    [packageGenerationRuns],
+  );
+  const assetPackPackageGenerationRuns = useMemo(
+    () => packageGenerationRuns.filter(isCinematicPackageRun),
+    [packageGenerationRuns],
+  );
   const assetCompositionRuns = useMemo(() => runs.filter(isAssetCompositionRun), [runs]);
   const selectedPackageRun = useMemo(
     () =>
-      packageGenerationRuns.find((run) => run.id === selectedPackageRunId) ??
-      packageGenerationRuns[0] ??
+      twoButtonPackageGenerationRuns.find((run) => run.id === selectedPackageRunId) ??
+      twoButtonPackageGenerationRuns[0] ??
       null,
-    [packageGenerationRuns, selectedPackageRunId],
+    [twoButtonPackageGenerationRuns, selectedPackageRunId],
+  );
+  const selectedAssetPackPackageRun = useMemo(
+    () =>
+      assetPackPackageGenerationRuns.find((run) => run.id === selectedPackageRunId) ??
+      assetPackPackageGenerationRuns[0] ??
+      null,
+    [assetPackPackageGenerationRuns, selectedPackageRunId],
   );
   const selectedCompositionRun = useMemo(
     () =>
@@ -1140,7 +1225,9 @@ export function PageWorkspace() {
     [assetCompositionRuns, selectedCompositionRunId],
   );
   const activeOutputRun =
-    workbenchTab === 'asset_pack_generation' ? selectedCompositionRun : selectedPackageRun;
+    workbenchTab === 'asset_pack_generation'
+      ? selectedAssetPackPackageRun ?? selectedCompositionRun
+      : selectedPackageRun;
   selectedPackageRunRef.current = activeOutputRun;
   const selectedPackageRunLoadKey = activeOutputRun
     ? `${activeOutputRun.id}:${activeOutputRun.status}`
@@ -1242,7 +1329,7 @@ export function PageWorkspace() {
     }
   }
 
-  async function loadRuns(pageId: string) {
+  async function loadRuns(pageId: string): Promise<RunRecord[]> {
     try {
       const response = await fetch(`/api/orgs/${activeOrgId()}/pages/${pageId}/runs`, {
         cache: 'no-store',
@@ -1273,12 +1360,14 @@ export function PageWorkspace() {
         }
         return nextCompositionRuns[0]?.id ?? '';
       });
+      return nextRuns;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load workflow queue.');
+      return [];
     }
   }
 
-  async function loadPackage(run: RunRecord) {
+  async function loadPackage(run: RunRecord): Promise<PackageDetail | null> {
     setPackageNotice('');
     try {
       const response = await fetch(`/api/orgs/${activeOrgId()}/packages/${run.id}`, { cache: 'no-store' });
@@ -1288,15 +1377,18 @@ export function PageWorkspace() {
           setPackageNotice(
             run.status === 'failed' ? 'Artifacts not written.' : 'Package still running.',
           );
-          return;
+          return null;
         }
         throw new Error(await apiErrorMessage(response));
       }
-      setPackageDetail((await response.json()) as PackageDetail);
+      const detail = (await response.json()) as PackageDetail;
+      setPackageDetail(detail);
       setPackageNotice('');
+      return detail;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load generated package.');
       setPackageNotice('Could not load package output.');
+      return null;
     }
   }
 
@@ -1587,6 +1679,35 @@ export function PageWorkspace() {
     }
   }
 
+  async function revealPackageOutput(packageRunId: string) {
+    if (!selectedPage) {
+      return;
+    }
+    setWorkbenchTab('asset_pack_generation');
+    setSelectedPackageRunId(packageRunId);
+    setArtifactTab('video');
+    setMessage('Rendering output...');
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const nextRuns = await loadRuns(selectedPage.id);
+      const run = nextRuns.find((candidate) => candidate.id === packageRunId) ?? null;
+      if (run) {
+        setSelectedPackageRunId(run.id);
+        const detail = await loadPackage(run);
+        if (detail && artifactByName(detail, ['final_video'])) {
+          setArtifactTab('video');
+          setMessage('Output ready.');
+          return;
+        }
+        if (run.status === 'failed') {
+          setMessage(runErrorMessage(run) ?? 'Rendering failed before writing output.');
+          return;
+        }
+      }
+      await wait(attempt < 6 ? 1500 : 3000);
+    }
+    setMessage('Still rendering. The output panel will update when the artifact is written.');
+  }
+
   async function discardSelectedPlan() {
     if (!selectedPage || !selectedPlan) {
       return;
@@ -1802,7 +1923,12 @@ export function PageWorkspace() {
               </div>
               <div className="hero-metrics" aria-label="Page workflow counts">
                 <span>{planRuns.length} queued</span>
-                <span>{packageGenerationRuns.length + assetCompositionRuns.length} outputs</span>
+                <span>
+                  {twoButtonPackageGenerationRuns.length +
+                    assetPackPackageGenerationRuns.length +
+                    assetCompositionRuns.length}{' '}
+                  outputs
+                </span>
                 <span>{formatPolicySource(policy)}</span>
               </div>
             </header>
@@ -1938,7 +2064,7 @@ export function PageWorkspace() {
                     </div>
                   </div>
 
-                  {packageGenerationRuns.length ? (
+                  {twoButtonPackageGenerationRuns.length ? (
                     <>
                       <label className="field">
                         Generated package
@@ -1946,7 +2072,7 @@ export function PageWorkspace() {
                           value={selectedPackageRun?.id ?? ''}
                           onChange={(event) => setSelectedPackageRunId(event.target.value)}
                         >
-                          {packageGenerationRuns.map((run) => {
+                          {twoButtonPackageGenerationRuns.map((run) => {
                             const sourcePlanId = packagePlanRunId(run);
                             const sourcePlan = sourcePlanId
                               ? runs.find((candidate) => candidate.id === sourcePlanId)
@@ -2026,7 +2152,10 @@ export function PageWorkspace() {
                   onRunsChanged={() => void loadRuns(selectedPage.id)}
                   setWorkspaceMessage={setMessage}
                   assetCompositionRuns={assetCompositionRuns}
-                  selectedOutputRun={selectedCompositionRun}
+                  assetPackPackageRuns={assetPackPackageGenerationRuns}
+                  selectedPackageRun={selectedAssetPackPackageRun}
+                  setSelectedPackageRunId={setSelectedPackageRunId}
+                  selectedOutputRun={selectedAssetPackPackageRun ?? selectedCompositionRun}
                   setSelectedOutputRunId={setSelectedCompositionRunId}
                   packageDetail={packageDetail}
                   packageNotice={packageNotice}
@@ -2041,6 +2170,7 @@ export function PageWorkspace() {
                   copyArtifactText={() => void copyArtifactText()}
                   savedHookGenerations={savedHookGenerations}
                   onSaveHookGeneration={persistHookGeneration}
+                  onPackageRunCreated={(runId) => revealPackageOutput(runId)}
                 />
               </section>
             ) : (
@@ -2058,9 +2188,12 @@ export function PageWorkspace() {
                   compositionRuns={assetCompositionRuns}
                   selectedRun={selectedCompositionRun}
                   setSelectedRunId={setSelectedCompositionRunId}
+                  setSelectedPackageRunId={setSelectedPackageRunId}
+                  onPackageRunCreated={(runId) => revealPackageOutput(runId)}
                   savedHookGenerations={savedHookGenerations}
                   onSaveGeneration={persistHookGeneration}
                   setWorkspaceMessage={setMessage}
+                  showCinematicPlanner={false}
                 />
               </section>
             )}
@@ -2181,6 +2314,135 @@ function LifecycleSteps({ run }: { run: RunRecord | null }) {
         );
       })}
     </div>
+  );
+}
+
+function CinematicReelOutputPanel({
+  runs,
+  selectedRun,
+  setSelectedRunId,
+  detail,
+  notice,
+  failures,
+  artifactTabs,
+  artifactTab,
+  setArtifactTab,
+  artifact,
+  download,
+  artifactText,
+  artifactTextStatus,
+  copyArtifactText,
+  isCreating,
+}: {
+  runs: RunRecord[];
+  selectedRun: RunRecord | null;
+  setSelectedRunId: (runId: string) => void;
+  detail: PackageDetail | null;
+  notice: string;
+  failures: string[];
+  artifactTabs: ArtifactTab[];
+  artifactTab: ArtifactTab;
+  setArtifactTab: (tab: ArtifactTab) => void;
+  artifact: PackageArtifact | null;
+  download: SignedDownload | null;
+  artifactText: string;
+  artifactTextStatus: string;
+  copyArtifactText: () => void;
+  isCreating: boolean;
+}) {
+  const progress = reelOutputProgress(selectedRun, detail, isCreating);
+  const statusLabel = reelOutputStatusLabel(selectedRun, detail, isCreating);
+  const hasOutput = artifactTabs.includes('video') || artifactTabs.includes('cover');
+  const showProgress = isCreating || Boolean(selectedRun);
+  const selectedIndex = runs.findIndex((run) => run.id === selectedRun?.id);
+
+  return (
+    <section className="cinematic-output-panel" aria-label="Generated reel package">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Generated reel</p>
+          <h3>Output</h3>
+        </div>
+        <span className={`status-pill ${statusTone(selectedRun?.status)}`}>{statusLabel}</span>
+      </div>
+
+      {runs.length > 1 ? (
+        <label className="field">
+          Output
+          <select
+            value={selectedRun?.id ?? ''}
+            onChange={(event) => setSelectedRunId(event.target.value)}
+          >
+            {runs.map((run, index) => (
+              <option key={run.id} value={run.id}>
+                {index === 0 ? 'Latest output' : `Previous output ${index + 1}`} ·{' '}
+                {reelOutputStatusLabel(run, selectedRun?.id === run.id ? detail : null, false)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {showProgress ? (
+        <div className="cinematic-progress" role="status" aria-live="polite">
+          <div className="cinematic-progress-copy">
+            <strong>
+              {statusLabel === 'Ready'
+                ? selectedIndex > 0
+                  ? `Previous output ${selectedIndex + 1} is ready`
+                  : 'Your reel package is ready'
+                : statusLabel === 'Failed'
+                  ? 'Rendering failed'
+                  : 'Creating reel package'}
+            </strong>
+            <span>
+              {statusLabel === 'Ready'
+                ? 'The finished output is shown below.'
+                : statusLabel === 'Failed'
+                  ? runErrorMessage(selectedRun) ?? 'The package did not finish.'
+                  : 'Keep this tab open; the output appears here as soon as it is ready.'}
+            </span>
+          </div>
+          <div
+            className={`cinematic-progress-track ${statusLabel === 'Failed' ? 'is-failed' : ''}`}
+            aria-hidden="true"
+          >
+            <span style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      ) : (
+        <div className="empty-state">Create a reel package to see the finished output here.</div>
+      )}
+
+      {failures.length ? (
+        <ul className="cinematic-output-failures">
+          {failures.map((failure) => (
+            <li key={failure}>{failure}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {hasOutput ? (
+        <ArtifactViewer
+          tabs={artifactTabs}
+          activeTab={artifactTab}
+          setActiveTab={setArtifactTab}
+          packageDetail={detail}
+          run={selectedRun}
+          artifact={artifact}
+          download={download}
+          artifactText={artifactText}
+          artifactTextStatus={artifactTextStatus}
+          copyArtifactText={copyArtifactText}
+        />
+      ) : selectedRun ? (
+        <div className="empty-state">
+          {selectedRun.status === 'failed'
+            ? (runErrorMessage(selectedRun) ?? 'No output was written.')
+            : notice || 'Output is still being created.'}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -2548,11 +2810,14 @@ async function rasterBlobToPng(
 }
 
 export function AssetPackGenerationWorkspace({
-  orgId: _orgId,
+  orgId,
   selectedPage,
   onRunsChanged,
   setWorkspaceMessage,
   assetCompositionRuns = [],
+  assetPackPackageRuns = [],
+  selectedPackageRun = null,
+  setSelectedPackageRunId = () => undefined,
   selectedOutputRun = null,
   setSelectedOutputRunId = () => undefined,
   packageDetail = null,
@@ -2568,12 +2833,16 @@ export function AssetPackGenerationWorkspace({
   copyArtifactText = () => undefined,
   savedHookGenerations = [],
   onSaveHookGeneration = () => undefined,
+  onPackageRunCreated = async () => undefined,
 }: {
   orgId?: string;
   selectedPage: PageRecord;
   onRunsChanged: () => void;
   setWorkspaceMessage: (message: string) => void;
   assetCompositionRuns?: RunRecord[];
+  assetPackPackageRuns?: RunRecord[];
+  selectedPackageRun?: RunRecord | null;
+  setSelectedPackageRunId?: (runId: string) => void;
   selectedOutputRun?: RunRecord | null;
   setSelectedOutputRunId?: (runId: string) => void;
   packageDetail?: PackageDetail | null;
@@ -2589,6 +2858,7 @@ export function AssetPackGenerationWorkspace({
   copyArtifactText?: () => void;
   savedHookGenerations?: SavedHookImageGeneration[];
   onSaveHookGeneration?: (generation: SavedHookImageGeneration) => void;
+  onPackageRunCreated?: (runId: string) => Promise<void>;
 }) {
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(true);
   const [selectedBrowserAssetId, setSelectedBrowserAssetId] = useState('');
@@ -3611,6 +3881,93 @@ export function AssetPackGenerationWorkspace({
         )}
       </section>
 
+      <section className="output-surface asset-pack-legacy-output" aria-label="Asset pack generated packages" hidden>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Asset pack outputs</p>
+            <h3>Generated packages</h3>
+          </div>
+        </div>
+
+        {assetPackPackageRuns.length ? (
+          <>
+            <label className="field">
+              Generated package
+              <select
+                value={selectedPackageRun?.id ?? ''}
+                onChange={(event) => setSelectedPackageRunId(event.target.value)}
+              >
+                {assetPackPackageRuns.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    Cinematic package {run.id.slice(0, 8)} Â·{' '}
+                    {generationMode(run) ?? 'package'} Â· {run.status}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <PackageSummary
+              run={selectedPackageRun}
+              detail={packageDetail}
+              notice={packageNotice}
+              failures={failureMessages}
+            />
+            <LifecycleSteps run={selectedPackageRun} />
+
+            {artifactTabs.length ? (
+              <ArtifactViewer
+                tabs={artifactTabs}
+                activeTab={artifactTab}
+                setActiveTab={setArtifactTab}
+                packageDetail={packageDetail}
+                run={selectedPackageRun}
+                artifact={selectedArtifact}
+                download={selectedDownload}
+                artifactText={artifactText}
+                artifactTextStatus={artifactTextStatus}
+                copyArtifactText={copyArtifactText}
+              />
+            ) : (
+              <div className="empty-state">
+                {selectedPackageRun?.status === 'failed'
+                  ? (runErrorMessage(selectedPackageRun) ?? 'Artifacts not written.')
+                  : packageNotice || 'Package still running.'}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="empty-state">No asset-pack cinematic packages yet.</div>
+        )}
+      </section>
+
+      <HookImageCreator
+        orgId={orgId}
+        selectedPage={selectedPage}
+        onRunsChanged={onRunsChanged}
+        compositionRuns={assetCompositionRuns}
+        selectedRun={selectedOutputRun}
+        setSelectedRunId={setSelectedOutputRunId}
+        setSelectedPackageRunId={setSelectedPackageRunId}
+        onPackageRunCreated={onPackageRunCreated}
+        savedHookGenerations={savedHookGenerations}
+        onSaveGeneration={onSaveHookGeneration}
+        setWorkspaceMessage={setWorkspaceMessage}
+        assetPackPackageRuns={assetPackPackageRuns}
+        selectedPackageRun={selectedPackageRun}
+        packageDetail={packageDetail}
+        packageNotice={packageNotice}
+        failureMessages={failureMessages}
+        artifactTabs={artifactTabs}
+        artifactTab={artifactTab}
+        setArtifactTab={setArtifactTab}
+        packageArtifact={selectedArtifact}
+        selectedDownload={selectedDownload}
+        artifactText={artifactText}
+        artifactTextStatus={artifactTextStatus}
+        copyArtifactText={copyArtifactText}
+        plannerOnly
+      />
+
       <div className="asset-pack-grid">
         <section className="generation-surface asset-pack-creator">
           <div className="section-heading">
@@ -3906,9 +4263,26 @@ export function HookImageCreator({
   compositionRuns = [],
   selectedRun = null,
   setSelectedRunId = () => undefined,
+  setSelectedPackageRunId = () => undefined,
+  onPackageRunCreated = async () => undefined,
   savedHookGenerations = [],
   onSaveGeneration = () => undefined,
   setWorkspaceMessage = () => undefined,
+  assetPackPackageRuns = [],
+  selectedPackageRun = null,
+  packageDetail = null,
+  packageNotice = '',
+  failureMessages = [],
+  artifactTabs = [],
+  artifactTab = 'raw',
+  setArtifactTab = () => undefined,
+  packageArtifact = null,
+  selectedDownload = null,
+  artifactText = '',
+  artifactTextStatus = '',
+  copyArtifactText = () => undefined,
+  plannerOnly = false,
+  showCinematicPlanner = true,
 }: {
   orgId?: string;
   selectedPage?: PageRecord | null;
@@ -3916,9 +4290,26 @@ export function HookImageCreator({
   compositionRuns?: RunRecord[];
   selectedRun?: RunRecord | null;
   setSelectedRunId?: (runId: string) => void;
+  setSelectedPackageRunId?: (runId: string) => void;
+  onPackageRunCreated?: (runId: string) => Promise<void>;
   savedHookGenerations?: SavedHookImageGeneration[];
   onSaveGeneration?: (generation: SavedHookImageGeneration) => void;
   setWorkspaceMessage?: (message: string) => void;
+  assetPackPackageRuns?: RunRecord[];
+  selectedPackageRun?: RunRecord | null;
+  packageDetail?: PackageDetail | null;
+  packageNotice?: string;
+  failureMessages?: string[];
+  artifactTabs?: ArtifactTab[];
+  artifactTab?: ArtifactTab;
+  setArtifactTab?: (tab: ArtifactTab) => void;
+  packageArtifact?: PackageArtifact | null;
+  selectedDownload?: SignedDownload | null;
+  artifactText?: string;
+  artifactTextStatus?: string;
+  copyArtifactText?: () => void;
+  plannerOnly?: boolean;
+  showCinematicPlanner?: boolean;
 }) {
   const seedBackgrounds = assetLibrarySeed.filter((asset) => asset.kind === 'background');
   const [activeGenerationId, setActiveGenerationId] = useState('new');
@@ -3944,6 +4335,7 @@ export function HookImageCreator({
   const [validatedPlan, setValidatedPlan] = useState<CinematicPlanValidateResponse | null>(null);
   const [selectedArtifactName, setSelectedArtifactName] = useState('cinematic_reel_plan.json');
   const [isPlannerRunning, setIsPlannerRunning] = useState(false);
+  const [isCinematicRenderSubmitting, setIsCinematicRenderSubmitting] = useState(false);
   const [plannerMessage, setPlannerMessage] = useState(
     'Choose a pack, select assets, then generate the ChatGPT planning prompt.',
   );
@@ -3996,6 +4388,10 @@ export function HookImageCreator({
   const selectablePlanAssets = packAssets;
   const selectedPlanAssets = selectablePlanAssets.filter((asset) =>
     selectedPlanAssetIds.includes(asset.id),
+  );
+  const hookCompositionRuns = useMemo(
+    () => compositionRuns.filter((run) => !isCinematicPlanRun(run)),
+    [compositionRuns],
   );
   const allPlanAssetsSelected =
     selectablePlanAssets.length > 0 &&
@@ -4100,7 +4496,7 @@ export function HookImageCreator({
     }
     const generation = editableHookGenerationForId({
       generationId: activeGenerationId,
-      compositionRuns,
+      compositionRuns: hookCompositionRuns,
       savedHookGenerations,
       orgId,
     });
@@ -4113,10 +4509,10 @@ export function HookImageCreator({
       loadGenerationDraft(generation);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeGenerationId, compositionRuns, savedHookGenerations]);
+  }, [activeGenerationId, hookCompositionRuns, savedHookGenerations]);
 
   useEffect(() => {
-    if (selectedRun && activeGenerationId === 'new') {
+    if (selectedRun && !isCinematicPlanRun(selectedRun) && activeGenerationId === 'new') {
       setActiveGenerationId(selectedRun.id);
     }
   }, [activeGenerationId, selectedRun]);
@@ -4303,6 +4699,116 @@ export function HookImageCreator({
       return;
     }
     downloadJsonArtifact(selectedArtifactName, selectedArtifact);
+  }
+
+  async function submitValidatedCinematicPreview() {
+    if (!selectedCombinatorPack || !selectedPage || !validatedPlan) {
+      setPlannerMessage('Validate a plan for an active saved pack first.');
+      return;
+    }
+    setIsCinematicRenderSubmitting(true);
+    setPlannerMessage('Creating cinematic reel package...');
+    setWorkspaceMessage('Creating cinematic reel package...');
+    try {
+      const planTitle =
+        textValue(validatedPlan.plan.plan_id) ??
+        textValue(validatedPlan.plan.narrative_arc && asRecord(validatedPlan.plan.narrative_arc)?.hook) ??
+        'validated cinematic plan';
+      const roles: Record<string, unknown> = {};
+      const background = selectedPlanAssets.find((asset) => asset.kind === 'background');
+      const foreground = selectedPlanAssets.find(
+        (asset) => asset.kind === 'object' || asset.kind === 'hook',
+      );
+      const audio = selectedPlanAssets.find((asset) => asset.kind === 'audio');
+      const format = selectedPlanAssets.find((asset) => asset.kind === 'video');
+      if (background) {
+        roles.background = localAssetForManifest(background);
+      }
+      if (foreground) {
+        roles.foreground = localAssetForManifest(foreground);
+      }
+      if (audio) {
+        roles.audio = localAssetForManifest(audio);
+      }
+      if (format) {
+        roles.format = localAssetForManifest(format);
+      }
+      for (const asset of selectedPlanAssets) {
+        roles[`selected_${asset.id}`] = localAssetForManifest(asset);
+      }
+      const requestId = clientRequestId('cinematic-reel-package');
+      const manifest = {
+        schema_version: 'cinematic_reel_plan_manifest.v1',
+        output_type: 'cinematic_reel_plan',
+        asset_pack_id: selectedCombinatorPack.id,
+        composition_id: `cinematic:${validatedPlan.plan_hash}:${requestId}`,
+        title: `${displayAssetPackName(selectedCombinatorPack)} cinematic plan`,
+        plan_hash: validatedPlan.plan_hash,
+        roles,
+        cinematic_plan: validatedPlan.plan,
+        cinematic_artifacts: validatedPlan.artifacts,
+        validation_report: validatedPlan.validation_report,
+        source: {
+          workflow: 'manual_chatgpt_cinematic_plan',
+          selected_asset_ids: selectedPlanAssetIds,
+          plan_title: planTitle,
+          request_id: requestId,
+        },
+      };
+      const response = await fetch(
+        `/api/orgs/${orgId}/asset-packs/${selectedCombinatorPack.id}/composition-renders`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Actor-Id': 'operator:ui-rebuild',
+          },
+          body: JSON.stringify({
+            page_id: selectedPage.id,
+            composition_manifest: manifest,
+            render_mode: 'preview',
+            dry_run: true,
+            idempotency_key: `cinematic-plan-run-v3:${selectedCombinatorPack.id}:${validatedPlan.plan_hash}:${requestId}`,
+            metadata: {
+              source: 'validated_cinematic_plan',
+              plan_hash: validatedPlan.plan_hash,
+              request_id: requestId,
+            },
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      const submitted = (await response.json()) as AssetPackRenderResponse;
+      const packageResponse = await fetch(
+        `/api/orgs/${orgId}/pages/${selectedPage.id}/cinematic-plans/${submitted.run_id}/generate-package`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Actor-Id': 'operator:ui-rebuild',
+          },
+          body: JSON.stringify({ generation_mode: 'smoke_test' }),
+        },
+      );
+      if (!packageResponse.ok) {
+        throw new Error(await apiErrorMessage(packageResponse));
+      }
+      const packageRun = (await packageResponse.json()) as RunRecord;
+      await onRunsChanged();
+      setSelectedRunId(submitted.run_id);
+      setSelectedPackageRunId(packageRun.id);
+      await onPackageRunCreated(packageRun.id);
+      setPlannerMessage('Reel package ready.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not create cinematic reel package.';
+      setPlannerMessage(message);
+      setWorkspaceMessage(message);
+    } finally {
+      setIsCinematicRenderSubmitting(false);
+    }
   }
 
   function loadGenerationDraft(generation: SavedHookImageGeneration) {
@@ -4537,15 +5043,17 @@ export function HookImageCreator({
   }
 
   return (
-    <section className="output-surface hook-creator">
+    <section className={`output-surface hook-creator${plannerOnly ? ' is-planner-only' : ''}`}>
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Live hook image creator</p>
-          <h3>Reel hook image</h3>
+          <p className="eyebrow">{plannerOnly ? 'Asset pack cinematic flow' : 'Live hook image creator'}</p>
+          <h3>{plannerOnly ? 'Cinematic planner' : 'Reel hook image'}</h3>
         </div>
-        <span className="status-pill">
-          {activeGenerationId === 'new' ? 'New image' : 'Editable generation'}
-        </span>
+        {!plannerOnly ? (
+          <span className="status-pill">
+            {activeGenerationId === 'new' ? 'New image' : 'Editable generation'}
+          </span>
+        ) : null}
       </div>
 
       <div className="hook-creator-layout">
@@ -4742,7 +5250,8 @@ export function HookImageCreator({
             </div>
           </div>
 
-          <div className="hook-control-group">
+          {showCinematicPlanner ? (
+          <div className="hook-control-group cinematic-planner-panel">
             <div className="section-heading is-compact">
               <div>
                 <h4>Cinematic Planner</h4>
@@ -4946,10 +5455,36 @@ export function HookImageCreator({
                   <button className="utility-button" type="button" onClick={downloadSelectedArtifact}>
                     Download artifact
                   </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void submitValidatedCinematicPreview()}
+                    disabled={isCinematicRenderSubmitting}
+                  >
+                    {isCinematicRenderSubmitting ? 'Creating package...' : 'Create reel package'}
+                  </button>
                 </div>
               </div>
             ) : null}
+            <CinematicReelOutputPanel
+              runs={assetPackPackageRuns}
+              selectedRun={selectedPackageRun}
+              setSelectedRunId={setSelectedPackageRunId}
+              detail={packageDetail}
+              notice={packageNotice}
+              failures={failureMessages}
+              artifactTabs={artifactTabs}
+              artifactTab={artifactTab}
+              setArtifactTab={setArtifactTab}
+              artifact={packageArtifact}
+              download={selectedDownload}
+              artifactText={artifactText}
+              artifactTextStatus={artifactTextStatus}
+              copyArtifactText={copyArtifactText}
+              isCreating={isCinematicRenderSubmitting}
+            />
           </div>
+          ) : null}
         </div>
 
         <div className="hook-canvas-wrap">
@@ -5023,7 +5558,7 @@ export function HookImageCreator({
                 onChange={(event) => handleGenerationChange(event.target.value)}
               >
                 <option value="new">Create new hook image</option>
-                {compositionRuns.map((run) => (
+                {hookCompositionRuns.map((run) => (
                   <option key={run.id} value={run.id}>
                     {formatGeneratedRunOption(run, savedHookGenerations)}
                   </option>

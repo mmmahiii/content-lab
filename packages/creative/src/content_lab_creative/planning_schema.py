@@ -667,6 +667,7 @@ class CinematicReelPlan(BaseModel):
             raise ValueError("plan requires at least one hero_subject timeline object")
         if self._foreground_object_peak() > self.realism_constraints.max_foreground_objects:
             raise ValueError("too many simultaneous foreground objects")
+        _repair_model_subject_footprints(self)
         _repair_model_light_references(self)
         _validate_light_references(self)
         _validate_no_generation_instructions(self)
@@ -746,6 +747,19 @@ def _repair_model_light_references(plan: CinematicReelPlan) -> None:
                 shadow.source_light_id = None
             elif shadow.source_light_id not in known_light_ids:
                 shadow.source_light_id = fallback_light_id
+
+
+def _repair_model_subject_footprints(plan: CinematicReelPlan) -> None:
+    for scene in plan.scenes:
+        for item in scene.objects:
+            if item.role not in {"hero_subject", "supporting_subject"}:
+                continue
+            area = item.width_normalised * item.height_normalised * item.scale * item.scale
+            if area >= 0.015:
+                continue
+            item.width_normalised = max(item.width_normalised, 0.13)
+            item.height_normalised = max(item.height_normalised, 0.13)
+            item.scale = max(item.scale, 1.0)
 
 
 def _validate_no_generation_instructions(plan: CinematicReelPlan) -> None:
@@ -1023,6 +1037,7 @@ def _enforce_raw_subject_minimum_footprint(item: dict[str, Any]) -> None:
     min_side = 0.13
     item["width_normalised"] = max(float(width), min_side)
     item["height_normalised"] = max(float(height), min_side)
+    item["scale"] = max(scale_value, 1.0)
 
 
 def _clamp_raw_numeric_field(

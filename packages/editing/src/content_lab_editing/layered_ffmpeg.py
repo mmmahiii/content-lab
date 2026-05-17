@@ -367,17 +367,23 @@ def _scale_dimensions(layer: CompositionLayer) -> tuple[str, str]:
         height = "ih" if layer.height is None else str(round(layer.height * layer.scale))
         return width, height
 
-    scale_expr = _motion_scale_expression(layer)
-    base_width = "iw" if layer.width is None else str(layer.width)
-    base_height = "ih" if layer.height is None else str(layer.height)
-    return (
-        f"'trunc({base_width}*({scale_expr}))'",
-        f"'trunc({base_height}*({scale_expr}))'",
-    )
+    # FFmpeg 4.x rejects the `t` time variable inside scale expressions on some builds.
+    # Use the largest intended transform scale statically and keep animation in overlay
+    # position expressions, which are supported across the local/dev FFmpeg versions.
+    safe_scale = _static_motion_scale(layer)
+    width = "iw" if layer.width is None else str(round(layer.width * safe_scale))
+    height = "ih" if layer.height is None else str(round(layer.height * safe_scale))
+    return width, height
 
 
 def _scale_eval_option(layer: CompositionLayer) -> str:
-    return ":eval=frame" if layer_has_motion(layer) else ""
+    _ = layer
+    return ""
+
+
+def _static_motion_scale(layer: CompositionLayer) -> float:
+    spec = motion_spec_for_layer(layer)
+    return layer.scale * max(spec.scale_from, spec.scale_to)
 
 
 def _motion_scale_expression(layer: CompositionLayer) -> str:

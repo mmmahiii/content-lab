@@ -212,12 +212,34 @@ Use model: {RECOMMENDED_CHATGPT_MODEL}.
 Return only valid JSON. Do not wrap it in Markdown. Do not explain the JSON.
 
 Your only job is to produce one renderer-ready CinematicReelPlan.
+
+CRITICAL MANUAL-MODE RULE:
+Because this response will be pasted directly into a validator, every top-level field and every
+nested required field must be present, even if empty arrays are needed. Do not omit scenes,
+objects, captions, audio_layers, selected_prompt_paths, render_notes, canvas, fps, or
+provenance.selected_asset_ids. If a field is optional in the schema but necessary for rendering,
+still include it.
+
 Do not generate images. Do not generate video. Do not call external image/video APIs.
 Do not request screenshots. Do not copy an existing reel. Do not hallucinate assets.
 Do not mention uploaded text files, screenshots, or external generation tools in render_notes,
 scene purpose, or realism_reason; describe only how stored selected assets should be arranged.
 Use only selected asset_ids from the input. You may reject irrelevant selected assets, but every
 unused selected asset must appear in provenance.rejected_assets with a reason.
+Use the minimum number of selected assets required for one coherent reel. Do not use every asset
+just because it is selected. A good plan may use only 4-7 assets and reject the rest. Rejecting
+irrelevant assets is preferred over visual clutter.
+
+Anti-collage composition rules:
+- In each scene, no more than 3 visible foreground objects may have z greater than 0.65.
+- If more ingredients are needed, introduce them through scene progression, not all at once.
+- Every scene must begin with an environment_base object unless the scene is an intentional
+  transition-only scene.
+- Transparent cut-out assets must sit on or visually relate to an environment_base,
+  supporting_subject, or foreground_texture. Do not place transparent cut-outs on an empty canvas.
+- The hero_subject must be visually dominant. The hero_subject should usually have the highest
+  scale and foreground depth among meaningful objects.
+- Supporting ingredients must be smaller, lower priority, or introduced later.
 
 Coordinate system:
 - x: 0.0 left to 1.0 right
@@ -272,6 +294,16 @@ Required JSON Schema:
 Planner input:
 {payload_json}
 
+Before returning, silently check:
+1. JSON parses.
+2. No Markdown.
+3. All asset_id values are from selected_asset_ids.
+4. All roles use allowed enums.
+5. Every scene has objects, captions, and audio_layers arrays.
+6. Every object has coordinates, z-depth, scale, shadow_spec, blur_spec, and realism_reason.
+7. Every unused selected asset appears in provenance.rejected_assets.
+8. No scene looks like a floating collage.
+
 Return exactly one JSON object matching CinematicReelPlan.
 """
     return MasterPromptPackage(
@@ -294,7 +326,10 @@ def validate_pasted_cinematic_plan(
     raw_payload = (
         parse_pasted_json(raw_plan_json) if isinstance(raw_plan_json, str) else dict(raw_plan_json)
     )
-    normalized_payload, normalization_repairs = normalize_pasted_plan_payload(raw_payload)
+    normalized_payload, normalization_repairs = normalize_pasted_plan_payload(
+        raw_payload,
+        selected_asset_ids=planner_input.selected_asset_ids,
+    )
     plan = CinematicReelPlan.model_validate(normalized_payload)
     _validate_against_prompt_request(plan, planner_input=planner_input)
     plan_hash = compute_plan_hash(plan)
@@ -335,7 +370,11 @@ def parse_pasted_json(value: str) -> dict[str, Any]:
     return payload
 
 
-def normalize_pasted_plan_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def normalize_pasted_plan_payload(
+    payload: Mapping[str, Any],
+    *,
+    selected_asset_ids: list[str] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Repair common ChatGPT alias drift before strict schema validation."""
 
     repaired = json.loads(json.dumps(payload))
@@ -344,6 +383,13 @@ def normalize_pasted_plan_payload(payload: Mapping[str, Any]) -> tuple[dict[str,
     def record(path: str, before: Any, after: Any, reason: str) -> None:
         if before != after:
             repairs.append({"path": path, "from": before, "to": after, "reason": reason})
+
+    if selected_asset_ids is not None:
+        _repair_provenance_selected_assets(
+            repaired,
+            selected_asset_ids=selected_asset_ids,
+            repairs=repairs,
+        )
 
     for scene_index, scene in enumerate(_iter_dicts(repaired.get("scenes"))):
         scene_path = f"scenes.{scene_index}"
@@ -537,6 +583,92 @@ def _iter_dicts(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def _raw_used_asset_ids(payload: Mapping[str, Any]) -> set[str]:
+    asset_ids: set[str] = set()
+    for scene in _iter_dicts(payload.get("scenes")):
+        for timeline_object in _iter_dicts(scene.get("objects")):
+            asset_id = timeline_object.get("asset_id")
+            if isinstance(asset_id, str) and asset_id.strip():
+                asset_ids.add(asset_id)
+        for audio_layer in _iter_dicts(scene.get("audio_layers")):
+            asset_id = audio_layer.get("asset_id")
+            if isinstance(asset_id, str) and asset_id.strip():
+                asset_ids.add(asset_id)
+    audio_plan = payload.get("audio_plan")
+    if isinstance(audio_plan, Mapping):
+        for audio_layer in _iter_dicts(audio_plan.get("layers")):
+            asset_id = audio_layer.get("asset_id")
+            if isinstance(asset_id, str) and asset_id.strip():
+                asset_ids.add(asset_id)
+    return asset_ids
+
+
+def _repair_provenance_selected_assets(
+    payload: dict[str, Any],
+    *,
+    selected_asset_ids: list[str],
+    repairs: list[dict[str, Any]],
+) -> None:
+    provenance = payload.get("provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+        payload["provenance"] = provenance
+        repairs.append({"path": "provenance", "from": None, "to": {}, "reason": "required_provenance"})
+
+    before_selected = provenance.get("selected_asset_ids")
+    if before_selected != selected_asset_ids:
+        provenance["selected_asset_ids"] = list(selected_asset_ids)
+        repairs.append(
+            {
+                "path": "provenance.selected_asset_ids",
+                "from": before_selected,
+                "to": list(selected_asset_ids),
+                "reason": "match_ui_selected_assets",
+            }
+        )
+
+    used_assets = _raw_used_asset_ids(payload)
+    rejected_assets = _iter_dicts(provenance.get("rejected_assets"))
+    kept_rejections: list[dict[str, Any]] = []
+    rejected_ids: set[str] = set()
+    removed_rejections: list[str] = []
+    for rejection in rejected_assets:
+        asset_id = rejection.get("asset_id")
+        if not isinstance(asset_id, str) or not asset_id.strip():
+            continue
+        if asset_id in used_assets:
+            removed_rejections.append(asset_id)
+            continue
+        kept_rejections.append(rejection)
+        rejected_ids.add(asset_id)
+
+    missing_unused = [
+        asset_id
+        for asset_id in selected_asset_ids
+        if asset_id not in used_assets and asset_id not in rejected_ids
+    ]
+    for asset_id in missing_unused:
+        kept_rejections.append(
+            {
+                "asset_id": asset_id,
+                "reason": "Selected asset was not needed for this uncluttered cinematic plan.",
+            }
+        )
+
+    if kept_rejections != rejected_assets:
+        provenance["rejected_assets"] = kept_rejections
+        repairs.append(
+            {
+                "path": "provenance.rejected_assets",
+                "from": rejected_assets,
+                "to": kept_rejections,
+                "reason": "reconcile_used_and_unused_selected_assets",
+                "removed_used_asset_ids": removed_rejections,
+                "added_unused_asset_ids": missing_unused,
+            }
+        )
+
+
 def _normalize_cinematic_role(value: Any) -> str | None:
     return normalize_cinematic_role_value(value)
 
@@ -599,7 +731,7 @@ def _clamp_numeric_field(
 def _prompt_payload(planner_input: SinglePromptPlannerInput) -> dict[str, Any]:
     return {
         "page_context": planner_input.page_context,
-        "selected_assets": planner_input.selected_assets,
+        "selected_assets": [_compact_prompt_asset(asset) for asset in planner_input.selected_assets],
         "content_goal": planner_input.content_goal,
         "brand_persona_constraints": planner_input.brand_persona_constraints,
         "platform_constraints": planner_input.platform_constraints,
@@ -612,6 +744,32 @@ def _prompt_payload(planner_input: SinglePromptPlannerInput) -> dict[str, Any]:
         "pinned_prompt_paths": planner_input.pinned_prompt_paths,
         "banned_prompt_paths": planner_input.banned_prompt_paths,
     }
+
+
+def _compact_prompt_asset(asset: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = asset.get("metadata") if isinstance(asset.get("metadata"), Mapping) else {}
+    visual = metadata.get("visual") if isinstance(metadata.get("visual"), Mapping) else {}
+    transparency = (
+        metadata.get("transparency") if isinstance(metadata.get("transparency"), Mapping) else {}
+    )
+    tags = asset.get("tags") or metadata.get("tags") or []
+    if not isinstance(tags, list):
+        tags = []
+    compact = {
+        "asset_id": asset.get("asset_id"),
+        "asset_kind": asset.get("asset_kind"),
+        "asset_label": asset.get("asset_label"),
+        "media_type": asset.get("media_type"),
+        "transparent": bool(asset.get("transparent") or transparency.get("has_transparency")),
+        "width": asset.get("width") or metadata.get("width") or visual.get("width"),
+        "height": asset.get("height") or metadata.get("height") or visual.get("height"),
+        "tags": [str(tag) for tag in tags[:8] if str(tag).strip()],
+        "possible_cinematic_roles": asset.get("possible_cinematic_roles") or [],
+    }
+    pack_role = asset.get("pack_role")
+    if pack_role:
+        compact["pack_role"] = pack_role
+    return {key: value for key, value in compact.items() if value not in (None, "", [])}
 
 
 def _validate_against_prompt_request(

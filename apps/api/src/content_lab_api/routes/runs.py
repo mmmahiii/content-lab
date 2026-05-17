@@ -412,6 +412,194 @@ def _workflow_stage(run: Run) -> str | None:
     return stage if isinstance(stage, str) else None
 
 
+def _is_cinematic_plan_run(run: Run) -> bool:
+    payload = dict(run.output_payload or {})
+    package = payload.get("package")
+    return payload.get("output_type") == "cinematic_reel_plan" or (
+        isinstance(package, dict) and isinstance(package.get("cinematic_plan"), dict)
+    )
+
+
+def _cinematic_plan_payload(run: Run) -> dict[str, Any]:
+    payload = dict(run.output_payload or {})
+    package = payload.get("package")
+    if isinstance(package, dict) and isinstance(package.get("cinematic_plan"), dict):
+        return dict(package["cinematic_plan"])
+    plan = payload.get("cinematic_plan")
+    return dict(plan) if isinstance(plan, dict) else {}
+
+
+def _cinematic_plan_artifacts(run: Run) -> dict[str, Any]:
+    payload = dict(run.output_payload or {})
+    package = payload.get("package")
+    if isinstance(package, dict) and isinstance(package.get("cinematic_artifacts"), dict):
+        return dict(package["cinematic_artifacts"])
+    artifacts = payload.get("cinematic_artifacts")
+    return dict(artifacts) if isinstance(artifacts, dict) else {}
+
+
+def _cinematic_composition_manifest(run: Run) -> dict[str, Any] | None:
+    payload = dict(run.output_payload or {})
+    package = payload.get("package")
+    if isinstance(package, dict) and isinstance(package.get("composition_manifest"), dict):
+        return dict(package["composition_manifest"])
+    manifest = payload.get("composition_manifest")
+    return dict(manifest) if isinstance(manifest, dict) else None
+
+
+def _cinematic_duration_seconds(artifacts: Mapping[str, Any], plan: Mapping[str, Any]) -> int:
+    timeline = artifacts.get("reel_timeline.json")
+    if isinstance(timeline, Mapping):
+        try:
+            duration = int(float(timeline.get("total_duration_seconds") or 0))
+        except (TypeError, ValueError):
+            duration = 0
+        if duration > 0:
+            return duration
+    try:
+        duration = int(float(plan.get("total_duration_seconds") or plan.get("duration_seconds") or 0))
+    except (TypeError, ValueError):
+        duration = 0
+    return duration if duration > 0 else 12
+
+
+def _clean_cinematic_text(value: object, *, max_chars: int = 180) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.split())
+    if not cleaned:
+        return None
+    return cleaned[:max_chars].rstrip()
+
+
+def _cinematic_narrative_text(plan: Mapping[str, Any], *keys: str) -> str | None:
+    narrative = plan.get("narrative_arc")
+    if not isinstance(narrative, Mapping):
+        return None
+    for key in keys:
+        text = _clean_cinematic_text(narrative.get(key))
+        if text is not None:
+            return text
+    return None
+
+
+def _cinematic_scene_caption(scene: Mapping[str, Any]) -> str | None:
+    captions = scene.get("captions")
+    if isinstance(captions, list):
+        for caption in captions:
+            if isinstance(caption, Mapping):
+                text = _clean_cinematic_text(caption.get("text"), max_chars=80)
+                if text is not None:
+                    return text
+    return None
+
+
+def _cinematic_scene_text(scene: Mapping[str, Any], *, fallback: str) -> str:
+    return (
+        _cinematic_scene_caption(scene)
+        or _clean_cinematic_text(scene.get("purpose"), max_chars=100)
+        or _clean_cinematic_text(scene.get("emotional_intent"), max_chars=100)
+        or fallback
+    )
+
+
+def _cinematic_scenes(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    scenes = plan.get("scenes")
+    if not isinstance(scenes, list):
+        return []
+    return [dict(scene) for scene in scenes if isinstance(scene, Mapping)]
+
+
+def _cinematic_render_source_plan(
+    *,
+    page: Page,
+    plan: Mapping[str, Any],
+    composition_manifest: Mapping[str, Any] | None,
+    duration_seconds: int,
+) -> dict[str, Any]:
+    title = (
+        _clean_cinematic_text(plan.get("content_goal"), max_chars=140)
+        or _clean_cinematic_text(plan.get("plan_id"), max_chars=140)
+        or f"{page.display_name} cinematic reel"
+    )
+    scenes = _cinematic_scenes(plan)
+    hook_text = (
+        _cinematic_scene_text(scenes[0], fallback="")
+        if scenes
+        else None
+    ) or _cinematic_narrative_text(plan, "hook") or title
+    angle = (
+        _clean_cinematic_text(plan.get("content_goal"), max_chars=180)
+        or _cinematic_narrative_text(plan, "development", "reveal_payoff")
+        or f"Turn {page.display_name} assets into a cinematic reel."
+    )
+    caption_angles = [
+        text
+        for text in (
+            _cinematic_scene_caption(scene) for scene in scenes
+        )
+        if text is not None
+    ]
+    if not caption_angles:
+        caption_angles = [
+            text
+            for text in (
+                _cinematic_narrative_text(plan, "hook"),
+                _cinematic_narrative_text(plan, "development"),
+                _cinematic_narrative_text(plan, "reveal_payoff", "closing_retention_loop"),
+            )
+            if text is not None
+        ]
+    beats: list[dict[str, Any]] = []
+    for index, scene in enumerate(scenes):
+        try:
+            seconds = int(
+                max(
+                    1,
+                    round(float(scene.get("end_time") or 0) - float(scene.get("start_time") or 0)),
+                )
+            )
+        except (TypeError, ValueError):
+            seconds = max(1, round(duration_seconds / max(1, len(scenes))))
+        beats.append(
+            {
+                "label": str(scene.get("scene_id") or f"scene_{index + 1}"),
+                "text": _cinematic_scene_text(scene, fallback=hook_text),
+                "seconds": seconds,
+                "shot_direction": _clean_cinematic_text(scene.get("purpose"), max_chars=180)
+                or "Render the selected asset-pack composition for this scene.",
+            }
+        )
+    if not beats:
+        beats = [
+            {
+                "label": "hook",
+                "text": hook_text,
+                "seconds": max(1, min(3, duration_seconds)),
+                "shot_direction": "Open on the selected asset-pack composition.",
+            },
+            {
+                "label": "payoff",
+                "text": _cinematic_narrative_text(plan, "reveal_payoff", "closing_retention_loop")
+                or angle,
+                "seconds": max(duration_seconds - 3, 2),
+                "shot_direction": "Finish on the validated cinematic payoff.",
+            },
+        ]
+    source_plan = {
+        "title": title,
+        "hook": hook_text,
+        "angle": angle,
+        "content_pillar": "asset pack reel",
+        "duration_seconds": duration_seconds,
+        "caption_angles": caption_angles or [hook_text],
+        "beats": beats,
+    }
+    if composition_manifest is not None:
+        source_plan["composition_manifest"] = dict(composition_manifest)
+    return source_plan
+
+
 def _build_run_metadata(
     request: Request,
     *,
@@ -934,6 +1122,192 @@ def generate_package_from_page_idea_plan(
         request,
         org_id=org_id,
         action="package.generated",
+        resource_type="run",
+        resource_id=str(run.id),
+        payload={
+            "page_id": str(page_id),
+            "plan_run_id": str(plan_run.id),
+            "reel_id": str(reel.id),
+            "generation_mode": body.generation_mode,
+        },
+    )
+    db.commit()
+    try:
+        launch = _launch_process_reel_flow(
+            reel_id=reel.id,
+            run_id=run.id,
+            generation_mode=body.generation_mode,
+        )
+    except Exception as exc:
+        db.rollback()
+        fresh_run = db.get(Run, run.id)
+        if fresh_run is not None:
+            fresh_run.status = RunStatus.FAILED.value
+            fresh_run.output_payload = {
+                "error": str(exc),
+                "phase": "orchestrator_launch",
+            }
+            fresh_run.finished_at = _now()
+            fresh_metadata = dict(fresh_run.run_metadata or {})
+            fresh_metadata["orchestrator_launch"] = {"error": str(exc)}
+            fresh_run.run_metadata = fresh_metadata
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not launch process_reel: {exc}",
+        ) from exc
+
+    fresh_run = db.get(Run, run.id)
+    if fresh_run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    metadata = dict(fresh_run.run_metadata or {})
+    metadata["orchestrator_launch"] = launch
+    fresh_run.run_metadata = metadata
+    fresh_run.external_ref = f"local-process:{launch['pid']}"
+    db.commit()
+    db.refresh(fresh_run)
+    return run_to_out(fresh_run)
+
+
+@router.post(
+    "/orgs/{org_id}/pages/{page_id}/cinematic-plans/{run_id}/generate-package",
+    response_model=RunOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_package_from_cinematic_plan(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    run_id: uuid.UUID,
+    body: PackageGenerationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RunOut:
+    _get_org_or_404(db, org_id)
+    page = _get_page_or_404(db, org_id, page_id)
+    plan_run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
+    if str(dict(plan_run.input_params or {}).get("page_id")) != str(page_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    if not _is_cinematic_plan_run(plan_run):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Run is not a cinematic plan package",
+        )
+    if plan_run.status == RunStatus.CANCELLED.value:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Plan has been discarded")
+
+    plan_payload = dict(plan_run.output_payload or {})
+    existing_package_run_id = plan_payload.get("used_in_package_run_id")
+    if existing_package_run_id is not None:
+        existing_run = db.get(Run, uuid.UUID(str(existing_package_run_id)))
+        if existing_run is not None and existing_run.status != RunStatus.FAILED.value:
+            return run_to_out(existing_run)
+
+    plan = _cinematic_plan_payload(plan_run)
+    artifacts = _cinematic_plan_artifacts(plan_run)
+    composition_manifest = _cinematic_composition_manifest(plan_run)
+    plan_duration_seconds = max(_cinematic_duration_seconds(artifacts, plan), 10)
+    render_source_plan = _cinematic_render_source_plan(
+        page=page,
+        plan=plan,
+        composition_manifest=composition_manifest,
+        duration_seconds=plan_duration_seconds,
+    )
+    package_metadata: dict[str, object] = {
+        "mode": "cinematic_plan",
+        "plan_run_id": str(plan_run.id),
+        "generation_mode": body.generation_mode,
+        "cinematic_plan": plan,
+        "cinematic_artifacts": artifacts,
+        "idea_plan": render_source_plan,
+    }
+    family = ReelFamily(
+        org_id=org_id,
+        page_id=page_id,
+        name=str(plan.get("plan_id") or f"{page.display_name} cinematic reel"),
+        metadata_=package_metadata,
+    )
+    db.add(family)
+    db.flush()
+    reel = Reel(
+        org_id=org_id,
+        reel_family_id=family.id,
+        origin=ReelOrigin.GENERATED.value,
+        status=GeneratedReelStatus.PLANNING.value,
+        variant_label="Cinematic package",
+        metadata_={
+            "plan_run_id": str(plan_run.id),
+            "generation_mode": body.generation_mode,
+            "duration_seconds": plan_duration_seconds,
+            "idea_plan": render_source_plan,
+            "cinematic_plan": plan,
+            "cinematic_artifacts": artifacts,
+        },
+    )
+    db.add(reel)
+    db.flush()
+    run = Run(
+        org_id=org_id,
+        workflow_key=WorkflowKey.PROCESS_REEL.value,
+        flow_trigger=FlowTrigger.MANUAL.value,
+        status=RunStatus.QUEUED.value,
+        input_params={
+            "org_id": str(org_id),
+            "page_id": str(page_id),
+            "workflow_stage": "package_generation",
+            "plan_run_id": str(plan_run.id),
+            "source_plan_stage": "cinematic_plan_package",
+            "generation_mode": body.generation_mode,
+            "runway_api_mode": "live" if body.generation_mode == "runway" else "mock",
+            "reel_id": str(reel.id),
+            "reel_family_id": str(family.id),
+            "dry_run": False,
+        },
+        run_metadata=_build_run_metadata(
+            request,
+            flow_trigger=FlowTrigger.MANUAL,
+            client_metadata={
+                "workflow_stage": "package_generation",
+                "ui_label": "Create cinematic reel package",
+                "generation_mode": body.generation_mode,
+                "runway_api_mode": "live" if body.generation_mode == "runway" else "mock",
+                "plan_run_id": str(plan_run.id),
+                "source_plan_stage": "cinematic_plan_package",
+            },
+            target_metadata={
+                "org_id": str(org_id),
+                "page_id": str(page_id),
+                "reel_id": str(reel.id),
+                "reel_family_id": str(family.id),
+            },
+        ),
+    )
+    db.add(run)
+    db.flush()
+    plan_payload["used_in_package_run_id"] = str(run.id)
+    plan_payload["used_generation_mode"] = body.generation_mode
+    plan_payload["used_at"] = _now().isoformat()
+    plan_run.output_payload = plan_payload
+    db.add(
+        Task(
+            org_id=org_id,
+            task_type="process_reel",
+            idempotency_key=f"process-reel:{run.id}",
+            status=TaskStatus.QUEUED.value,
+            run_id=run.id,
+            payload={
+                "page_id": str(page_id),
+                "plan_run_id": str(plan_run.id),
+                "reel_id": str(reel.id),
+                "generation_mode": body.generation_mode,
+                "source_plan_stage": "cinematic_plan_package",
+            },
+        )
+    )
+    _record_audit(
+        db,
+        request,
+        org_id=org_id,
+        action="cinematic_package.generated",
         resource_type="run",
         resource_id=str(run.id),
         payload={

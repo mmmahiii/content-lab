@@ -377,6 +377,11 @@ def test_master_prompt_uses_page_context_and_assets_without_screenshot_input() -
         "herb_pot",
     ]
     assert "Do not request screenshots" in package.master_prompt
+    assert "CRITICAL MANUAL-MODE RULE" in package.master_prompt
+    assert "Use the minimum number of selected assets" in package.master_prompt
+    assert "no more than 3 visible foreground objects" in package.master_prompt
+    assert "Every scene must begin with an environment_base object" in package.master_prompt
+    assert "Before returning, silently check" in package.master_prompt
     assert "selected_assets" in package.master_prompt
     assert "CinematicReelPlan" in package.master_prompt
     assert "Do not invent asset-specific roles" in package.master_prompt
@@ -418,6 +423,21 @@ def test_valid_plan_accepts_unused_rejected_asset_and_splits_artifacts() -> None
     assert validated.artifacts["caption_plan.json"]["captions"][0]["renderer_text_only"] is True
     assert validated.artifacts["reel_timeline.json"]["objects"][0]["z"] == 0.05
     assert validated.artifacts["provenance.json"]["plan_hash"] == validated.plan_hash
+
+
+def test_validation_repairs_provenance_selected_assets_from_planner_input() -> None:
+    payload = valid_plan_dict()
+    provenance = payload["provenance"]  # type: ignore[index]
+    provenance["selected_asset_ids"] = ["kitchen_bg", "steak_clip"]  # type: ignore[index]
+    provenance["rejected_assets"] = []  # type: ignore[index]
+
+    validated = validate_pasted_cinematic_plan(payload, planner_input=_planner_input())
+
+    assert validated.plan.provenance.selected_asset_ids == _planner_input().selected_asset_ids
+    assert {item.asset_id for item in validated.plan.provenance.rejected_assets} == {"herb_pot"}
+    repairs = validated.validation_report["normalization"]["repairs"]
+    assert any(item["path"] == "provenance.selected_asset_ids" for item in repairs)
+    assert any(item["path"] == "provenance.rejected_assets" for item in repairs)
 
 
 def test_pasted_plan_alias_drift_is_normalized_before_validation() -> None:
@@ -868,10 +888,11 @@ def test_tiny_hero_and_supporting_subjects_are_resized_before_realism_qa() -> No
     for item in (scene_1["objects"][1], scene_2["objects"][1]):  # type: ignore[index]
         item["width_normalised"] = 0.04
         item["height_normalised"] = 0.04
-        item["scale"] = 1.0
+        item["scale"] = 0.2
     scene_1["objects"][2]["role"] = "supporting_subject"  # type: ignore[index]
     scene_1["objects"][2]["width_normalised"] = 0.03  # type: ignore[index]
     scene_1["objects"][2]["height_normalised"] = 0.03  # type: ignore[index]
+    scene_1["objects"][2]["scale"] = 0.25  # type: ignore[index]
     scene_1["objects"][2]["shadow_spec"]["enabled"] = True  # type: ignore[index]
     scene_1["objects"][2]["shadow_spec"]["source_light_id"] = "key_window"  # type: ignore[index]
     scene_1["objects"][2]["shadow_spec"]["contact_shadow_required"] = True  # type: ignore[index]
@@ -879,6 +900,12 @@ def test_tiny_hero_and_supporting_subjects_are_resized_before_realism_qa() -> No
     plan = CinematicReelPlan.model_validate(payload)
     assert all(
         item.width_normalised * item.height_normalised * item.scale * item.scale >= 0.015
+        for scene in plan.scenes
+        for item in scene.objects
+        if item.role in {"hero_subject", "supporting_subject"}
+    )
+    assert all(
+        item.scale >= 1.0
         for scene in plan.scenes
         for item in scene.objects
         if item.role in {"hero_subject", "supporting_subject"}

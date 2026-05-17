@@ -30,7 +30,10 @@ from content_lab_api.models import (
     Task,
 )
 from content_lab_api.schemas.asset_packs import SourceAssetRegisterRequest
-from content_lab_api.services.asset_packs import detach_asset_from_pack, register_source_asset_for_pack
+from content_lab_api.services.asset_packs import (
+    detach_asset_from_pack,
+    register_source_asset_for_pack,
+)
 from content_lab_assets.registry import validate_asset_kind_media_type
 from content_lab_shared.settings import Settings
 from content_lab_storage import StorageRef, StoredObject
@@ -494,6 +497,89 @@ def test_asset_pack_composition_render_submit_creates_local_hook_cover_output(
     assert outbox.event_type == "orchestration.flow.requested"
     assert outbox.payload["workflow_key"] == "process_reel"
     assert db_session.query(AuditLog).filter(AuditLog.resource_id == str(run.id)).count() == 1
+
+
+def test_cinematic_plan_composition_submit_creates_plan_package_not_image(
+    asset_pack_client: TestClient,
+    db_session: Session,
+    org_id: uuid.UUID,
+) -> None:
+    page = Page(
+        org_id=org_id,
+        platform="instagram",
+        display_name="Cooking Page",
+        handle="cook",
+    )
+    pack = AssetPack(
+        org_id=org_id,
+        name="Ratatouille kit",
+        niche="home cooking",
+        requested_asset_count=1,
+        status="ready",
+    )
+    db_session.add_all([page, pack])
+    db_session.flush()
+    manifest = {
+        "schema_version": "cinematic_reel_plan_manifest.v1",
+        "output_type": "cinematic_reel_plan",
+        "asset_pack_id": str(pack.id),
+        "composition_id": "cinematic:hash-1",
+        "title": "Validated cinematic plan",
+        "plan_hash": "hash-1",
+        "cinematic_plan": {"plan_id": "plan-1", "scenes": []},
+        "cinematic_artifacts": {
+            "cinematic_reel_plan.json": {"plan_id": "plan-1"},
+            "reel_timeline.json": {"timeline": []},
+        },
+        "validation_report": {"status": "valid"},
+    }
+    response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{pack.id}/composition-renders",
+        json={
+            "page_id": str(page.id),
+            "composition_manifest": manifest,
+            "render_mode": "preview",
+            "dry_run": True,
+            "idempotency_key": f"cinematic-plan-run-v2:{pack.id}:hash-1",
+            "metadata": {"source": "validated_cinematic_plan"},
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    run = db_session.get(Run, uuid.UUID(payload["run_id"]))
+    task = db_session.get(Task, uuid.UUID(payload["task_id"]))
+    assert run is not None
+    assert task is not None
+    assert run.run_metadata["orchestration"]["backend"] == "cinematic_plan_package"
+    assert run.output_payload["workflow_stage"] == "cinematic_plan_package"
+    assert run.output_payload["output_type"] == "cinematic_reel_plan"
+    assert run.output_payload["ready_for_publish"] is False
+    assert "hook_cover" not in run.output_payload
+    assert "hook_cover" not in run.output_payload["package"]
+    assert run.output_payload["package"]["cinematic_plan"]["plan_id"] == "plan-1"
+    assert run.output_payload["package"]["manifest"]["artifact_count"] == 2
+    assert {
+        artifact["content_type"]
+        for artifact in run.output_payload["package"]["manifest"]["artifacts"]
+    } == {"application/json"}
+    assert run.output_payload["step_outputs"]["asset"]["status"] == "skipped"
+    assert task.result == run.output_payload
+    duplicate_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{pack.id}/composition-renders",
+        json={
+            "page_id": str(page.id),
+            "composition_manifest": manifest,
+            "render_mode": "preview",
+            "dry_run": True,
+            "idempotency_key": f"cinematic-plan-run-v2:{pack.id}:hash-1",
+            "metadata": {"source": "validated_cinematic_plan"},
+        },
+    )
+
+    assert duplicate_response.status_code == 202
+    assert duplicate_response.json()["run_id"] == str(run.id)
+    assert duplicate_response.json()["task_id"] == str(task.id)
 
 
 def test_asset_pack_plan_route_preserves_exact_operator_mix(
