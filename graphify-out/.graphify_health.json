@@ -1,0 +1,191 @@
+{
+  "node_count": 7788,
+  "unverified_node_count": 0,
+  "raw_edge_count": 24492,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 1510,
+  "self_loop_edges": 0,
+  "valid_candidate_edges": 22982,
+  "exact_duplicate_edges": 739,
+  "directed_unique_endpoint_pairs": 20658,
+  "directed_same_endpoint_collapsed_edges": 2324,
+  "undirected_unique_endpoint_pairs": 20528,
+  "undirected_same_endpoint_collapsed_edges": 2454,
+  "same_endpoint_group_count": 1924,
+  "relation_variant_groups": 1260,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 11,
+  "context_variant_groups": 210,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 7788,
+  "post_build_edge_count": 20097,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "C:\\Users\\islam\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\Lib\\site-packages\\graphify\\extract.py",
+    "total_sites": 12,
+    "sites": [
+      {
+        "line": 1154,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1420,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1422,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 1782,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1929,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n.get(\"id\") for n in nodes}"
+      },
+      {
+        "line": 2362,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 2531,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 3937,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4045,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4124,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4639,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4640,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "packages_editing_src_content_lab_editing_package_builder_build_package_directory",
+      "target": "packages_editing_src_content_lab_editing_package_builder_py_any",
+      "edge_count": 9,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "packages/editing/src/content_lab_editing/package_builder.py"
+      ],
+      "source_locations": [
+        "L63"
+      ],
+      "contexts": [
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "packages_editing_src_content_lab_editing_package_builder_build_ready_to_post_package",
+      "target": "packages_editing_src_content_lab_editing_package_builder_py_any",
+      "edge_count": 9,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "packages/editing/src/content_lab_editing/package_builder.py"
+      ],
+      "source_locations": [
+        "L148"
+      ],
+      "contexts": [
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "packages_editing_src_content_lab_editing_package_builder_package_payload",
+      "target": "packages_editing_src_content_lab_editing_package_builder_py_any",
+      "edge_count": 9,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "packages/editing/src/content_lab_editing/package_builder.py"
+      ],
+      "source_locations": [
+        "L489"
+      ],
+      "contexts": [
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "packages_assets_src_content_lab_assets_provenance_build_provenance",
+      "target": "packages_assets_src_content_lab_assets_provenance_py_any",
+      "edge_count": 8,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "packages/assets/src/content_lab_assets/provenance.py"
+      ],
+      "source_locations": [
+        "L371"
+      ],
+      "contexts": [
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "apps_api_src_content_lab_api_routes_reels_list_reels",
+      "target": "packages_shared_ts_src_types_uuid",
+      "edge_count": 6,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "apps/api/src/content_lab_api/routes/reels.py"
+      ],
+      "source_locations": [
+        "L204",
+        "L233"
+      ],
+      "contexts": [
+        "parameter_type"
+      ]
+    }
+  ]
+}
