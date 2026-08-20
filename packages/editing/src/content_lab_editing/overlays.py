@@ -10,8 +10,10 @@ from content_lab_editing.instructions import EditInstruction, EditOperation, Edi
 from content_lab_editing.layout import (
     DEFAULT_SAFE_AREA_9_16,
     ESTIMATED_GLYPH_WIDTH_FACTOR,
+    OTHER_ROLE_OVERLAY_MAX_LINES,
     SafeAreaInsets9_16,
     autofit_hook_overlay,
+    autofit_standard_overlay,
     compute_overlay_outer_rect,
     estimate_text_block,
     rect_fits_frame,
@@ -1010,12 +1012,79 @@ def _apply_hook_autofit_to_overlay(
     frame_height: int,
     safe_insets: SafeAreaInsets9_16,
 ) -> TextOverlay:
-    if overlay.overlay_role != "hook":
-        return replace(overlay, hook_autofit=None)
+    """Normalize text geometry for default-position overlays (hook + non-hook roles)."""
+
     if overlay.x is not None or overlay.y is not None:
         return replace(overlay, hook_autofit=None)
     if not overlay.text.strip():
         return replace(overlay, hook_autofit=None)
+
+    available_w = max(0, frame_width - safe_insets.left - safe_insets.right)
+    available_h = max(0, frame_height - safe_insets.top - safe_insets.bottom)
+
+    if overlay.overlay_role != "hook":
+        preset = get_overlay_style_preset(overlay.overlay_role)
+        line_caps: tuple[int, ...]
+        if preset is None:
+            line_caps = (OTHER_ROLE_OVERLAY_MAX_LINES,)
+        elif preset.max_text_lines <= 1:
+            line_caps = (1, 2, OTHER_ROLE_OVERLAY_MAX_LINES)
+        else:
+            line_caps = (preset.max_text_lines,)
+        est0 = estimate_text_block(
+            overlay.text,
+            font_size=overlay.font_size,
+            line_spacing=overlay.line_spacing,
+            glyph_width_factor=ESTIMATED_GLYPH_WIDTH_FACTOR,
+        )
+        try:
+            result = autofit_standard_overlay(
+                overlay.text,
+                overlay.font_size,
+                overlay.line_spacing,
+                frame_width=frame_width,
+                frame_height=frame_height,
+                insets=safe_insets,
+                has_box=overlay.box,
+                box_border_width=overlay.box_border_width,
+                border_width=overlay.border_width,
+                horizontal_align=overlay.horizontal_align,
+                vertical_align=overlay.vertical_align,
+                margin_x=overlay.margin_x,
+                margin_y=overlay.margin_y,
+                line_caps=line_caps,
+            )
+        except ValueError as exc:
+            base_details: dict[str, object] = {"reason": "standard_autofit"}
+            raise OverlayLayoutError(
+                f"Overlay cannot fit within frame and safe area even after wrapping and scaling: {exc}",
+                code="layout_autofit_failed",
+                text=overlay.text,
+                font_size=overlay.font_size,
+                line_spacing=overlay.line_spacing,
+                margin_x=overlay.margin_x,
+                margin_y=overlay.margin_y,
+                frame_width=frame_width,
+                frame_height=frame_height,
+                available_width=available_w,
+                available_height=available_h,
+                max_line_width_estimate=est0.max_line_text_width,
+                block_height_estimate=est0.text_block_height,
+                details=base_details,
+            ) from exc
+        meta_non_hook: dict[str, object] = {
+            "base_font_size": result.base_font_size,
+            "final_font_size": result.final_font_size,
+            "lines": list(result.lines),
+            "line_count": len(result.lines),
+            "auto_fit": result.auto_fit,
+        }
+        return replace(
+            overlay,
+            text=result.text,
+            font_size=result.final_font_size,
+            hook_autofit=meta_non_hook,
+        )
 
     est0 = estimate_text_block(
         overlay.text,
@@ -1023,8 +1092,6 @@ def _apply_hook_autofit_to_overlay(
         line_spacing=overlay.line_spacing,
         glyph_width_factor=ESTIMATED_GLYPH_WIDTH_FACTOR,
     )
-    available_w = max(0, frame_width - safe_insets.left - safe_insets.right)
-    available_h = max(0, frame_height - safe_insets.top - safe_insets.bottom)
     try:
         result = autofit_hook_overlay(
             overlay.text,
@@ -1042,7 +1109,7 @@ def _apply_hook_autofit_to_overlay(
             margin_y=overlay.margin_y,
         )
     except ValueError as exc:
-        base_details: dict[str, object] = {
+        hook_err_details: dict[str, object] = {
             "reason": "hook_autofit",
         }
         raise OverlayLayoutError(
@@ -1059,7 +1126,7 @@ def _apply_hook_autofit_to_overlay(
             available_height=available_h,
             max_line_width_estimate=est0.max_line_text_width,
             block_height_estimate=est0.text_block_height,
-            details=base_details,
+            details=hook_err_details,
         ) from exc
 
     meta: dict[str, object] = {

@@ -6,6 +6,7 @@ for gating before render.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # Shared with preflight: Latin-ish default sans at UI sizes (tune with field data).
@@ -202,6 +203,9 @@ def rect_fits_frame(outer: OuterRect, frame_width: int, frame_height: int) -> bo
 HOOK_MAX_LINES = 2
 HOOK_MIN_FONT_SIZE = 28
 
+# Non-hook overlays (e.g. role ``other`` / planner body copy): allow more wrapped lines.
+OTHER_ROLE_OVERLAY_MAX_LINES = 8
+
 
 def line_width_estimate_px(
     line: str,
@@ -362,6 +366,213 @@ def autofit_hook_overlay(
     raise ValueError(msg)
 
 
+def _split_word_to_fit_width(
+    word: str,
+    max_width_px: int,
+    *,
+    font_size: int,
+    glyph_width_factor: float,
+) -> list[str]:
+    """Split a single token into substrings each no wider than ``max_width_px``."""
+
+    if (
+        not word
+        or line_width_estimate_px(word, font_size=font_size, glyph_width_factor=glyph_width_factor)
+        <= max_width_px
+    ):
+        return [word] if word else []
+    chunks: list[str] = []
+    chunk = ""
+    for ch in word:
+        trial = chunk + ch
+        if (
+            line_width_estimate_px(
+                trial, font_size=font_size, glyph_width_factor=glyph_width_factor
+            )
+            <= max_width_px
+        ):
+            chunk = trial
+        else:
+            if chunk:
+                chunks.append(chunk)
+            chunk = ch
+    if chunk:
+        chunks.append(chunk)
+    return chunks
+
+
+def _tokens_each_fits_width(
+    words: Sequence[str],
+    max_width_px: int,
+    *,
+    font_size: int,
+    glyph_width_factor: float,
+) -> list[str]:
+    tokens: list[str] = []
+    for w in words:
+        tokens.extend(
+            _split_word_to_fit_width(
+                w, max_width_px, font_size=font_size, glyph_width_factor=glyph_width_factor
+            )
+        )
+    return tokens
+
+
+def _greedy_wrap_tokens(
+    tokens: Sequence[str],
+    *,
+    max_width_px: int,
+    font_size: int,
+    glyph_width_factor: float,
+    max_lines: int,
+) -> list[str] | None:
+    if max_lines < 1:
+        return None
+    lines: list[str] = []
+    current: list[str] = []
+
+    def flush() -> bool:
+        nonlocal current
+        if not current:
+            return True
+        if len(lines) >= max_lines:
+            return False
+        lines.append(" ".join(current))
+        current = []
+        return True
+
+    for tok in tokens:
+        trial = " ".join(current + [tok]) if current else tok
+        tw = line_width_estimate_px(
+            trial, font_size=font_size, glyph_width_factor=glyph_width_factor
+        )
+        if tw <= max_width_px:
+            current.append(tok)
+            continue
+        if not flush():
+            return None
+        if len(lines) >= max_lines:
+            return None
+        tw_one = line_width_estimate_px(
+            tok, font_size=font_size, glyph_width_factor=glyph_width_factor
+        )
+        if tw_one > max_width_px:
+            return None
+        current = [tok]
+
+    if current:
+        if len(lines) >= max_lines:
+            return None
+        lines.append(" ".join(current))
+    return lines
+
+
+def autofit_standard_overlay(
+    text: str,
+    base_font_size: int,
+    line_spacing: int,
+    *,
+    frame_width: int,
+    frame_height: int,
+    insets: SafeAreaInsets9_16,
+    has_box: bool,
+    box_border_width: int,
+    border_width: int,
+    horizontal_align: str,
+    vertical_align: str,
+    margin_x: int,
+    margin_y: int,
+    line_caps: Sequence[int],
+    min_font_size: int = HOOK_MIN_FONT_SIZE,
+) -> HookAutofitResult:
+    """Shrink font and/or wrap lines so non-hook overlays fit the frame and 9:16 safe area.
+
+    ``line_caps`` is an ordered list of maximum line counts to try (e.g. ``(1, 2)``
+    for compact roles that prefer a single line, then allow a second wrap).
+    """
+
+    if min_font_size < 8:
+        raise ValueError("invalid min_font_size for overlay autofit")
+    text_flat = " ".join(text.split())
+    if not text_flat:
+        raise ValueError("overlay text is empty")
+    orig = int(base_font_size)
+    base = max(orig, min_font_size)
+    caps = tuple(dict.fromkeys(int(c) for c in line_caps if int(c) > 0))
+    if not caps:
+        raise ValueError("line_caps must include at least one positive integer")
+
+    mtw = available_text_max_width(
+        frame_width,
+        insets,
+        has_box=has_box,
+        box_border_width=box_border_width,
+        border_width=border_width,
+    )
+
+    for line_cap in caps:
+        for font in range(base, min_font_size - 1, -1):
+            tokens = _tokens_each_fits_width(
+                text_flat.split(),
+                mtw,
+                font_size=font,
+                glyph_width_factor=ESTIMATED_GLYPH_WIDTH_FACTOR,
+            )
+            lines = _greedy_wrap_tokens(
+                tokens,
+                max_width_px=mtw,
+                font_size=font,
+                glyph_width_factor=ESTIMATED_GLYPH_WIDTH_FACTOR,
+                max_lines=line_cap,
+            )
+            if lines is None:
+                continue
+            joined = "\n".join(lines)
+            est = estimate_text_block(
+                joined,
+                font_size=font,
+                line_spacing=line_spacing,
+                glyph_width_factor=ESTIMATED_GLYPH_WIDTH_FACTOR,
+            )
+            outer = compute_overlay_outer_rect(
+                est,
+                frame_width=frame_width,
+                frame_height=frame_height,
+                horizontal_align=horizontal_align,
+                vertical_align=vertical_align,
+                margin_x=margin_x,
+                margin_y=margin_y,
+                has_box=has_box,
+                box_border_width=box_border_width,
+                border_width=border_width,
+            )
+            if not rect_fits_frame(outer, frame_width, frame_height) or not rect_fits_safe_insets(
+                outer, insets, frame_width, frame_height
+            ):
+                continue
+
+            if font < orig and len(lines) > 1:
+                reason = "wrapped_and_scaled"
+            elif font < orig:
+                reason = "scaled_down"
+            elif len(lines) > 1:
+                reason = "wrapped"
+            else:
+                reason = "none"
+            return HookAutofitResult(
+                text=joined,
+                final_font_size=font,
+                lines=tuple(lines),
+                base_font_size=orig,
+                auto_fit=reason,
+            )
+    msg = (
+        "Overlay text cannot be fit within frame and 9:16 safe area "
+        f"at minimum font {min_font_size}px with line caps {caps}"
+    )
+    raise ValueError(msg)
+
+
 __all__ = [
     "DEFAULT_SAFE_AREA_9_16",
     "ESTIMATED_GLYPH_WIDTH_FACTOR",
@@ -369,11 +580,13 @@ __all__ = [
     "FRAME_9_16_WIDTH",
     "HOOK_MAX_LINES",
     "HOOK_MIN_FONT_SIZE",
+    "OTHER_ROLE_OVERLAY_MAX_LINES",
     "HookAutofitResult",
     "OuterRect",
     "SafeAreaInsets9_16",
     "TextBlockEstimate",
     "autofit_hook_overlay",
+    "autofit_standard_overlay",
     "available_text_max_width",
     "compute_overlay_outer_rect",
     "estimate_text_block",

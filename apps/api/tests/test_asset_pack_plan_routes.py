@@ -265,6 +265,31 @@ def test_asset_pack_crud_routes_create_list_get_plan_and_items(
     assert len(items_response.json()) == 3
 
 
+def test_asset_pack_reject_allows_draft_pack_created_for_operator_uploads(
+    asset_pack_client: TestClient,
+    org_id: uuid.UUID,
+) -> None:
+    create_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs",
+        json={
+            "name": "Empty upload pack",
+            "niche": "coffee shop marketing",
+            "requested_asset_count": 0,
+            "purpose": "Empty reusable component pack for operator-uploaded assets.",
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["status"] == "draft"
+
+    reject_response = asset_pack_client.post(
+        f"/orgs/{org_id}/asset-packs/{created['id']}/reject",
+        json={"note": "Removed from pack browser."},
+    )
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "rejected"
+
+
 def test_asset_pack_combinations_route_returns_candidate_manifests(
     asset_pack_client: TestClient,
     db_session: Session,

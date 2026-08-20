@@ -336,12 +336,19 @@ def test_cinematic_prompt_endpoint_builds_manual_master_prompt(
     payload = response.json()
     assert payload["recommended_model"] == "gpt-5-mini"
     assert payload["selected_asset_ids"] == [str(ids["bg_id"]), str(ids["subject_id"]), str(ids["audio_id"])]
+    assert "allowed_prompt_paths" in payload["prompt_path_eligibility"]
     assert "Return only valid JSON" in payload["master_prompt"]
     assert "Do not request screenshots" in payload["master_prompt"]
     assert "CRITICAL MANUAL-MODE RULE" in payload["master_prompt"]
     assert "Use the minimum number of selected assets" in payload["master_prompt"]
     assert "no more than 3 visible foreground objects" in payload["master_prompt"]
-    assert "Every scene must begin with an environment_base object" in payload["master_prompt"]
+    assert (
+        "Every scene opens with environment_base unless intentionally transition-only"
+        in payload["master_prompt"]
+    )
+    assert "Duplicate-role rule:" in payload["master_prompt"]
+    assert "Static-asset motion rule:" in payload["master_prompt"]
+    assert "Explicit output rule:" in payload["master_prompt"]
     assert "Before returning, silently check" in payload["master_prompt"]
     assert payload["planner_input"]["selected_assets"][0]["possible_cinematic_roles"]
 
@@ -406,9 +413,66 @@ def test_cinematic_validate_endpoint_returns_artifacts(
     assert response.status_code == 200
     payload = response.json()
     assert payload["validation_report"]["passed"] is True
+    assert payload["validation_report"]["compositor_preflight"]["passed"] is True
     assert payload["plan_hash"]
     assert payload["artifacts"]["reel_timeline.json"]["objects"][1]["asset_id"] == str(ids["subject_id"])
     assert "realism_qa.json" in payload["artifacts"]
+
+
+def test_cinematic_validate_endpoint_returns_repair_prompt_for_placement_failures(
+    cinematic_client: TestClient,
+    db_session: Session,
+) -> None:
+    ids = _seed_pack(db_session)
+    prompt_response = cinematic_client.post(
+        f"/orgs/{ids['org_id']}/asset-packs/{ids['pack_id']}/cinematic-plan-prompt",
+        json=_prompt_body(ids),
+    )
+    input_hash = prompt_response.json()["input_page_context_hash"]
+    plan = _plan(ids, input_hash)
+    scene = plan["scenes"][0]  # type: ignore[index]
+    reveal = {**scene["objects"][1]}  # type: ignore[index]
+    reveal.update(
+        {
+            "object_id": "plant_accent",
+            "asset_id": str(ids["bg_id"]),
+            "asset_label": "Plant accent",
+            "role": "background_reveal",
+            "x": 0.5,
+            "y": 0.56,
+            "z": 0.2,
+            "scale": 1.05,
+            "max_overlap_ratio": 0.1,
+            "relative_depth_rule": "behind_hero",
+            "spatial_relationship": "independent",
+            "support_object_id": None,
+            "support_contact_required": False,
+            "contact_shadow_target_object_id": None,
+            "shadow_spec": _shadow(False),
+            "relationship_reason": "Decorative plant should stay behind the hero.",
+            "realism_reason": "Background greenery adds context without competing.",
+        }
+    )
+    scene["objects"].append(reveal)  # type: ignore[index]
+    body = {**_prompt_body(ids), "plan": plan}
+
+    response = cinematic_client.post(
+        f"/orgs/{ids['org_id']}/asset-packs/{ids['pack_id']}/cinematic-plan-validate",
+        json=body,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["detail"]["error"] == "cinematic_plan_repair_required"
+    assert "background_reveal_overlaps_hero" in payload["detail"]["failure_codes"]
+    assert "repair_prompt" in payload["detail"]
+    failure = next(
+        item
+        for item in payload["detail"]["failures"]
+        if item["failure_code"] == "background_reveal_overlaps_hero"
+    )
+    assert failure["object_id"] == "plant_accent"
+    assert "move it to upper-right" in failure["suggested_fix"]
 
 
 def test_cinematic_validate_endpoint_rejects_hallucinated_asset(

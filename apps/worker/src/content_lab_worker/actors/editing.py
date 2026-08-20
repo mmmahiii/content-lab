@@ -1217,6 +1217,7 @@ def _render_trace_payload(
         "layer_count": 1 + len(manifest.layers) + len(manifest.audio_layers),
         "command": list(render_result.command),
         "filter_complex": render_result.filter_complex,
+        "harmonisation_trace": list(render_result.harmonisation_trace),
         "cover_timestamp_seconds": cover_artifact.timestamp_seconds,
         "ffmpeg": {
             "returncode": render_result.ffmpeg_result.returncode,

@@ -10,6 +10,7 @@ python = "^3.11"
 content-lab-shared = {path = "../shared/py", develop = true}
 content-lab-core = {path = "../core", develop = true}
 content-lab-storage = {path = "../storage", develop = true}
+Pillow = "^10.4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

@@ -48,6 +48,35 @@ AUDIO_ROLES: tuple[str, ...] = (
     "voiceover_placeholder",
 )
 
+SPATIAL_RELATIONSHIPS: tuple[str, ...] = (
+    "on_surface",
+    "inside",
+    "behind",
+    "in_front_of",
+    "attached_to",
+    "adjacent_to",
+    "overlay_on",
+    "atmospheric",
+    "independent",
+)
+
+RELATIVE_DEPTH_RULES: tuple[str, ...] = (
+    "above_support",
+    "below_hero",
+    "behind_hero",
+    "same_plane",
+    "independent",
+)
+
+RENDER_STRATEGIES: tuple[str, ...] = (
+    "realistic_single_scene",
+    "realistic_sequence",
+    "product_card_layout",
+    "tabletop_layout",
+    "graphic_layout",
+    "low_res_texture_backdrop",
+)
+
 FORBIDDEN_GENERATION_TERMS: tuple[str, ...] = (
     "generate image",
     "generate video",
@@ -229,6 +258,8 @@ class TimelineObject(BaseModel):
     scale: float = Field(gt=0.0, le=5.0)
     width_normalised: float = Field(gt=0.0, le=1.0)
     height_normalised: float = Field(gt=0.0, le=1.0)
+    source_width: int | None = Field(default=None, gt=0)
+    source_height: int | None = Field(default=None, gt=0)
     rotation: float = Field(ge=-360.0, le=360.0)
     opacity: float = Field(ge=0.0, le=1.0)
     anchor_point: Literal[
@@ -246,6 +277,51 @@ class TimelineObject(BaseModel):
     shadow_spec: ShadowSpec
     blur_spec: BlurSpec
     occlusion_group: str = Field(min_length=1, max_length=120)
+    support_object_id: str | None = Field(default=None, max_length=120)
+    support_surface_mask_uri: str | None = Field(default=None, max_length=2048)
+    spatial_relationship: Literal[
+        "on_surface",
+        "inside",
+        "behind",
+        "in_front_of",
+        "attached_to",
+        "adjacent_to",
+        "overlay_on",
+        "atmospheric",
+        "independent",
+    ] = "independent"
+    required_overlap_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_overlap_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    support_contact_required: bool = False
+    must_remain_inside_support_bounds: bool = False
+    relative_depth_rule: Literal[
+        "above_support",
+        "below_hero",
+        "behind_hero",
+        "same_plane",
+        "independent",
+    ] = "independent"
+    contact_shadow_target_object_id: str | None = Field(default=None, max_length=120)
+    relationship_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    relationship_reason: str = Field(
+        default="No explicit physical dependency; object is independently placed.",
+        min_length=1,
+        max_length=500,
+    )
+    view_angle: Literal["top_down", "front", "side", "three_quarter", "overhead", "unknown"] = (
+        "unknown"
+    )
+    surface_plane: Literal["horizontal", "vertical", "angled", "floating", "unknown"] = "unknown"
+    lighting_direction: Literal[
+        "upper_left",
+        "upper_right",
+        "overhead",
+        "front",
+        "mixed",
+        "unknown",
+    ] = "unknown"
+    preferred_screen_regions: list[str] = Field(default_factory=list)
+    forbidden_screen_regions: list[str] = Field(default_factory=list)
     realism_reason: str = Field(min_length=1, max_length=500)
 
     @field_validator("role")
@@ -260,6 +336,22 @@ class TimelineObject(BaseModel):
     def _validate_span(self) -> TimelineObject:
         if self.end_time <= self.start_time:
             raise ValueError("timeline object end_time must be greater than start_time")
+        if (
+            self.spatial_relationship
+            in {"on_surface", "inside", "attached_to", "overlay_on"}
+            and not self.support_object_id
+        ):
+            raise ValueError(f"{self.spatial_relationship} relationship requires support_object_id")
+        if self.support_contact_required and not self.contact_shadow_target_object_id:
+            raise ValueError(
+                "support_contact_required=true requires contact_shadow_target_object_id"
+            )
+        if self.spatial_relationship == "inside" and self.required_overlap_ratio < 0.5:
+            raise ValueError("inside relationship requires required_overlap_ratio >= 0.5")
+        if self.spatial_relationship == "atmospheric" and self.support_contact_required:
+            raise ValueError("atmospheric objects cannot require hard contact shadows")
+        if self.required_overlap_ratio > self.max_overlap_ratio:
+            raise ValueError("required_overlap_ratio cannot exceed max_overlap_ratio")
         if (
             self.role in {"hero_subject", "supporting_subject", "foreground_texture"}
             and self.shadow_spec.enabled
@@ -525,6 +617,10 @@ class ScenePlan(BaseModel):
             role = normalize_cinematic_role_value(item.get("role"))
             if role is not None:
                 item["role"] = role
+            if item.get("role") == "background_reveal":
+                if "max_overlap_ratio" not in item:
+                    item["max_overlap_ratio"] = 0.1
+                _normalize_raw_background_reveal_regions(item)
             for field_name in _NORMALIZED_OBJECT_FIELDS:
                 _clamp_raw_numeric_field(
                     item,
@@ -578,6 +674,7 @@ class ScenePlan(BaseModel):
     def _validate_scene(self) -> ScenePlan:
         if self.end_time <= self.start_time:
             raise ValueError("scene end_time must be greater than start_time")
+        objects_by_id = {item.object_id: item for item in self.objects}
         object_roles = {item.role for item in self.objects}
         if self.dominant_focal_role not in object_roles:
             raise ValueError("dominant_focal_role must match a role used by a scene object")
@@ -586,6 +683,19 @@ class ScenePlan(BaseModel):
                 raise ValueError("timeline object scene_id must match parent scene")
             if item.start_time < self.start_time or item.end_time > self.end_time:
                 raise ValueError("timeline object timing must stay inside parent scene")
+            if item.support_object_id and item.support_object_id not in objects_by_id:
+                raise ValueError(
+                    f"support_object_id references unknown object in scene: {item.support_object_id}"
+                )
+            if (
+                item.contact_shadow_target_object_id
+                and item.contact_shadow_target_object_id not in objects_by_id
+            ):
+                raise ValueError(
+                    "contact_shadow_target_object_id references unknown object in scene: "
+                    f"{item.contact_shadow_target_object_id}"
+                )
+        _repair_support_overlap_for_scene(self.objects)
         for caption in self.captions:
             if caption.start_time < self.start_time or caption.end_time > self.end_time:
                 raise ValueError("caption timing must stay inside parent scene")
@@ -614,6 +724,14 @@ class CinematicReelPlan(BaseModel):
     total_duration_seconds: float = Field(gt=0.0, le=180.0)
     fps: int = Field(default=24, ge=1, le=120)
     canvas: CanvasSpec = Field(default_factory=CanvasSpec)
+    render_strategy: Literal[
+        "realistic_single_scene",
+        "realistic_sequence",
+        "product_card_layout",
+        "tabletop_layout",
+        "graphic_layout",
+        "low_res_texture_backdrop",
+    ] = "realistic_single_scene"
     scenes: list[ScenePlan] = Field(default_factory=list, min_length=1, max_length=12)
     global_camera_style: str = Field(min_length=1, max_length=500)
     global_lighting_style: str = Field(min_length=1, max_length=500)
@@ -669,6 +787,7 @@ class CinematicReelPlan(BaseModel):
             raise ValueError("too many simultaneous foreground objects")
         _repair_model_subject_footprints(self)
         _repair_model_light_references(self)
+        _repair_model_render_strategy_notes(self)
         _validate_light_references(self)
         _validate_no_generation_instructions(self)
         return self
@@ -727,6 +846,130 @@ def _validate_light_references(plan: CinematicReelPlan) -> None:
             shadow = item.shadow_spec
             if shadow.enabled and shadow.source_light_id not in light_ids:
                 raise ValueError(f"object {item.object_id} references unknown light_id")
+
+
+def _repair_model_render_strategy_notes(plan: CinematicReelPlan) -> None:
+    if plan.render_strategy != "low_res_texture_backdrop":
+        return
+    text = " ".join(plan.render_notes).lower()
+    if "low-res" in text or ("blur" in text and ("pad" in text or "texture" in text)):
+        return
+    plan.render_notes.append(
+        "Low-res environment handling: use blurred, padded/cropped texture backdrop treatment; "
+        "foreground assets must carry sharp detail."
+    )
+
+
+def _repair_support_overlap_for_scene(objects: list[TimelineObject]) -> None:
+    """Nudge supported objects toward their support footprint and relax overlap targets when impossible."""
+    objects_by_id = {item.object_id: item for item in objects}
+    for item in objects:
+        support_id = item.support_object_id
+        if not support_id:
+            continue
+        support = objects_by_id.get(support_id)
+        if support is None:
+            continue
+        req = item.required_overlap_ratio
+        if req <= 0.0:
+            continue
+
+        overlap = _overlap_ratio(item, support)
+        if overlap >= req:
+            continue
+
+        left_b, top_b, right_b, bottom_b = _bounds(support)
+        scx = (left_b + right_b) / 2.0
+        scy = (top_b + bottom_b) / 2.0
+
+        best_x, best_y = item.x, item.y
+        best_ov = overlap
+
+        for _ in range(96):
+            item.x = max(0.0, min(1.0, item.x + 0.1 * (scx - item.x)))
+            item.y = max(0.0, min(1.0, item.y + 0.1 * (scy - item.y)))
+            ov = _overlap_ratio(item, support)
+            if ov > best_ov:
+                best_ov = ov
+                best_x, best_y = item.x, item.y
+            if ov >= req:
+                break
+
+        item.x, item.y = best_x, best_y
+        overlap = _overlap_ratio(item, support)
+        if overlap >= req:
+            continue
+
+        # Relax declared overlap requirement to match achievable geometry.
+        new_req = min(req, overlap)
+        if item.spatial_relationship == "inside" and new_req < 0.5:
+            item.spatial_relationship = "on_surface"
+        item.required_overlap_ratio = new_req
+        if item.required_overlap_ratio > item.max_overlap_ratio:
+            item.max_overlap_ratio = item.required_overlap_ratio
+
+
+def _validate_scene_relationship_geometry(objects: list[TimelineObject]) -> None:
+    objects_by_id = {item.object_id: item for item in objects}
+    heroes = [item for item in objects if item.role == "hero_subject"]
+    hero = max(heroes, key=_visual_priority) if heroes else None
+    for item in objects:
+        support = objects_by_id.get(item.support_object_id or "")
+        if support is not None:
+            overlap = _overlap_ratio(item, support)
+            if overlap < item.required_overlap_ratio:
+                raise ValueError(
+                    f"object {item.object_id} does not meet required overlap with support object"
+                )
+            if item.spatial_relationship == "inside":
+                if item.z <= support.z:
+                    raise ValueError("inside relationship requires object z above support z")
+                if not _is_inside_bounds(item, support):
+                    raise ValueError("inside relationship requires object inside support bounds")
+        if hero is not None and item.object_id != hero.object_id:
+            hero_overlap = _overlap_ratio(item, hero)
+            if item.relative_depth_rule == "behind_hero" and item.z > hero.z:
+                raise ValueError("behind_hero object cannot have higher z than hero")
+            if item.role == "background_reveal" and hero_overlap > 0.1:
+                raise ValueError("background_reveal cannot heavily overlap hero_subject")
+
+
+def _visual_priority(item: TimelineObject) -> float:
+    duration = max(0.0, item.end_time - item.start_time)
+    area = item.width_normalised * item.height_normalised * item.scale * item.scale
+    return (item.z * 0.25) + (area * 0.4) + (item.opacity * 0.2) + (duration * 0.015)
+
+
+def _bounds(item: TimelineObject) -> tuple[float, float, float, float]:
+    width = item.width_normalised * item.scale
+    height = item.height_normalised * item.scale
+    return (
+        max(0.0, item.x - width / 2),
+        max(0.0, item.y - height / 2),
+        min(1.0, item.x + width / 2),
+        min(1.0, item.y + height / 2),
+    )
+
+
+def _overlap_ratio(item: TimelineObject, other: TimelineObject) -> float:
+    left_a, top_a, right_a, bottom_a = _bounds(item)
+    left_b, top_b, right_b, bottom_b = _bounds(other)
+    overlap_width = max(0.0, min(right_a, right_b) - max(left_a, left_b))
+    overlap_height = max(0.0, min(bottom_a, bottom_b) - max(top_a, top_b))
+    overlap_area = overlap_width * overlap_height
+    item_area = max(0.0001, (right_a - left_a) * (bottom_a - top_a))
+    return overlap_area / item_area
+
+
+def _is_inside_bounds(item: TimelineObject, support: TimelineObject) -> bool:
+    left, top, right, bottom = _bounds(item)
+    support_left, support_top, support_right, support_bottom = _bounds(support)
+    return (
+        left >= support_left
+        and right <= support_right
+        and top >= support_top
+        and bottom <= support_bottom
+    )
 
 
 def _repair_model_light_references(plan: CinematicReelPlan) -> None:
@@ -1052,6 +1295,40 @@ def _clamp_raw_numeric_field(
         target[field_name] = min(max(float(value), lower), upper)
 
 
+def _normalize_raw_background_reveal_regions(item: dict[str, Any]) -> None:
+    preferred = _normalize_raw_region_list(item.get("preferred_screen_regions"))
+    if not preferred or any(region in {"foreground", "lower_third", "full_frame"} for region in preferred):
+        item["preferred_screen_regions"] = [
+            "upper_left",
+            "upper_right",
+            "background_left",
+            "background_right",
+            "rear",
+            "side",
+        ]
+    else:
+        item["preferred_screen_regions"] = preferred
+    item["forbidden_screen_regions"] = [
+        region
+        for region in _normalize_raw_region_list(item.get("forbidden_screen_regions"))
+        if region != "full_frame"
+    ]
+
+
+def _normalize_raw_region_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values = [value] if isinstance(value, str) else value
+    if not isinstance(values, list):
+        return []
+    result: list[str] = []
+    for item in values:
+        region = "_".join(str(item).strip().lower().replace("-", "_").split())
+        if region and region not in result:
+            result.append(region)
+    return result
+
+
 def _is_placeholder_audio_layer(layer: AudioLayer) -> bool:
     material = " ".join(
         item
@@ -1082,6 +1359,9 @@ __all__ = [
     "CAMERA_MOVES",
     "CINEMATIC_ROLES",
     "PROMPT_PATHS",
+    "RELATIVE_DEPTH_RULES",
+    "RENDER_STRATEGIES",
+    "SPATIAL_RELATIONSHIPS",
     "AudioLayer",
     "AudioPlan",
     "AudioSyncPoint",

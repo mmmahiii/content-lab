@@ -95,14 +95,23 @@ def select_prompt_paths_for_context(
         ranked.append("ambient_lifestyle")
 
     ranked.extend(["curiosity_gap", "object_story", "cinematic_closeup"])
+    from content_lab_creative.prompt_path_eligibility import PromptPathEligibilityGate
+
+    gate = PromptPathEligibilityGate.from_selected_assets(selected_assets)
     selected: list[str] = []
     for path in [*pinned, *ranked]:
         if path in banned or path in selected:
             continue
+        if not gate.is_allowed(path):
+            continue
         selected.append(path)
         if len(selected) >= max_paths:
             break
-    return selected or ["cinematic_closeup"]
+    fallback = "cinematic_closeup"
+    if not gate.is_allowed(fallback):
+        allowed = gate.allowed_prompt_paths_ordered()
+        fallback = allowed[0] if allowed else fallback
+    return selected or [fallback]
 
 
 def _context_text(

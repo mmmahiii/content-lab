@@ -151,8 +151,12 @@ def test_motion_transform_presets_emit_ffmpeg_expressions(tmp_path: Path) -> Non
         output_path=tmp_path / "final.mp4",
     )
 
-    assert "eval=frame" in filter_complex
-    assert "trunc(420*(1+(1.06-1)*(t/1)))" in filter_complex
+    # FFmpeg 4.2 rejects time (`t`) inside animated scale=...:eval=frame; use static max scale
+    # and Ken Burns-style overlay offsets instead.
+    assert "eval=frame" not in filter_complex
+    assert "scale=445:445," in filter_complex
+    assert "overlay=x='" in filter_complex
+    assert "(445-(420+(445-420)*((t-0)/1)))/2" in filter_complex
 
 
 def test_pan_motion_transform_moves_overlay_position(tmp_path: Path) -> None:

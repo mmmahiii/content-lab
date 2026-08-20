@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from content_lab_assets.metadata import derive_asset_compatibility_metadata
 from content_lab_assets.types import AssetKind, infer_media_type_for_asset_kind
 
 CINEMATIC_ROLES: tuple[str, ...] = (
@@ -22,6 +24,11 @@ CINEMATIC_ROLES: tuple[str, ...] = (
     "transition_element",
     "brand_marker",
     "narrative_payoff",
+)
+
+# Whole-token match on alphanumeric tokens scanned from identifiers (eggplant ≠ plant).
+_FRESHNESS_BACKGROUND_REVEAL_TOKENS = frozenset(
+    {"plant", "plants", "herb", "herbs", "foliage", "greenery", "basil", "rosemary", "mint", "cilantro"}
 )
 
 
@@ -80,6 +87,27 @@ def normalize_asset_for_cinematic_planning(item: Mapping[str, Any]) -> Cinematic
         pack_role,
         asset_kind,
     )
+    possible_roles = list(
+        cinematic_roles_for_asset(
+            asset_kind=asset_kind,
+            media_type=media_type,
+            pack_role=pack_role,
+            metadata=metadata,
+        )
+    )
+    width = _positive_int(metadata.get("width") or _mapping(metadata.get("visual")).get("width"))
+    height = _positive_int(metadata.get("height") or _mapping(metadata.get("visual")).get("height"))
+    transparency = _mapping(metadata.get("transparency"))
+    if not transparency and _has_transparency(metadata):
+        transparency = {"has_transparency": True}
+    planner_compatibility = derive_asset_compatibility_metadata(
+        asset_kind=asset_kind,
+        transparency=transparency,
+        width=width,
+        height=height,
+        possible_cinematic_roles=possible_roles,
+        overrides=compatibility,
+    ).model_dump(mode="json")
     return CinematicAssetDescriptor(
         asset_id=_required_text(item.get("asset_id") or item.get("id"), field_name="asset_id"),
         asset_label=label,
@@ -87,18 +115,11 @@ def normalize_asset_for_cinematic_planning(item: Mapping[str, Any]) -> Cinematic
         media_type=media_type,
         pack_role=pack_role,
         transparent=_has_transparency(metadata),
-        width=_positive_int(metadata.get("width") or _mapping(metadata.get("visual")).get("width")),
-        height=_positive_int(metadata.get("height") or _mapping(metadata.get("visual")).get("height")),
+        width=width,
+        height=height,
         tags=_string_list(metadata.get("tags"))[:8],
-        possible_cinematic_roles=list(
-            cinematic_roles_for_asset(
-                asset_kind=asset_kind,
-                media_type=media_type,
-                pack_role=pack_role,
-                metadata=metadata,
-            )
-        ),
-        compatibility=compatibility,
+        possible_cinematic_roles=possible_roles,
+        compatibility=planner_compatibility,
         metadata=_prompt_safe_metadata(metadata),
     )
 
@@ -118,6 +139,10 @@ def cinematic_roles_for_asset(
     metadata_text = _normalize(" ".join(_metadata_hints(metadata or {})))
     haystack = " ".join([kind, role_text, media, metadata_text])
     roles: list[str] = []
+
+    hint_tokens = set(re.findall(r"[a-z0-9]+", haystack.lower()))
+    if hint_tokens.intersection(_FRESHNESS_BACKGROUND_REVEAL_TOKENS):
+        roles.append("background_reveal")
 
     if any(token in haystack for token in ("audio", "sound", "voiceover", "music")):
         roles.append("audio_layer")

@@ -18,7 +18,7 @@ import json
 import tempfile
 import uuid
 from argparse import Namespace
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -63,6 +63,7 @@ from content_lab_editing import (
     build_ready_to_post_package,
     build_timeline_render_trace,
     compose_and_store_layered_reel,
+    default_harmonisation_for_layer,
     render_basic_vertical_edit,
 )
 from content_lab_outbox import (
@@ -472,6 +473,74 @@ class SQLProcessReelAssetResolver:
         ]
         if not visual_roles:
             return None
+        cinematic_layers = _composition_manifest_from_cinematic_plan(
+            manifest_payload=manifest_payload,
+            visual_roles=visual_roles,
+        )
+        if cinematic_layers is not None:
+            composition_manifest, cinematic_asset_sources = cinematic_layers
+            duration = composition_manifest.duration
+            workdir = self._temp_root / execution.run_id / "asset-composition"
+            output_path = workdir / "asset_pack_source.mp4"
+            render_asset_id = str(
+                uuid.uuid5(uuid.NAMESPACE_URL, f"content-lab-layered-source:{execution.run_id}")
+            )
+            stored = compose_and_store_layered_reel(
+                composition_manifest,
+                asset_sources=cinematic_asset_sources,
+                output_path=output_path,
+                client=cast(S3StorageClient, self._storage_client),
+                layout=self._storage_layout,
+                render_asset_id=render_asset_id,
+                storage_client=self._storage_client,
+                staging_dir=workdir / "inputs",
+                timeout_seconds=120,
+                asset_class="derived_cinematic_source",
+                filename="source.mp4",
+                upload_metadata={
+                    "run-id": execution.run_id,
+                    "reel-id": execution.reel_id,
+                    "source": "asset-pack-cinematic-plan",
+                },
+            )
+            with self._session_factory() as session:
+                asset_uuid = uuid.UUID(render_asset_id)
+                if session.get(Asset, asset_uuid) is None:
+                    asset = Asset(
+                        org_id=uuid.UUID(execution.org_id),
+                        asset_class="derived_cinematic_source",
+                        storage_uri=stored.stored_asset.storage_uri,
+                        source="asset_pack_cinematic_plan",
+                        content_hash=stored.stored_asset.checksums.content_hash,
+                        status="active",
+                        metadata_={
+                            "reel_id": execution.reel_id,
+                            "run_id": execution.run_id,
+                            "composition_manifest": composition_manifest.model_dump(mode="json"),
+                            "source_composition_manifest": manifest_payload,
+                        },
+                        asset_key=f"derived_cinematic_source:{execution.run_id}",
+                        asset_key_hash=render_asset_id.replace("-", ""),
+                    )
+                    asset.id = asset_uuid
+                    session.add(asset)
+                    session.commit()
+            return {
+                "asset_id": render_asset_id,
+                "asset_kind": "layered_composition",
+                "asset_source": "asset_pack_cinematic_plan",
+                "media_type": "video",
+                "provider": "asset_pack_compositor",
+                "duration_seconds": duration,
+                "storage_uri": stored.stored_asset.storage_uri,
+                "content_hash": stored.stored_asset.checksums.content_hash,
+                "metadata": {
+                    "composition_manifest": composition_manifest.model_dump(mode="json"),
+                    "source_composition_manifest": manifest_payload,
+                    "render_authority": "validated_cinematic_plan_timeline",
+                    "content_hash": stored.stored_asset.checksums.content_hash,
+                },
+            }
 
         background_role = next(
             (
@@ -481,13 +550,15 @@ class SQLProcessReelAssetResolver:
             ),
             visual_roles[0],
         )
+        # Stack enough distinct cutouts for cinematic plans (≤5 subjects + props in one payoff).
+        # Legacy hook manifests only emitted a handful of manifest keys regardless.
         foreground_roles = [
             (role, value)
             for role, value in visual_roles
             if value is not background_role[1]
             and role not in {"audio", "format"}
             and not _role_has_baked_reference_marks(value)
-        ][:3]
+        ][:12]
         duration = _optional_float(request_payload.get("duration_seconds")) or _optional_float(
             _mapping(creative_output.get("scene_plan")).get("duration_seconds")
         ) or _DEFAULT_REEL_DURATION_SECONDS
@@ -515,26 +586,30 @@ class SQLProcessReelAssetResolver:
             }
             width = 760 if index == 1 else 520
             height = 760 if index == 1 else 520
-            layers.append(
-                CompositionLayer(
-                    layer_id=f"{role}-{index}",
-                    asset_id=asset_id,
-                    asset_kind=_role_asset_kind(value, fallback=role),
-                    media_type=media_type,
-                    z_index=10 + index,
-                    start_time=0,
-                    end_time=duration,
-                    x=max(0, 540 - width // 2 + (index - 1) * 84),
-                    y=max(0, 960 - height // 2 + (index - 1) * 112),
-                    width=width,
-                    height=height,
-                    crop=_role_source_crop(value, layer_role=role),
-                    opacity=0.96,
-                    motion_transform=MotionTransform(
-                        preset="float" if index == 1 else "slow_zoom",
-                    ),
-                )
+            asset_kind = _role_asset_kind(value, fallback=role)
+            layer = CompositionLayer(
+                layer_id=f"{role}-{index}",
+                asset_id=asset_id,
+                asset_kind=asset_kind,
+                media_type=media_type,
+                z_index=10 + index,
+                start_time=0,
+                end_time=duration,
+                x=max(0, 540 - width // 2 + (index - 1) * 84),
+                y=max(0, 960 - height // 2 + (index - 1) * 112),
+                width=width,
+                height=height,
+                crop=_role_source_crop(value, layer_role=role),
+                opacity=0.96,
+                mask_mode=_role_mask_mode(value, asset_kind=asset_kind),
+                motion_transform=MotionTransform(
+                    preset="float" if index == 1 else "slow_zoom",
+                ),
             )
+            harmonisation = default_harmonisation_for_layer(layer)
+            if harmonisation is not None:
+                layer = layer.model_copy(update={"harmonisation": harmonisation})
+            layers.append(layer)
 
         composition_manifest = CompositionManifest(
             canvas_width=1080,
@@ -1237,6 +1312,12 @@ class PhaseOneProcessReelExecutor:
                 overlay_timeline=cast(Any, script_payload.get("overlay_timeline")),
                 spoken_script=cast(Any, script_payload.get("spoken_script")),
             ).model_dump(mode="json")
+        cinematic_source_duration = _cinematic_composition_duration_seconds(asset_output)
+        if cinematic_source_duration is not None:
+            canonical_timeline_payload = _retime_canonical_timeline_payload(
+                canonical_timeline_payload,
+                target_duration_seconds=cinematic_source_duration,
+            )
 
         canonical_overlay_timeline = cast(
             list[dict[str, Any]],
@@ -1253,6 +1334,8 @@ class PhaseOneProcessReelExecutor:
         ) or _optional_float(
             _mapping(creative_output.get("primary_asset_request")).get("duration_seconds")
         )
+        if cinematic_source_duration is not None:
+            requested_provider_duration_seconds = cinematic_source_duration
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
         artifact = render_basic_vertical_edit(
@@ -1863,6 +1946,323 @@ def _composition_manifest_from_creative_output(
     return manifest or None
 
 
+def _composition_manifest_from_cinematic_plan(
+    *,
+    manifest_payload: Mapping[str, Any],
+    visual_roles: Sequence[tuple[str, Mapping[str, Any]]],
+) -> tuple[CompositionManifest, dict[str, dict[str, object]]] | None:
+    plan = _mapping(manifest_payload.get("cinematic_plan"))
+    if not plan:
+        return None
+    roles_by_asset_id = _visual_roles_by_asset_id(visual_roles)
+    rejected_asset_ids = _rejected_asset_ids(plan)
+    scenes = _iter_mappings(plan.get("scenes"))
+    objects = [
+        item
+        for scene in scenes
+        for item in _iter_mappings(scene.get("objects"))
+        if _optional_text(item.get("asset_id")) not in rejected_asset_ids
+    ]
+    canvas = _mapping(plan.get("canvas"))
+    canvas_width = _optional_int(canvas.get("width")) or 1080
+    canvas_height = _optional_int(canvas.get("height")) or 1920
+    duration = _optional_float(plan.get("total_duration_seconds")) or _cinematic_objects_end_time(objects)
+    duration = max(1.0, duration)
+
+    background_object = _first_environment_object(objects, roles_by_asset_id)
+    if background_object is None:
+        return None
+    background_asset_id = _optional_text(background_object.get("asset_id"))
+    if background_asset_id is None:
+        return None
+    background_role = roles_by_asset_id[background_asset_id]
+    asset_sources: dict[str, dict[str, object]] = {
+        background_asset_id: {
+            "source": _required_text(
+                _role_storage_uri(background_role),
+                field_name="composition_manifest.roles.background.storage_uri",
+            ),
+            "media_type": _role_visual_media_type(background_role) or "image",
+        }
+    }
+    layers: list[CompositionLayer] = []
+    timeline_objects = _coalesce_cinematic_objects(
+        (obj for obj in objects if obj is not background_object),
+        total_duration_seconds=duration,
+    )
+    timeline_objects = sorted(
+        timeline_objects,
+        key=lambda obj: (
+            _optional_float(obj.get("z")) or 0.0,
+            _optional_float(obj.get("start_time")) or 0.0,
+            _optional_text(obj.get("object_id")) or "",
+        ),
+    )
+    for z_order, item in enumerate(timeline_objects, start=1):
+        role = _optional_text(item.get("role")) or ""
+        if role == "environment_base":
+            continue
+        asset_id = _optional_text(item.get("asset_id"))
+        if asset_id is None:
+            continue
+        role_payload = roles_by_asset_id.get(asset_id)
+        if role_payload is None:
+            raise ValueError(
+                f"cinematic plan object {item.get('object_id')!r} references asset {asset_id!r} "
+                "without a renderable manifest role"
+            )
+        media_type = _role_visual_media_type(role_payload) or "image"
+        asset_sources.setdefault(
+            asset_id,
+            {
+                "source": _required_text(
+                    _role_storage_uri(role_payload),
+                    field_name=f"composition_manifest.roles.{asset_id}.storage_uri",
+                ),
+                "media_type": media_type,
+            },
+        )
+        start_time = max(0.0, _optional_float(item.get("start_time")) or 0.0)
+        end_time = min(duration, _optional_float(item.get("end_time")) or duration)
+        if end_time <= start_time:
+            continue
+        width, height = _cinematic_object_pixel_size(
+            item,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+        x, y = _cinematic_object_top_left(
+            item,
+            width=width,
+            height=height,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+        asset_kind = _role_asset_kind(role_payload, fallback=role or "cinematic_layer")
+        layer = CompositionLayer(
+            layer_id=_cinematic_layer_id(item, len(layers) + 1),
+            asset_id=asset_id,
+            asset_kind=asset_kind,
+            media_type=media_type,
+            z_index=z_order,
+            start_time=start_time,
+            end_time=end_time,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            crop=_role_source_crop(role_payload, layer_role=role),
+            opacity=_bounded_float(item.get("opacity"), default=1.0, lower=0.0, upper=1.0),
+            rotation=_optional_float(item.get("rotation")) or 0.0,
+            mask_mode=_role_mask_mode(role_payload, asset_kind=asset_kind),
+            motion_transform=MotionTransform(preset="none"),
+        )
+        harmonisation = default_harmonisation_for_layer(layer)
+        if harmonisation is not None:
+            layer = layer.model_copy(update={"harmonisation": harmonisation})
+        layers.append(layer)
+
+    return (
+        CompositionManifest(
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            duration=duration,
+            fps=_optional_int(plan.get("fps")) or 24,
+            background_layer=CompositionLayer(
+                layer_id="background",
+                asset_id=background_asset_id,
+                asset_kind=_role_asset_kind(background_role, fallback="environment_base"),
+                media_type=_role_visual_media_type(background_role) or "image",
+                z_index=0,
+                start_time=0,
+                end_time=duration,
+                x=0,
+                y=0,
+                width=canvas_width,
+                height=canvas_height,
+                crop=_role_source_crop(background_role, layer_role="background"),
+                opacity=1.0,
+                motion_transform=MotionTransform(preset="slow_zoom", scale_from=1.0, scale_to=1.035),
+            ),
+            layers=layers,
+            audio_layers=[],
+        ),
+        asset_sources,
+    )
+
+
+def _iter_mappings(value: Any) -> list[Mapping[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _visual_roles_by_asset_id(
+    visual_roles: Sequence[tuple[str, Mapping[str, Any]]],
+) -> dict[str, Mapping[str, Any]]:
+    roles: dict[str, Mapping[str, Any]] = {}
+    for _, value in visual_roles:
+        asset_id = _role_asset_id(value, fallback="")
+        if asset_id:
+            roles[asset_id] = value
+    return roles
+
+
+def _rejected_asset_ids(plan: Mapping[str, Any]) -> set[str]:
+    rejected: set[str] = set()
+    for item in _iter_mappings(_mapping(plan.get("provenance")).get("rejected_assets")):
+        asset_id = _optional_text(item.get("asset_id"))
+        if asset_id is not None:
+            rejected.add(asset_id)
+    return rejected
+
+
+def _coalesce_cinematic_objects(
+    objects: Any,
+    *,
+    total_duration_seconds: float,
+) -> list[dict[str, Any]]:
+    """Collapse repeated scene objects for the same asset into one continuous render layer.
+
+    The validated plan may restate the same physical object in every scene with slightly
+    different coordinates. The layer compositor is not a scene graph, so rendering each
+    restatement as an independent timed layer causes visible size/position stepping.
+    """
+
+    by_asset: dict[str, dict[str, Any]] = {}
+    for raw in objects:
+        if not isinstance(raw, Mapping):
+            continue
+        asset_id = _optional_text(raw.get("asset_id"))
+        if asset_id is None:
+            continue
+        current = by_asset.get(asset_id)
+        candidate = dict(raw)
+        if current is None:
+            by_asset[asset_id] = candidate
+            continue
+        by_asset[asset_id] = _merge_cinematic_object_restatements(
+            current,
+            candidate,
+            total_duration_seconds=total_duration_seconds,
+        )
+    return list(by_asset.values())
+
+
+def _merge_cinematic_object_restatements(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    *,
+    total_duration_seconds: float,
+) -> dict[str, Any]:
+    representative = right if _cinematic_object_priority(right) >= _cinematic_object_priority(left) else left
+    merged = dict(representative)
+    merged["start_time"] = min(
+        _optional_float(left.get("start_time")) or 0.0,
+        _optional_float(right.get("start_time")) or 0.0,
+    )
+    merged["end_time"] = max(
+        _optional_float(left.get("end_time")) or total_duration_seconds,
+        _optional_float(right.get("end_time")) or total_duration_seconds,
+    )
+    merged["z"] = max(_optional_float(left.get("z")) or 0.0, _optional_float(right.get("z")) or 0.0)
+    merged["opacity"] = max(
+        _bounded_float(left.get("opacity"), default=1.0, lower=0.0, upper=1.0),
+        _bounded_float(right.get("opacity"), default=1.0, lower=0.0, upper=1.0),
+    )
+    merged["object_id"] = _optional_text(representative.get("object_id")) or _optional_text(
+        left.get("object_id")
+    ) or _optional_text(right.get("object_id"))
+    return merged
+
+
+def _cinematic_object_priority(item: Mapping[str, Any]) -> tuple[int, float, float]:
+    role = _optional_text(item.get("role")) or ""
+    role_priority = {
+        "narrative_payoff": 5,
+        "hero_subject": 4,
+        "supporting_subject": 3,
+        "foreground_texture": 2,
+        "background_reveal": 1,
+    }.get(role, 0)
+    width = _optional_float(item.get("width_normalised")) or 0.0
+    height = _optional_float(item.get("height_normalised")) or 0.0
+    scale = _optional_float(item.get("scale")) or 1.0
+    area = width * height * scale * scale
+    z = _optional_float(item.get("z")) or 0.0
+    return role_priority, area, z
+
+
+def _cinematic_objects_end_time(objects: list[Mapping[str, Any]]) -> float:
+    return max((_optional_float(item.get("end_time")) or 0.0 for item in objects), default=1.0)
+
+
+def _first_environment_object(
+    objects: list[Mapping[str, Any]],
+    roles_by_asset_id: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    for item in objects:
+        asset_id = _optional_text(item.get("asset_id"))
+        if item.get("role") == "environment_base" and asset_id in roles_by_asset_id:
+            return item
+    return None
+
+
+def _cinematic_object_pixel_size(
+    item: Mapping[str, Any],
+    *,
+    canvas_width: int,
+    canvas_height: int,
+) -> tuple[int, int]:
+    scale = max(0.01, _optional_float(item.get("scale")) or 1.0)
+    width_normalised = max(0.01, _optional_float(item.get("width_normalised")) or 0.25)
+    height_normalised = max(0.01, _optional_float(item.get("height_normalised")) or 0.25)
+    return (
+        max(1, int(round(canvas_width * width_normalised * scale))),
+        max(1, int(round(canvas_height * height_normalised * scale))),
+    )
+
+
+def _cinematic_object_top_left(
+    item: Mapping[str, Any],
+    *,
+    width: int,
+    height: int,
+    canvas_width: int,
+    canvas_height: int,
+) -> tuple[int, int]:
+    x_center = (_optional_float(item.get("x")) or 0.5) * canvas_width
+    y_value = (_optional_float(item.get("y")) or 0.5) * canvas_height
+    anchor = (_optional_text(item.get("anchor_point")) or "center").lower()
+    if anchor in {"bottom_center", "bottom"}:
+        x = x_center - width / 2
+        y = y_value - height
+    elif anchor in {"top_center", "top"}:
+        x = x_center - width / 2
+        y = y_value
+    else:
+        x = x_center - width / 2
+        y = y_value - height / 2
+    return (
+        int(round(min(max(x, -width), canvas_width))),
+        int(round(min(max(y, -height), canvas_height))),
+    )
+
+
+def _cinematic_layer_id(item: Mapping[str, Any], index: int) -> str:
+    object_id = _optional_text(item.get("object_id"))
+    if object_id is not None:
+        return f"{object_id[:112]}-{index:03d}"[:128]
+    return f"cinematic-layer-{index:03d}"
+
+
+def _bounded_float(value: Any, *, default: float, lower: float, upper: float) -> float:
+    parsed = _optional_float(value)
+    if parsed is None:
+        return default
+    return min(max(parsed, lower), upper)
+
+
 def _layered_output_from_editing_output(
     editing_output: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -1904,6 +2304,121 @@ def _layered_output_from_editing_output(
     if not has_audio and not audio_codec:
         output["intentional_silence"] = bool(editing_output.get("intentional_silence"))
     return output
+
+
+def _cinematic_composition_duration_seconds(asset_output: Mapping[str, Any]) -> float | None:
+    metadata = _mapping(asset_output.get("metadata"))
+    if (
+        asset_output.get("asset_source") != "asset_pack_cinematic_plan"
+        and metadata.get("render_authority") != "validated_cinematic_plan_timeline"
+    ):
+        return None
+    duration = _optional_float(asset_output.get("duration_seconds"))
+    return duration if duration is not None and duration > 0 else None
+
+
+def _retime_canonical_timeline_payload(
+    timeline: Mapping[str, Any],
+    *,
+    target_duration_seconds: float,
+) -> dict[str, Any]:
+    payload = dict(timeline)
+    source_duration = _optional_float(payload.get("duration_seconds"))
+    if source_duration is None or source_duration <= 0:
+        source_duration = target_duration_seconds
+    scale = float(target_duration_seconds) / float(source_duration)
+    payload["duration_seconds"] = float(target_duration_seconds)
+    payload["cover_frame_timestamp_seconds"] = min(
+        _optional_float(payload.get("cover_frame_timestamp_seconds")) or 0.0,
+        max(float(target_duration_seconds) - 0.001, 0.0),
+    )
+
+    source_clips = _copy_mapping_list(payload.get("source_clips"))
+    for clip in source_clips:
+        clip["duration_seconds"] = float(target_duration_seconds)
+    if source_clips:
+        payload["source_clips"] = source_clips
+
+    payload["scenes"] = [
+        _retime_span(
+            item,
+            scale=scale,
+            target_duration_seconds=float(target_duration_seconds),
+            start_key="start_seconds",
+            end_key="end_seconds",
+            source_start_key="source_start_seconds",
+            source_end_key="source_end_seconds",
+        )
+        for item in _copy_mapping_list(payload.get("scenes"))
+    ]
+    payload["edit_segments"] = [
+        _retime_span(
+            item,
+            scale=scale,
+            target_duration_seconds=float(target_duration_seconds),
+            start_key="timeline_start_seconds",
+            end_key="timeline_end_seconds",
+            source_start_key="source_start_seconds",
+            source_end_key="source_end_seconds",
+        )
+        for item in _copy_mapping_list(payload.get("edit_segments"))
+    ]
+    payload["overlays"] = [
+        _retime_span(
+            item,
+            scale=scale,
+            target_duration_seconds=float(target_duration_seconds),
+            start_key="start_seconds",
+            end_key="end_seconds",
+        )
+        for item in _copy_mapping_list(payload.get("overlays"))
+    ]
+    payload["audio_tracks"] = [
+        _retime_span(
+            item,
+            scale=scale,
+            target_duration_seconds=float(target_duration_seconds),
+            start_key="start_seconds",
+            end_key="end_seconds",
+        )
+        for item in _copy_mapping_list(payload.get("audio_tracks"))
+    ]
+    return payload
+
+
+def _copy_mapping_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
+
+
+def _retime_span(
+    item: dict[str, Any],
+    *,
+    scale: float,
+    target_duration_seconds: float,
+    start_key: str,
+    end_key: str,
+    source_start_key: str | None = None,
+    source_end_key: str | None = None,
+) -> dict[str, Any]:
+    start = (_optional_float(item.get(start_key)) or 0.0) * scale
+    end = (_optional_float(item.get(end_key)) or 0.0) * scale
+    item[start_key] = min(max(start, 0.0), target_duration_seconds)
+    item[end_key] = min(max(end, item[start_key] + 0.001), target_duration_seconds)
+    if source_start_key is not None and source_start_key in item:
+        source_start = (_optional_float(item.get(source_start_key)) or 0.0) * scale
+        item[source_start_key] = min(max(source_start, 0.0), target_duration_seconds)
+    if source_end_key is not None and source_end_key in item:
+        source_end = (_optional_float(item.get(source_end_key)) or 0.0) * scale
+        source_start_min = (
+            _optional_float(item.get(source_start_key)) if source_start_key is not None else None
+        )
+        item[source_end_key] = min(
+            max(source_end, source_start_min or 0.0),
+            target_duration_seconds,
+        )
+    return item
 
 
 def _build_primary_asset_prompt(
@@ -2300,6 +2815,25 @@ def _role_asset_id(role_payload: Mapping[str, Any], *, fallback: str) -> str:
 
 def _role_asset_kind(role_payload: Mapping[str, Any], *, fallback: str) -> str:
     return _optional_text(role_payload.get("asset_kind")) or _optional_text(role_payload.get("pack_role")) or fallback
+
+
+def _role_mask_mode(role_payload: Mapping[str, Any], *, asset_kind: str) -> str:
+    if asset_kind in {
+        "transparent_cutout_png",
+        "masked_image",
+        "foreground_layer_image",
+        "subject_image",
+        "object_image",
+    }:
+        return "alpha"
+    metadata = role_payload.get("metadata")
+    if isinstance(metadata, Mapping):
+        transparency = metadata.get("transparency")
+        if isinstance(transparency, Mapping) and transparency.get("has_transparency"):
+            return "alpha"
+        if metadata.get("has_transparency") or metadata.get("has_alpha"):
+            return "alpha"
+    return "none"
 
 
 def _sequence_of_text(value: Any) -> list[str] | None:

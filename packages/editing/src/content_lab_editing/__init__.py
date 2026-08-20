@@ -15,9 +15,15 @@ from content_lab_editing.composition_manifest import (
     CompositionExportPreset,
     CompositionLayer,
     CompositionManifest,
+    LayerHarmonisationPass,
     MotionPreset,
     MotionTransform,
     SafeAreaConstraints,
+)
+from content_lab_editing.harmonisation import (
+    HarmonisationParams,
+    default_harmonisation_for_layer,
+    effective_harmonisation,
 )
 from content_lab_editing.composition_preflight import (
     CompositionPreflightError,
@@ -32,6 +38,7 @@ from content_lab_editing.composition_realism import (
     CompositionRealismReport,
     validate_composition_realism,
 )
+from content_lab_editing.compositor import CompositorPreflightReport, preflight_compositor_timeline
 from content_lab_editing.edit_plan import (
     SceneAwareEditPlan,
     SceneEditPlanSegment,
@@ -74,6 +81,17 @@ from content_lab_editing.package_builder import (
     build_ready_to_post_package,
 )
 from content_lab_editing.reel_timeline_schema import ReelTimeline, ReelTimelineObject
+from content_lab_editing.relationship_layout import (
+    RelationshipLayoutFinding,
+    RelationshipLayoutReport,
+    enforce_relationship_layout,
+    object_bounds,
+)
+from content_lab_editing.render_strategy import (
+    DOWNGRADED_RENDER_STRATEGIES,
+    REALISTIC_RENDER_STRATEGIES,
+    downgrade_render_strategy_for_environment_quality,
+)
 from content_lab_editing.templates import (
     CALM_EXPLAINER_V1,
     DEFAULT_EDITORIAL_TEMPLATE,
@@ -103,10 +121,12 @@ __all__ = [
     "CompositionExportPreset",
     "CompositionLayer",
     "CompositionManifest",
+    "CompositorPreflightReport",
     "CompositionPreflightError",
     "CompositionPreflightIssue",
     "CompositionRealismFinding",
     "CompositionRealismReport",
+    "DOWNGRADED_RENDER_STRATEGIES",
     "BuiltReelPackage",
     "CALM_EXPLAINER_V1",
     "DEFAULT_EDITORIAL_TEMPLATE",
@@ -119,6 +139,8 @@ __all__ = [
     "FAST_CUTS_V1",
     "HOOK_FIRST_V1",
     "HOOK_PLUS_PAYOFF_V1",
+    "HarmonisationParams",
+    "LayerHarmonisationPass",
     "LayeredCompositionResult",
     "LocalReelPackage",
     "MOTION_TRANSFORM_PRESETS",
@@ -130,7 +152,10 @@ __all__ = [
     "ReelTimeline",
     "ReelTimelineFinding",
     "ReelTimelineObject",
+    "REALISTIC_RENDER_STRATEGIES",
     "ReelTimelineValidationReport",
+    "RelationshipLayoutFinding",
+    "RelationshipLayoutReport",
     "SafeAreaConstraints",
     "SceneAwareEditPlan",
     "SceneEditPlanSegment",
@@ -149,6 +174,10 @@ __all__ = [
     "build_layered_ffmpeg_args",
     "build_layered_filter_graph",
     "build_ready_to_post_package",
+    "default_harmonisation_for_layer",
+    "downgrade_render_strategy_for_environment_quality",
+    "effective_harmonisation",
+    "enforce_relationship_layout",
     "build_scene_aware_edit_plan",
     "build_single_clip_edit_plan",
     "build_timeline_render_trace",
@@ -159,6 +188,8 @@ __all__ = [
     "layer_has_motion",
     "motion_preset_for_layer",
     "motion_spec_for_layer",
+    "object_bounds",
+    "preflight_compositor_timeline",
     "render_basic_vertical_edit",
     "select_and_apply_editorial_template",
     "select_editorial_template",

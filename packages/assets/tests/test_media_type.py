@@ -106,6 +106,16 @@ def test_transparency_metadata_represents_cutout_images() -> None:
     }
 
 
+def test_placement_overlap_metadata_from_registry_metadata() -> None:
+    from content_lab_assets.types import AssetPlacementOverlapMetadata
+
+    metadata = AssetPlacementOverlapMetadata.from_metadata(
+        {"placement_overlap": {"support_surface_mask_uri": "s3://masks/plate.png"}}
+    )
+
+    assert metadata.support_surface_mask_uri == "s3://masks/plate.png"
+
+
 def test_mask_transparency_requires_mask_uri() -> None:
     with pytest.raises(ValidationError, match="mask_uri is required"):
         AssetTransparencyMetadata(alpha_mode=AlphaMode.MASK, has_transparency=True)

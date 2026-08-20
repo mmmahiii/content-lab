@@ -184,7 +184,7 @@ def test_overlay_phrase_is_exact_in_drawtext_after_layout_preflight() -> None:
     assert f"text='{phrase}" in filters[0]
 
 
-def test_build_drawtext_filters_raises_overlay_layout_error_for_overflowing_line() -> None:
+def test_build_drawtext_filters_autofits_overflowing_line_for_default_role() -> None:
     long_text = "X" * 200
     overlay = TextOverlay(
         text=long_text,
@@ -192,12 +192,13 @@ def test_build_drawtext_filters_raises_overlay_layout_error_for_overflowing_line
         end_seconds=1.0,
         font_size=64,
     )
-    with pytest.raises(OverlayLayoutError) as exc:
-        build_drawtext_filters([overlay], clip_duration_seconds=2.0)
-    err = exc.value
-    assert err.code == "exceeds_frame"
-    assert "details" in err.to_dict()
-    assert err.text == long_text
+    filters = build_drawtext_filters([overlay], clip_duration_seconds=2.0)
+    assert len(filters) == 1
+    assert filters[0].startswith("drawtext=")
+    normalized = normalize_overlay_timeline([overlay], clip_duration_seconds=2.0)
+    assert len(normalized) == 1
+    assert normalized[0].font_size < 64 or "\n" in normalized[0].text
+    assert normalized[0].hook_autofit is not None
 
 
 def test_normalize_overlay_source_text_strips_ends_only() -> None:
@@ -265,6 +266,20 @@ def test_emphasis_overlay_preset_applies_when_style_omitted() -> None:
     assert overlays[0].overlay_role == "emphasis"
     assert overlays[0].font_size == 56
     assert overlays[0].margin_y == 150
+
+
+def test_emphasis_overlay_autofits_policy_valid_but_overwide_line() -> None:
+    phrase = " ".join(["Supercalifragilistic"] * 10)
+    overlay = TextOverlay(
+        text=phrase,
+        overlay_role="emphasis",
+        start_seconds=0.0,
+        end_seconds=1.0,
+        font_size=56,
+    )
+    filters = build_drawtext_filters([overlay], clip_duration_seconds=2.0)
+    assert len(filters) == 1
+    assert filters[0].startswith("drawtext=")
 
 
 def test_emphasis_overlay_rejects_too_many_words() -> None:

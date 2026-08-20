@@ -6,6 +6,11 @@ from content_lab_qa.alignment import (
     AlignmentQAReport,
     evaluate_alignment_qa,
 )
+from content_lab_qa.environment_quality import (
+    EnvironmentQualityFinding,
+    EnvironmentQualityReport,
+    validate_environment_quality,
+)
 from content_lab_qa.format import (
     FormatQAConstraints,
     FormatQAReport,
@@ -27,6 +32,11 @@ from content_lab_qa.package import (
     validate_package_completeness,
     validate_package_script_semantics,
 )
+from content_lab_qa.perspective import (
+    PerspectiveFinding,
+    PerspectiveReport,
+    validate_perspective_compatibility,
+)
 from content_lab_qa.plan_realism import (
     PlanRealismFinding,
     PlanRealismReport,
@@ -41,6 +51,12 @@ from content_lab_qa.repetition import (
     RepetitionPolicy,
     RepetitionSignal,
     evaluate_repetition,
+)
+from content_lab_qa.scene_coherence import (
+    SceneCoherenceFinding,
+    SceneCoherenceReport,
+    SceneCoherenceValidator,
+    validate_scene_coherence,
 )
 from content_lab_qa.semantic_script import (
     SEMANTIC_SCRIPT_GATE_NAME,
@@ -90,12 +106,19 @@ __all__ = [
     "CopyLintCategory",
     "CopyLintMatch",
     "CopyRuleDef",
+    "EnvironmentQualityFinding",
+    "EnvironmentQualityReport",
     "SemanticScriptFinding",
+    "SceneCoherenceFinding",
+    "SceneCoherenceReport",
+    "SceneCoherenceValidator",
     "SemanticScriptQARequest",
     "SemanticScriptQAReport",
     "SourceRightsPolicy",
     "OverlayTextFidelityFinding",
     "OverlayTextFidelityReport",
+    "PerspectiveFinding",
+    "PerspectiveReport",
     "TIMELINE_TIMING_GATE_NAME",
     "MEDIA_SYNC_GATE_NAME",
     "TimelineTimingConstraints",
@@ -117,4 +140,7 @@ __all__ = [
     "validate_package_provenance",
     "validate_caption_meta_language",
     "validate_cinematic_plan_realism",
+    "validate_environment_quality",
+    "validate_perspective_compatibility",
+    "validate_scene_coherence",
 ]

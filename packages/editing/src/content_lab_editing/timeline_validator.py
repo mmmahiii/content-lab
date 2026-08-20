@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from content_lab_editing.reel_timeline_schema import ReelTimeline
+from content_lab_editing.relationship_layout import enforce_relationship_layout
+from content_lab_editing.support_surface_overlap import OverlapValidationContext
 
 TimelineFindingSeverity = Literal["warn", "fail"]
 
@@ -46,7 +48,11 @@ class ReelTimelineValidationReport:
         }
 
 
-def validate_reel_timeline_artifact(payload: Mapping[str, Any]) -> ReelTimelineValidationReport:
+def validate_reel_timeline_artifact(
+    payload: Mapping[str, Any],
+    *,
+    overlap_context: OverlapValidationContext | None = None,
+) -> ReelTimelineValidationReport:
     """Validate a flattened reel timeline artifact before renderer handoff."""
 
     findings: list[ReelTimelineFinding] = []
@@ -82,6 +88,19 @@ def validate_reel_timeline_artifact(payload: Mapping[str, Any]) -> ReelTimelineV
                     details={"object_id": item.object_id},
                 )
             )
+    relationship_report = enforce_relationship_layout(
+        timeline,
+        overlap_context=overlap_context,
+    )
+    findings.extend(
+        ReelTimelineFinding(
+            code=finding.code,
+            severity=finding.severity,
+            message=finding.message,
+            details=finding.details,
+        )
+        for finding in relationship_report.findings
+    )
     for index, caption in enumerate(timeline.captions):
         if not bool(caption.get("safe_area_compliant", False)):
             findings.append(

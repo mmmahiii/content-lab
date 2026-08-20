@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from content_lab_creative.planning_schema import CinematicReelPlan, TimelineObject
+from content_lab_editing.support_surface_overlap import OverlapValidationContext
+from content_lab_qa.environment_quality import validate_environment_quality
+from content_lab_qa.perspective import validate_perspective_compatibility
+from content_lab_qa.scene_coherence import validate_scene_coherence
 
 PlanRealismSeverity = Literal["warn", "fail"]
 
@@ -17,6 +21,7 @@ class PlanRealismFinding:
     message: str
     scene_id: str | None
     details: dict[str, Any]
+    suggested_fix: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -24,6 +29,7 @@ class PlanRealismFinding:
             "severity": self.severity,
             "message": self.message,
             "scene_id": self.scene_id,
+            "suggested_fix": self.suggested_fix,
             "details": dict(self.details),
         }
 
@@ -50,7 +56,12 @@ class PlanRealismReport:
         }
 
 
-def validate_cinematic_plan_realism(plan: CinematicReelPlan) -> PlanRealismReport:
+def validate_cinematic_plan_realism(
+    plan: CinematicReelPlan,
+    *,
+    prompt_path_capabilities_aggregate: dict[str, Any] | None = None,
+    overlap_context: OverlapValidationContext | None = None,
+) -> PlanRealismReport:
     """Return realism QA findings for a renderer-ready plan."""
 
     findings: list[PlanRealismFinding] = []
@@ -66,6 +77,16 @@ def validate_cinematic_plan_realism(plan: CinematicReelPlan) -> PlanRealismRepor
                     "too_many_equal_priority_foreground_objects",
                     "fail",
                     "Too many foreground objects are active in one scene.",
+                    scene.scene_id,
+                    foreground_count=len(foreground),
+                )
+            )
+        if _has_equal_priority_foreground_clutter(foreground):
+            findings.append(
+                _finding(
+                    "too_many_equal_priority_foreground_objects",
+                    "fail",
+                    "Multiple foreground objects share similar visual priority.",
                     scene.scene_id,
                     foreground_count=len(foreground),
                 )
@@ -113,7 +134,82 @@ def validate_cinematic_plan_realism(plan: CinematicReelPlan) -> PlanRealismRepor
                 realism_risk_score=plan.provenance.realism_risk_score,
             )
         )
+    findings.extend(_environment_quality_findings(plan))
+    findings.extend(_perspective_findings(plan))
+    findings.extend(_scene_coherence_findings(plan, overlap_context=overlap_context))
+    if prompt_path_capabilities_aggregate is not None:
+        from content_lab_qa.prompt_path_validation import validate_prompt_path_motion_claims
+
+        findings.extend(
+            validate_prompt_path_motion_claims(
+                plan,
+                aggregate=prompt_path_capabilities_aggregate,
+            )
+        )
     return PlanRealismReport(findings=tuple(findings))
+
+
+def _environment_quality_findings(plan: CinematicReelPlan) -> list[PlanRealismFinding]:
+    report = validate_environment_quality(plan)
+    return [
+        PlanRealismFinding(
+            code=finding.code,
+            severity=finding.severity,
+            message=finding.message,
+            scene_id=finding.scene_id,
+            details=dict(finding.details),
+            suggested_fix=finding.suggested_fix,
+        )
+        for finding in report.findings
+    ]
+
+
+def _perspective_findings(plan: CinematicReelPlan) -> list[PlanRealismFinding]:
+    report = validate_perspective_compatibility(plan)
+    return [
+        PlanRealismFinding(
+            code=finding.code,
+            severity=finding.severity,
+            message=finding.message,
+            scene_id=finding.scene_id,
+            details=dict(finding.details),
+            suggested_fix=finding.suggested_fix,
+        )
+        for finding in report.findings
+    ]
+
+
+def _has_equal_priority_foreground_clutter(foreground: list[TimelineObject]) -> bool:
+    if len(foreground) < 3:
+        return False
+    prominent = [
+        item
+        for item in foreground
+        if item.z > 0.65 and item.scale >= 0.9 and item.opacity >= 0.85
+    ]
+    if len(prominent) < 3:
+        return False
+    z_values = [item.z for item in prominent]
+    return max(z_values) - min(z_values) <= 0.08
+
+
+def _scene_coherence_findings(
+    plan: CinematicReelPlan,
+    *,
+    overlap_context: OverlapValidationContext | None = None,
+) -> list[PlanRealismFinding]:
+    report = validate_scene_coherence(plan, overlap_context=overlap_context)
+    return [
+        PlanRealismFinding(
+            code=finding.code,
+            severity=finding.severity,
+            message=finding.message,
+            scene_id=finding.scene_id,
+            details=dict(finding.details),
+            suggested_fix=finding.suggested_fix,
+        )
+        for finding in report.findings
+    ]
 
 
 def _check_depth(
@@ -202,6 +298,7 @@ def _finding(
         message=message,
         scene_id=scene_id,
         details=details,
+        suggested_fix="Review object placement, depth, and scene relationship metadata.",
     )
 
 
