@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 from math import gcd
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -179,6 +180,35 @@ class AssetTransparencyMetadata(BaseModel):
         if self.alpha_mode is AlphaMode.MASK and self.mask_uri is None:
             raise ValueError("mask_uri is required when alpha_mode='mask'")
         return self
+
+
+class AssetPlacementOverlapMetadata(BaseModel):
+    """Support-surface mask for placement overlap (distinct from compositor alpha masks).
+
+    Coordinates use normalized UV ``[0, 1]²`` aligned with the asset raster:
+    horizontal *u*, vertical *v*, top-left origin, matching ``AssetVisualMetadata``
+    width/height when present.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    support_surface_mask_uri: str | None = Field(default=None, max_length=2048)
+
+    @classmethod
+    def from_metadata(cls, metadata: Mapping[str, Any] | None) -> AssetPlacementOverlapMetadata:
+        if not metadata:
+            return cls()
+        raw = metadata.get("placement_overlap")
+        if raw is None:
+            raw = metadata.get("placement")
+        if isinstance(raw, AssetPlacementOverlapMetadata):
+            return raw
+        if not isinstance(raw, dict):
+            return cls()
+        uri = raw.get("support_surface_mask_uri")
+        if uri is None:
+            return cls()
+        return cls(support_surface_mask_uri=str(uri).strip() or None)
 
 
 class AssetVisualMetadata(BaseModel):
@@ -512,6 +542,7 @@ __all__ = [
     "AssetSource",
     "AssetSourceMetadata",
     "AssetSourceType",
+    "AssetPlacementOverlapMetadata",
     "AssetTransparencyMetadata",
     "AssetVisualMetadata",
     "BlockedDecision",

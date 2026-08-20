@@ -419,6 +419,7 @@ class CinematicPlanPromptOut(BaseModel):
     input_page_context_hash: str
     selected_asset_ids: list[uuid.UUID]
     suggested_prompt_paths: list[str]
+    prompt_path_eligibility: dict[str, Any]
     master_prompt: str
     planner_input: dict[str, Any]
 

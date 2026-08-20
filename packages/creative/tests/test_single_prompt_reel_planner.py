@@ -380,7 +380,15 @@ def test_master_prompt_uses_page_context_and_assets_without_screenshot_input() -
     assert "CRITICAL MANUAL-MODE RULE" in package.master_prompt
     assert "Use the minimum number of selected assets" in package.master_prompt
     assert "no more than 3 visible foreground objects" in package.master_prompt
-    assert "Every scene must begin with an environment_base object" in package.master_prompt
+    assert (
+        "Every scene opens with environment_base unless intentionally transition-only"
+        in package.master_prompt
+    )
+    assert "Duplicate-role rule:" in package.master_prompt
+    assert "Static-asset motion rule:" in package.master_prompt
+    assert "Environment base quality rule:" in package.master_prompt
+    assert "Renderer-default rule:" in package.master_prompt
+    assert "Explicit output rule:" in package.master_prompt
     assert "Before returning, silently check" in package.master_prompt
     assert "selected_assets" in package.master_prompt
     assert "CinematicReelPlan" in package.master_prompt
@@ -1012,3 +1020,74 @@ def test_missing_dominant_subject_fails_validation() -> None:
 
     with pytest.raises(ValidationError, match="dominant_focal_role"):
         CinematicReelPlan.model_validate(payload)
+
+
+def test_pan_slug_tokens_distinguish_cookware_cutouts() -> None:
+    from content_lab_creative.single_prompt_reel_planner import _is_pan_cookware_slug_token
+
+    assert _is_pan_cookware_slug_token("pan")
+    assert _is_pan_cookware_slug_token("pan2")
+    assert _is_pan_cookware_slug_token("pan12")
+    assert _is_pan_cookware_slug_token("pan1test")
+    assert not _is_pan_cookware_slug_token("pans")
+    assert not _is_pan_cookware_slug_token("panorama")
+    assert not _is_pan_cookware_slug_token("pantry")
+
+
+def test_two_pan_like_labels_in_one_scene_fail_guard() -> None:
+    from content_lab_creative.single_prompt_reel_planner import _reject_duplicate_pan_like_cutouts
+
+    validated = validate_pasted_cinematic_plan(valid_plan_dict(), planner_input=_planner_input())
+    payload = validated.plan.model_dump()
+    payload["provenance"]["selected_asset_ids"] = [
+        "kitchen_bg",
+        "steak_clip",
+        "steam_overlay",
+        "sizzle_audio",
+        "pan_wide_asset",
+        "pan_small_asset",
+    ]
+    payload["provenance"]["rejected_assets"] = []
+    objs = payload["scenes"][0]["objects"]
+    template = copy.deepcopy(objs[2])
+    pan_a = copy.deepcopy(template)
+    pan_a["object_id"] = "pan_wide_obj"
+    pan_a["asset_id"] = "pan_wide_asset"
+    pan_a["asset_label"] = "pan2"
+    pan_a["role"] = "supporting_subject"
+    pan_b = copy.deepcopy(template)
+    pan_b["object_id"] = "pan_small_obj"
+    pan_b["asset_id"] = "pan_small_asset"
+    pan_b["asset_label"] = "pan1test"
+    pan_b["role"] = "foreground_texture"
+    objs.extend([pan_a, pan_b])
+    shadow_specs = payload["lighting_shadow_plan"]["per_object_shadow_specs"]
+    shadow_specs.extend(
+        [
+            {"object_id": pan_a["object_id"], **pan_a["shadow_spec"]},
+            {"object_id": pan_b["object_id"], **pan_b["shadow_spec"]},
+        ]
+    )
+
+    bad_plan = CinematicReelPlan.model_validate(payload)
+    with pytest.raises(ValueError, match="At most one pan-shaped cutout"):
+        _reject_duplicate_pan_like_cutouts(bad_plan)
+
+
+def test_master_prompt_contains_physical_relationship_and_support_rules() -> None:
+    prompt = build_master_planning_prompt(_planner_input()).master_prompt.lower()
+    assert "spatial_relationship" in prompt
+    assert "support_object_id" in prompt
+    assert "relative_depth_rule" in prompt
+
+
+def test_master_prompt_contains_environment_base_quality_rules() -> None:
+    prompt = build_master_planning_prompt(_planner_input()).master_prompt.lower()
+    assert "asset_resolution_class" in prompt
+    assert "low resolution" in prompt or "low-resolution" in prompt
+
+
+def test_master_prompt_contains_sensory_eligibility_snapshot() -> None:
+    prompt = build_master_planning_prompt(_planner_input()).master_prompt
+    assert "Allowed paths:" in prompt
+    assert "Blocked paths" in prompt

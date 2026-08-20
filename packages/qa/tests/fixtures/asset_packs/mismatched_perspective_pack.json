@@ -1,0 +1,20 @@
+{
+  "pack_id": "mismatched_perspective_pack",
+  "assets": [
+    {
+      "asset_id": "overhead_table",
+      "role": "environment_base",
+      "view_angle": "top_down",
+      "surface_plane": "horizontal",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "asset_id": "front_product",
+      "role": "hero_subject",
+      "view_angle": "front",
+      "surface_plane": "vertical",
+      "transparent": true
+    }
+  ]
+}

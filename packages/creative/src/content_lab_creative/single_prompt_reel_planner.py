@@ -10,19 +10,24 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from content_lab_creative.narrative_engine import narrative_arc_prompt_text
+from content_lab_creative.planner_prompt import (
+    build_master_planning_prompt_document,
+    planner_roles_camera_audio_strings,
+)
 from content_lab_creative.planning_schema import (
-    AUDIO_ROLES,
-    CAMERA_MOVES,
     CINEMATIC_ROLES,
     CinematicReelPlan,
     normalize_audio_role_value,
     normalize_camera_move_value,
     normalize_cinematic_role_value,
 )
+from content_lab_creative.prompt_path_eligibility import (
+    PromptPathEligibilityGate,
+    infer_asset_prompt_path_capabilities,
+    selected_assets_capability_summary,
+    validate_prompt_paths_allowed_for_assets,
+)
 from content_lab_creative.prompt_paths import (
-    PROMPT_PATH_DESCRIPTIONS,
-    PROMPT_PATHS,
     normalize_prompt_paths,
     select_prompt_paths_for_context,
 )
@@ -46,6 +51,12 @@ ARTIFACT_FILENAMES: tuple[str, ...] = (
 )
 
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL | re.IGNORECASE)
+
+# Cookware-ish slugs: pan2, pan12, pan1test — not panorama / pans (plural) / pantry.
+_PAN_COOKWARE_SUFFIX = re.compile(
+    r"^(?:\d+[a-z0-9]{0,24}|[a-z]{1,16}\d[a-z0-9]{0,24})$",
+    re.IGNORECASE,
+)
 
 _ROLE_ALIASES: dict[str, str] = {
     "colour_contrast_subject": "supporting_subject",
@@ -138,6 +149,7 @@ class SinglePromptPlannerInput(BaseModel):
         overlap = set(self.pinned_prompt_paths).intersection(self.banned_prompt_paths)
         if overlap:
             raise ValueError(f"pinned and banned prompt paths overlap: {', '.join(sorted(overlap))}")
+        validate_prompt_paths_allowed_for_assets(self.pinned_prompt_paths, assets=self.selected_assets)
         return self
 
     @property
@@ -199,113 +211,20 @@ class ValidatedCinematicPlan(BaseModel):
 def build_master_planning_prompt(planner_input: SinglePromptPlannerInput) -> MasterPromptPackage:
     """Build the exact master prompt for a manual ChatGPT chat."""
 
-    prompt_paths_json = json.dumps(PROMPT_PATH_DESCRIPTIONS, indent=2, sort_keys=True)
-    schema_json = json.dumps(CinematicReelPlan.model_json_schema(), indent=2, sort_keys=True)
+    eligibility_snapshot = selected_assets_capability_summary(planner_input.selected_assets)
     payload_json = json.dumps(_prompt_payload(planner_input), indent=2, sort_keys=True)
-    roles = ", ".join(CINEMATIC_ROLES)
-    camera_moves = ", ".join(CAMERA_MOVES)
-    audio_roles = ", ".join(AUDIO_ROLES)
+    roles, camera_moves, audio_roles = planner_roles_camera_audio_strings()
     duration = planner_input.duration_target_seconds or 6.5
-    prompt = f"""You are the Content Lab Procedural Cinematic Reel Planner.
-
-Use model: {RECOMMENDED_CHATGPT_MODEL}.
-Return only valid JSON. Do not wrap it in Markdown. Do not explain the JSON.
-
-Your only job is to produce one renderer-ready CinematicReelPlan.
-
-CRITICAL MANUAL-MODE RULE:
-Because this response will be pasted directly into a validator, every top-level field and every
-nested required field must be present, even if empty arrays are needed. Do not omit scenes,
-objects, captions, audio_layers, selected_prompt_paths, render_notes, canvas, fps, or
-provenance.selected_asset_ids. If a field is optional in the schema but necessary for rendering,
-still include it.
-
-Do not generate images. Do not generate video. Do not call external image/video APIs.
-Do not request screenshots. Do not copy an existing reel. Do not hallucinate assets.
-Do not mention uploaded text files, screenshots, or external generation tools in render_notes,
-scene purpose, or realism_reason; describe only how stored selected assets should be arranged.
-Use only selected asset_ids from the input. You may reject irrelevant selected assets, but every
-unused selected asset must appear in provenance.rejected_assets with a reason.
-Use the minimum number of selected assets required for one coherent reel. Do not use every asset
-just because it is selected. A good plan may use only 4-7 assets and reject the rest. Rejecting
-irrelevant assets is preferred over visual clutter.
-
-Anti-collage composition rules:
-- In each scene, no more than 3 visible foreground objects may have z greater than 0.65.
-- If more ingredients are needed, introduce them through scene progression, not all at once.
-- Every scene must begin with an environment_base object unless the scene is an intentional
-  transition-only scene.
-- Transparent cut-out assets must sit on or visually relate to an environment_base,
-  supporting_subject, or foreground_texture. Do not place transparent cut-outs on an empty canvas.
-- The hero_subject must be visually dominant. The hero_subject should usually have the highest
-  scale and foreground depth among meaningful objects.
-- Supporting ingredients must be smaller, lower priority, or introduced later.
-
-Coordinate system:
-- x: 0.0 left to 1.0 right
-- y: 0.0 top to 1.0 bottom
-- z: 0.0 background to 1.0 foreground
-- scale: relative multiplier
-- rotation: degrees
-- opacity: 0.0 to 1.0
-
-Internal stages to perform before writing JSON:
-1. Asset Understanding: assign cinematic roles by what each asset can do in the scene.
-2. Creative Path Selection: choose stackable prompt paths; include pinned paths and exclude banned paths.
-3. Narrative Engine: build hook, development, reveal/payoff, and closing retention loop.
-4. Scene Regulation: one dominant focal priority per scene; no collage behavior.
-5. Coordinate Timeline Engine: normalized 9:16 object timing, depth, scale, motion, occlusion.
-6. Camera Engine: use only supported camera moves.
-7. Lighting and Shadow Engine: deterministic lights and contact shadows.
-8. Caption Engine: editable renderer text only, safe area compliant, never baked into images.
-9. Audio Engine: use known selected audio assets or explicit placeholders only.
-10. Realism QA Plan: encode constraints and risk score.
-
-Enum discipline:
-- Use ONLY these exact TimelineObject.role and ScenePlan.dominant_focal_role values: {roles}
-- Use at most one hero_subject object and at most one narrative_payoff object in each scene.
-  Other visible ingredients or props should be supporting_subject or foreground_texture.
-- Use ONLY these exact CameraMove.move_type values: {camera_moves}
-- Use ONLY these exact AudioLayer.role values: {audio_roles}
-- Do not invent asset-specific roles such as hero_tomato, ingredient_step, music_bed,
-  push_in, or payoff_lift.
-- If you are tempted to write labels like hero_ingredient, tomato foreground texture,
-  vegetable layer assembly, final garnish, ambient rhythmic kitchen bed, ingredient placement foley,
-  tilt_down, lateral_slide, or locked, replace them with the closest allowed enum before returning JSON.
-- If no selected audio asset exists for an audio layer, set asset_id to null and make audio_id begin
-  with placeholder_audio_; do not invent audio asset IDs.
-- Every enabled shadow_spec.source_light_id and lighting_shadow_plan.per_object_shadow_specs[].source_light_id
-  must reference one of lighting_shadow_plan.lights[].light_id. If unsure, use the first declared light_id.
-- Asset-specific labels belong in object_id, asset_label, purpose, and realism_reason,
-  never in role, dominant_focal_role, camera_move.move_type, or audio role fields.
-- width_normalised and height_normalised must be greater than 0.0 and less than or equal to 1.0.
-- x, y, z, opacity, caption x/y/max_width, light coordinates, and shadow values must stay in
-  their schema ranges.
-
-Default narrative timing guidance for {duration:.2f}s:
-{narrative_arc_prompt_text(duration)}
-
-Allowed stackable prompt paths and meanings:
-{prompt_paths_json}
-
-Required JSON Schema:
-{schema_json}
-
-Planner input:
-{payload_json}
-
-Before returning, silently check:
-1. JSON parses.
-2. No Markdown.
-3. All asset_id values are from selected_asset_ids.
-4. All roles use allowed enums.
-5. Every scene has objects, captions, and audio_layers arrays.
-6. Every object has coordinates, z-depth, scale, shadow_spec, blur_spec, and realism_reason.
-7. Every unused selected asset appears in provenance.rejected_assets.
-8. No scene looks like a floating collage.
-
-Return exactly one JSON object matching CinematicReelPlan.
-"""
+    prompt = build_master_planning_prompt_document(
+        recommended_model=RECOMMENDED_CHATGPT_MODEL,
+        planning_prompt_version=PLANNING_PROMPT_VERSION,
+        eligibility_snapshot=eligibility_snapshot,
+        planner_payload_json=payload_json,
+        roles=roles,
+        camera_moves=camera_moves,
+        audio_roles=audio_roles,
+        duration_seconds=duration,
+    )
     return MasterPromptPackage(
         recommended_model=RECOMMENDED_CHATGPT_MODEL,
         planning_prompt_version=PLANNING_PROMPT_VERSION,
@@ -322,6 +241,8 @@ def validate_pasted_cinematic_plan(
     planner_input: SinglePromptPlannerInput,
 ) -> ValidatedCinematicPlan:
     """Parse, validate, hash, and split a pasted ChatGPT plan."""
+
+    eligibility_snapshot = selected_assets_capability_summary(planner_input.selected_assets)
 
     raw_payload = (
         parse_pasted_json(raw_plan_json) if isinstance(raw_plan_json, str) else dict(raw_plan_json)
@@ -351,6 +272,7 @@ def validate_pasted_cinematic_plan(
                 "repairs": normalization_repairs,
             },
             "scene_regulation": regulation.as_dict(),
+            "prompt_path_eligibility": eligibility_snapshot,
             "artifact_filenames": list(ARTIFACT_FILENAMES),
         },
         artifacts=artifacts,
@@ -536,6 +458,7 @@ def build_plan_artifacts(
             "total_duration_seconds": plan.total_duration_seconds,
             "fps": plan.fps,
             "canvas": plan.canvas.model_dump(mode="json"),
+            "render_strategy": plan.render_strategy,
             "objects": objects,
             "captions": captions,
             "camera_moves": camera_moves,
@@ -729,6 +652,8 @@ def _clamp_numeric_field(
 
 
 def _prompt_payload(planner_input: SinglePromptPlannerInput) -> dict[str, Any]:
+    gate = PromptPathEligibilityGate.from_selected_assets(planner_input.selected_assets)
+    eligibility_snapshot = selected_assets_capability_summary(planner_input.selected_assets)
     return {
         "page_context": planner_input.page_context,
         "selected_assets": [_compact_prompt_asset(asset) for asset in planner_input.selected_assets],
@@ -739,11 +664,44 @@ def _prompt_payload(planner_input: SinglePromptPlannerInput) -> dict[str, Any]:
         "input_page_context_hash": planner_input.input_page_context_hash,
         "selected_asset_ids": planner_input.selected_asset_ids,
         "planning_prompt_version": PLANNING_PROMPT_VERSION,
-        "allowed_prompt_paths": list(PROMPT_PATHS),
+        "allowed_prompt_paths": gate.allowed_prompt_paths_ordered(),
+        "prompt_path_eligibility": eligibility_snapshot,
         "suggested_prompt_paths": planner_input.suggested_prompt_paths,
         "pinned_prompt_paths": planner_input.pinned_prompt_paths,
         "banned_prompt_paths": planner_input.banned_prompt_paths,
     }
+
+
+def _is_pan_cookware_slug_token(token: str) -> bool:
+    """Tokens like pan2, pan1test, or pan; not pans (plural) or panorama."""
+    trimmed = token.strip().lower()
+    if not trimmed.startswith("pan"):
+        return False
+    if trimmed == "pan":
+        return True
+    remainder = trimmed.removeprefix("pan")
+    if remainder == "s":
+        return False  # English plural "pans", not a single-pan slug
+    return bool(_PAN_COOKWARE_SUFFIX.fullmatch(remainder))
+
+
+def _reject_duplicate_pan_like_cutouts(plan: CinematicReelPlan) -> None:
+    """Plan-time guard: one pan-shaped foreground layer per scene."""
+    for scene in plan.scenes:
+        pan_asset_ids = {
+            obj.asset_id
+            for obj in scene.objects
+            if any(
+                _is_pan_cookware_slug_token(piece)
+                for piece in re.findall(r"[A-Za-z0-9]+", obj.asset_label)
+            )
+        }
+        if len(pan_asset_ids) > 1:
+            raise ValueError(
+                "At most one pan-shaped cutout may appear per scene; got "
+                f"{sorted(pan_asset_ids)} in scene '{scene.scene_id}'. Reject duplicates in "
+                "provenance.rejected_assets (Duplicate-role rule)."
+            )
 
 
 def _compact_prompt_asset(asset: Mapping[str, Any]) -> dict[str, Any]:
@@ -755,6 +713,7 @@ def _compact_prompt_asset(asset: Mapping[str, Any]) -> dict[str, Any]:
     tags = asset.get("tags") or metadata.get("tags") or []
     if not isinstance(tags, list):
         tags = []
+    caps = infer_asset_prompt_path_capabilities(asset)
     compact = {
         "asset_id": asset.get("asset_id"),
         "asset_kind": asset.get("asset_kind"),
@@ -765,6 +724,8 @@ def _compact_prompt_asset(asset: Mapping[str, Any]) -> dict[str, Any]:
         "height": asset.get("height") or metadata.get("height") or visual.get("height"),
         "tags": [str(tag) for tag in tags[:8] if str(tag).strip()],
         "possible_cinematic_roles": asset.get("possible_cinematic_roles") or [],
+        "compatibility": asset.get("compatibility") if isinstance(asset.get("compatibility"), Mapping) else {},
+        "prompt_path_capabilities": caps.model_dump(),
     }
     pack_role = asset.get("pack_role")
     if pack_role:
@@ -791,6 +752,8 @@ def _validate_against_prompt_request(
     banned_used = set(planner_input.banned_prompt_paths).intersection(selected_paths)
     if banned_used:
         raise ValueError(f"selected_prompt_paths includes banned paths: {sorted(banned_used)}")
+    validate_prompt_paths_allowed_for_assets(plan.selected_prompt_paths, assets=planner_input.selected_assets)
+    _reject_duplicate_pan_like_cutouts(plan)
 
 
 __all__ = [

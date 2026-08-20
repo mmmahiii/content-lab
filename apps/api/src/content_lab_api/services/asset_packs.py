@@ -861,14 +861,18 @@ def reject_asset_pack_plan(
     asset_pack_id: uuid.UUID,
     body: AssetPackReviewDecisionRequest,
 ) -> AssetPackOut:
-    """Reject a planned or approved pack before generation."""
+    """Reject a draft, planned, or approved pack before generation."""
 
     _get_org_or_404(db, org_id)
     asset_pack = _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
-    if asset_pack.status not in {AssetPackStatus.PLANNED.value, AssetPackStatus.APPROVED.value}:
+    if asset_pack.status not in {
+        AssetPackStatus.DRAFT.value,
+        AssetPackStatus.PLANNED.value,
+        AssetPackStatus.APPROVED.value,
+    }:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only planned or approved asset packs can be rejected",
+            detail="Only draft, planned, or approved asset packs can be rejected",
         )
     asset_pack.status = AssetPackStatus.REJECTED.value
     _record_review_audit(

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from content_lab_assets.combinator import AssetCompatibilityMetadata
+from content_lab_assets.metadata import derive_asset_compatibility_metadata
 from content_lab_assets.types import AssetKind, MediaType, infer_media_type_for_asset_kind
 
 DEFAULT_REEL_FORMATS = [
@@ -532,6 +533,7 @@ def _build_planned_specs(
             )
             compatibility = _compatibility_metadata(
                 niche=niche,
+                kind=kind,
                 category=category,
                 expected_reel_formats=expected_reel_formats,
                 style_persona_constraints=style_persona_constraints,
@@ -987,6 +989,7 @@ def _required_traits(
 def _compatibility_metadata(
     *,
     niche: str,
+    kind: AssetKind,
     category: str,
     expected_reel_formats: list[str],
     style_persona_constraints: Mapping[str, Any],
@@ -1031,7 +1034,29 @@ def _compatibility_metadata(
         base["works_with_audio_moods"] = emotion
     elif category == "hook_copy":
         base["works_with_hook_types"] = _formats_for_category(category, expected_reel_formats)
-    return AssetCompatibilityMetadata.model_validate(base)
+    return derive_asset_compatibility_metadata(
+        asset_kind=kind,
+        transparency=category == "layerable_cutout",
+        possible_cinematic_roles=_default_cinematic_roles_for_category(category),
+        overrides=base,
+    )
+
+
+def _default_cinematic_roles_for_category(category: str) -> list[str]:
+    return {
+        "scene_setter": ["environment_base", "background_reveal"],
+        "proof_visual": ["hero_subject", "supporting_subject"],
+        "detail_prop": ["supporting_subject", "foreground_texture"],
+        "layerable_cutout": ["supporting_subject", "foreground_texture"],
+        "transition_motif": ["atmospheric_layer", "motion_layer"],
+        "hook_copy": ["caption_support"],
+        "audio_bed": ["audio_layer"],
+        "overlay_system": ["caption_support"],
+        "caption_copy": ["caption_support"],
+        "layout_system": ["caption_support"],
+        "audio_accent": ["audio_layer"],
+        "voiceover": ["audio_layer"],
+    }.get(category, ["supporting_subject"])
 
 
 def _compatibility_values(

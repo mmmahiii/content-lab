@@ -34,6 +34,7 @@ from content_lab_assets.types import (
     AssetKind,
     AssetResolutionDecision,
     AssetSource,
+    AssetPlacementOverlapMetadata,
     AssetTransparencyMetadata,
     AssetVisualMetadata,
     BlockedDecision,
@@ -62,6 +63,7 @@ class AssetRecord(DomainModel):
     media_type: MediaType = MediaType.UNKNOWN
     asset_source: AssetSource = AssetSource.GENERATED
     transparency: AssetTransparencyMetadata | None = None
+    placement_overlap: AssetPlacementOverlapMetadata | None = None
     visual: AssetVisualMetadata | None = None
     content_hash: str
     storage_uri: str
@@ -517,6 +519,7 @@ __all__ = [
     "AssetResolutionDecision",
     "AssetReusePolicyHooks",
     "AssetSource",
+    "AssetPlacementOverlapMetadata",
     "AssetTransparencyMetadata",
     "AssetVisualMetadata",
     "BlockedDecision",

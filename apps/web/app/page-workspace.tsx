@@ -251,6 +251,7 @@ type CinematicPlanPromptResponse = {
   input_page_context_hash: string;
   selected_asset_ids: string[];
   suggested_prompt_paths: string[];
+  prompt_path_eligibility?: Record<string, unknown>;
   master_prompt: string;
   planner_input: Record<string, unknown>;
 };
@@ -694,8 +695,12 @@ function scalarText(value: unknown): string {
 
 async function apiErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
+  return apiErrorMessageFromText(text, response.status);
+}
+
+function apiErrorMessageFromText(text: string, status: number): string {
   if (!text.trim()) {
-    return `Request failed with ${response.status}`;
+    return `Request failed with ${status}`;
   }
   try {
     const parsed = JSON.parse(text) as { detail?: unknown; error?: unknown };
@@ -723,11 +728,45 @@ async function apiErrorMessage(response: Response): Promise<string> {
       trimmed.startsWith('<html') ||
       trimmed.includes('<title>404: This page could not be found.</title>')
     ) {
-      return `Request failed with ${response.status}. The web proxy route returned an HTML error page instead of JSON; refresh the dev server and try again.`;
+      return `Request failed with ${status}. The web proxy route returned an HTML error page instead of JSON; refresh the dev server and try again.`;
     }
     return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
   }
   return text;
+}
+
+type CinematicPlanValidationError = {
+  message: string;
+  repairPrompt: string | null;
+};
+
+async function cinematicPlanValidationError(
+  response: Response,
+): Promise<CinematicPlanValidationError> {
+  const text = await response.text();
+  try {
+    const payload = asRecord(JSON.parse(text));
+    const detail = asRecord(payload?.detail) ?? asRecord(payload?.error);
+    const repairPrompt = textValue(detail?.repair_prompt);
+    const errorCode = textValue(detail?.error);
+    if (errorCode === 'cinematic_plan_repair_required' && repairPrompt) {
+      const failureCodes = stringList(detail?.failure_codes);
+      const codeSummary = failureCodes.length ? failureCodes.join(', ') : 'plan validation failed';
+      return {
+        message: `Plan needs planner repair: ${codeSummary}. Repair prompt loaded into Master prompt.`,
+        repairPrompt,
+      };
+    }
+  } catch {
+    return {
+      message: apiErrorMessageFromText(text, response.status),
+      repairPrompt: null,
+    };
+  }
+  return {
+    message: apiErrorMessageFromText(text, response.status),
+    repairPrompt: null,
+  };
 }
 
 function artifactSummary(value: unknown): string | null {
@@ -2511,14 +2550,22 @@ function ArtifactViewer({
 
       {activeTab === 'video' && artifactIsAvailable(artifact) ? (
         <div className="media-frame">
-          <video controls src={artifact?.download?.url} />
+          <video
+            key={`video:${run?.id ?? 'norun'}:${artifact?.name ?? ''}:${artifact?.download?.url ?? ''}`}
+            controls
+            src={artifact?.download?.url}
+          />
         </div>
       ) : null}
 
       {activeTab === 'cover' && artifactIsAvailable(artifact) ? (
         <div className="media-frame">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={artifact?.download?.url} alt="Generated cover" />
+          <img
+            key={`cover:${run?.id ?? 'norun'}:${artifact?.name ?? ''}:${artifact?.download?.url ?? ''}`}
+            src={artifact?.download?.url}
+            alt="Generated cover"
+          />
         </div>
       ) : null}
 
@@ -2590,6 +2637,139 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
   const comma = dataUrl.indexOf(',');
   return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+
+async function extractImageFilesFromZip(zipFile: File): Promise<File[]> {
+  const bytes = new Uint8Array(await zipFile.arrayBuffer());
+  const entries = readZipCentralDirectory(bytes);
+  const imageFiles: File[] = [];
+  for (const entry of entries) {
+    if (!isZipImagePath(entry.name)) {
+      continue;
+    }
+    const localHeaderOffset = entry.localHeaderOffset;
+    if (readUint32(bytes, localHeaderOffset) !== 0x04034b50) {
+      throw new Error(`Zip entry ${entry.name} has an invalid local header.`);
+    }
+    const filenameLength = readUint16(bytes, localHeaderOffset + 26);
+    const extraLength = readUint16(bytes, localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + filenameLength + extraLength;
+    const compressed = bytes.slice(dataStart, dataStart + entry.compressedSize);
+    const payload =
+      entry.compressionMethod === 0
+        ? compressed
+        : await inflateZipDeflateEntry(compressed, entry.name);
+    const filename = basenameForZipPath(entry.name);
+    imageFiles.push(
+      new File([arrayBufferFromBytes(payload)], filename, {
+        type: imageMimeTypeForFilename(filename),
+        lastModified: zipFile.lastModified,
+      }),
+    );
+  }
+  return imageFiles;
+}
+
+type ZipCentralDirectoryEntry = {
+  name: string;
+  compressionMethod: number;
+  compressedSize: number;
+  localHeaderOffset: number;
+};
+
+function readZipCentralDirectory(bytes: Uint8Array): ZipCentralDirectoryEntry[] {
+  const eocdOffset = findZipEndOfCentralDirectory(bytes);
+  const entryCount = readUint16(bytes, eocdOffset + 10);
+  const centralDirectoryOffset = readUint32(bytes, eocdOffset + 16);
+  const decoder = new TextDecoder();
+  const entries: ZipCentralDirectoryEntry[] = [];
+  let offset = centralDirectoryOffset;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (readUint32(bytes, offset) !== 0x02014b50) {
+      throw new Error('Zip central directory is not readable.');
+    }
+    const compressionMethod = readUint16(bytes, offset + 10);
+    if (compressionMethod !== 0 && compressionMethod !== 8) {
+      throw new Error('Zip uses an unsupported compression method.');
+    }
+    const compressedSize = readUint32(bytes, offset + 20);
+    const filenameLength = readUint16(bytes, offset + 28);
+    const extraLength = readUint16(bytes, offset + 30);
+    const commentLength = readUint16(bytes, offset + 32);
+    const localHeaderOffset = readUint32(bytes, offset + 42);
+    const name = decoder.decode(bytes.slice(offset + 46, offset + 46 + filenameLength));
+    entries.push({ name, compressionMethod, compressedSize, localHeaderOffset });
+    offset += 46 + filenameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function findZipEndOfCentralDirectory(bytes: Uint8Array): number {
+  const minimumOffset = Math.max(0, bytes.length - 0xffff - 22);
+  for (let offset = bytes.length - 22; offset >= minimumOffset; offset -= 1) {
+    if (readUint32(bytes, offset) === 0x06054b50) {
+      return offset;
+    }
+  }
+  throw new Error('Could not find the zip directory.');
+}
+
+async function inflateZipDeflateEntry(bytes: Uint8Array, filename: string): Promise<Uint8Array> {
+  const DecompressionStreamCtor = (
+    globalThis as typeof globalThis & {
+      DecompressionStream?: new (format: string) => DecompressionStream;
+    }
+  ).DecompressionStream;
+  if (!DecompressionStreamCtor) {
+    throw new Error('This browser cannot unpack compressed zip files.');
+  }
+  const stream = new Blob([arrayBufferFromBytes(bytes)])
+    .stream()
+    .pipeThrough(new DecompressionStreamCtor('deflate-raw'));
+  try {
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    throw new Error(`Could not unpack ${filename} from the zip file.`);
+  }
+}
+
+function readUint16(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function readUint32(bytes: Uint8Array, offset: number): number {
+  return (
+    (bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24)) >>>
+    0
+  );
+}
+
+function isZipImagePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/');
+  if (!normalized || normalized.endsWith('/') || normalized.startsWith('__MACOSX/')) {
+    return false;
+  }
+  return /\.(png|jpe?g|webp|gif|bmp)$/i.test(normalized);
+}
+
+function basenameForZipPath(path: string): string {
+  return path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'asset.png';
+}
+
+function imageMimeTypeForFilename(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.bmp')) return 'image/bmp';
+  return 'image/png';
 }
 
 async function assertPngBlob(blob: Blob): Promise<void> {
@@ -2888,6 +3068,7 @@ export function AssetPackGenerationWorkspace({
   const [isPackActionRunning, setIsPackActionRunning] = useState(false);
   const assetBrowserItemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const pasteImageInputRef = useRef<HTMLInputElement | null>(null);
+  const zipImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [aiAssetPromptDraft, setAiAssetPromptDraft] = useState('');
   const [pasteAssetSlotKind, setPasteAssetSlotKind] = useState<
@@ -3204,6 +3385,52 @@ export function AssetPackGenerationWorkspace({
     }
   }
 
+  async function createEmptyPack() {
+    setIsPackActionRunning(true);
+    setWorkspaceMessage('Creating empty asset pack...');
+    setPackBrowserMessage('Creating empty asset pack...');
+    try {
+      const response = await fetch(`/api/orgs/${activeOrgId()}/asset-packs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Actor-Id': 'operator:ui-rebuild',
+        },
+        body: JSON.stringify({
+          name: planner.name.trim() || `${selectedPage.display_name} empty asset pack`,
+          niche: selectedPage.handle ?? selectedPage.display_name,
+          requested_asset_count: 0,
+          asset_mix_requested_json: {
+            background_image: 0,
+            transparent_cutout_png: 0,
+          },
+          purpose: 'Empty reusable component pack for operator-uploaded assets.',
+          target_audience: selectedPage.handle ?? selectedPage.display_name,
+          strategy_summary: 'Created empty from the pack browser.',
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      const created = (await response.json()) as AssetPackRecord;
+      setAssetPack(created);
+      setSelectedAssetPackId(created.id);
+      setSelectedBrowserAssetId('');
+      setAssetBrowserFilter('all');
+      setPackAssets([]);
+      setCandidateCompositions([]);
+      await loadSavedAssetPacks(created.id);
+      setPackBrowserMessage(`Created empty ${displayAssetPackName(created)}.`);
+      setWorkspaceMessage(`Created empty ${displayAssetPackName(created)}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not create empty pack.';
+      setPackBrowserMessage(message);
+      setWorkspaceMessage(message);
+    } finally {
+      setIsPackActionRunning(false);
+    }
+  }
+
   async function deleteSelectedPack() {
     const packToDelete = selectedSavedPack;
     if (!packToDelete) {
@@ -3377,6 +3604,36 @@ export function AssetPackGenerationWorkspace({
       return;
     }
     appendPackPasteImages(files);
+  }
+
+  async function handleZipAssetFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const zipFile = event.target.files?.[0] ?? null;
+    event.target.value = '';
+    if (!zipFile) {
+      return;
+    }
+    if (!zipFile.name.toLowerCase().endsWith('.zip') && zipFile.type !== 'application/zip') {
+      setPackBrowserMessage('Choose a .zip file containing images.');
+      return;
+    }
+    setPasteStagingNote(`Reading ${zipFile.name}...`);
+    setPackBrowserMessage(`Reading ${zipFile.name}...`);
+    try {
+      const imageFiles = await extractImageFilesFromZip(zipFile);
+      if (!imageFiles.length) {
+        setPackBrowserMessage('No images found in that zip file.');
+        setPasteStagingNote('');
+        return;
+      }
+      appendPackPasteImages(imageFiles);
+      setPasteStagingNote(
+        `Staged ${imageFiles.length} image(s) from ${zipFile.name}. File names are used as asset names.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read zip file.';
+      setPackBrowserMessage(message);
+      setPasteStagingNote('');
+    }
   }
 
   function handlePasteBarDrop(event: React.DragEvent<HTMLDivElement>) {
@@ -3649,6 +3906,14 @@ export function AssetPackGenerationWorkspace({
                 Refresh packs
               </button>
               <button
+                className="utility-button"
+                type="button"
+                onClick={() => void createEmptyPack()}
+                disabled={isPackActionRunning}
+              >
+                Create empty pack
+              </button>
+              <button
                 className="danger-button"
                 type="button"
                 onClick={() => void deleteSelectedPack()}
@@ -3784,6 +4049,14 @@ export function AssetPackGenerationWorkspace({
                             Choose image(s)
                           </button>
                           <button
+                            className="utility-button"
+                            type="button"
+                            disabled={!selectedSavedPack || isPasteSaving || isPackActionRunning}
+                            onClick={() => zipImageInputRef.current?.click()}
+                          >
+                            Upload image zip
+                          </button>
+                          <button
                             className="primary-button"
                             type="button"
                             disabled={
@@ -3817,6 +4090,15 @@ export function AssetPackGenerationWorkspace({
                             accept="image/*"
                             multiple
                             onChange={handlePasteAssetFileChange}
+                            aria-hidden
+                            tabIndex={-1}
+                          />
+                          <input
+                            ref={zipImageInputRef}
+                            className="pack-browser-file-input"
+                            type="file"
+                            accept=".zip,application/zip"
+                            onChange={(event) => void handleZipAssetFileChange(event)}
                             aria-hidden
                             tabIndex={-1}
                           />
@@ -4330,6 +4612,10 @@ export function HookImageCreator({
   const [platformConstraints, setPlatformConstraints] = useState('{"platform":"instagram","aspect_ratio":"9:16"}');
   const [pinnedPromptPaths, setPinnedPromptPaths] = useState('');
   const [bannedPromptPaths, setBannedPromptPaths] = useState('');
+  const [promptPathEligibility, setPromptPathEligibility] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [masterPrompt, setMasterPrompt] = useState('');
   const [pastedPlanJson, setPastedPlanJson] = useState('');
   const [validatedPlan, setValidatedPlan] = useState<CinematicPlanValidateResponse | null>(null);
@@ -4421,6 +4707,7 @@ export function HookImageCreator({
       setSelectedBrowserAssetId('');
       setSelectedPlanAssetIds([]);
       setMasterPrompt('');
+      setPromptPathEligibility(null);
       setValidatedPlan(null);
       return;
     }
@@ -4562,6 +4849,7 @@ export function HookImageCreator({
         current.filter((assetId) => mappedAssets.some((asset) => asset.id === assetId)),
       );
       setMasterPrompt('');
+      setPromptPathEligibility(null);
       setValidatedPlan(null);
       setPlannerMessage(`Loaded ${mappedAssets.length} ready assets for cinematic planning.`);
       return mappedAssets;
@@ -4621,6 +4909,12 @@ export function HookImageCreator({
       }
       const promptPackage = (await response.json()) as CinematicPlanPromptResponse;
       setMasterPrompt(promptPackage.master_prompt);
+      setPromptPathEligibility(
+        typeof promptPackage.prompt_path_eligibility === 'object' &&
+          promptPackage.prompt_path_eligibility !== null
+          ? promptPackage.prompt_path_eligibility
+          : null,
+      );
       setValidatedPlan(null);
       setSelectedArtifactName('cinematic_reel_plan.json');
       setPlannerMessage(
@@ -4668,7 +4962,15 @@ export function HookImageCreator({
         },
       );
       if (!response.ok) {
-        throw new Error(await apiErrorMessage(response));
+        const validationError = await cinematicPlanValidationError(response);
+        if (validationError.repairPrompt) {
+          setValidatedPlan(null);
+          setMasterPrompt(validationError.repairPrompt);
+          setPlannerMessage(validationError.message);
+          setWorkspaceMessage(validationError.message);
+          return;
+        }
+        throw new Error(validationError.message);
       }
       const validated = (await response.json()) as CinematicPlanValidateResponse;
       setValidatedPlan(validated);
@@ -4714,27 +5016,45 @@ export function HookImageCreator({
         textValue(validatedPlan.plan.plan_id) ??
         textValue(validatedPlan.plan.narrative_arc && asRecord(validatedPlan.plan.narrative_arc)?.hook) ??
         'validated cinematic plan';
-      const roles: Record<string, unknown> = {};
-      const background = selectedPlanAssets.find((asset) => asset.kind === 'background');
-      const foreground = selectedPlanAssets.find(
-        (asset) => asset.kind === 'object' || asset.kind === 'hook',
-      );
+      const planRecord = validatedPlan.plan as Record<string, unknown>;
+      const provenance = asRecord(planRecord.provenance);
+      const rejectedList = provenance?.rejected_assets;
+      const rejectedIds = new Set<string>();
+      if (Array.isArray(rejectedList)) {
+        for (const item of rejectedList) {
+          const row = asRecord(item);
+          const aid = typeof row?.asset_id === 'string' ? row.asset_id : '';
+          if (aid) {
+            rejectedIds.add(aid);
+          }
+        }
+      }
+      const assetById = new Map(selectedPlanAssets.map((asset) => [asset.id, asset]));
+      let roles =
+        cinematicCompositionRolesFromPlan(planRecord, rejectedIds, assetById) ?? {};
+      if (Object.keys(roles).filter((key) => key !== 'audio' && key !== 'format').length === 0) {
+        roles = {};
+        const background = selectedPlanAssets.find((asset) => asset.kind === 'background');
+        const foreground = selectedPlanAssets.find(
+          (asset) => asset.kind === 'object' || asset.kind === 'hook',
+        );
+        if (background) {
+          roles.background = localAssetForManifest(background);
+        }
+        if (foreground) {
+          roles.foreground = localAssetForManifest(foreground);
+        }
+        for (const asset of selectedPlanAssets) {
+          roles[`selected_${asset.id}`] = localAssetForManifest(asset);
+        }
+      }
       const audio = selectedPlanAssets.find((asset) => asset.kind === 'audio');
       const format = selectedPlanAssets.find((asset) => asset.kind === 'video');
-      if (background) {
-        roles.background = localAssetForManifest(background);
-      }
-      if (foreground) {
-        roles.foreground = localAssetForManifest(foreground);
-      }
       if (audio) {
         roles.audio = localAssetForManifest(audio);
       }
       if (format) {
         roles.format = localAssetForManifest(format);
-      }
-      for (const asset of selectedPlanAssets) {
-        roles[`selected_${asset.id}`] = localAssetForManifest(asset);
       }
       const requestId = clientRequestId('cinematic-reel-package');
       const manifest = {
@@ -4789,7 +5109,7 @@ export function HookImageCreator({
             'Content-Type': 'application/json',
             'X-Actor-Id': 'operator:ui-rebuild',
           },
-          body: JSON.stringify({ generation_mode: 'smoke_test' }),
+          body: JSON.stringify({ generation_mode: 'smoke_test', force_new_package: true }),
         },
       );
       if (!packageResponse.ok) {
@@ -5330,6 +5650,23 @@ export function HookImageCreator({
                 placeholder="social_proof"
               />
             </label>
+            {promptPathEligibility &&
+            Array.isArray(promptPathEligibility.allowed_prompt_paths) ? (
+              <div className="field cinematic-eligibility-hint">
+                <strong>Eligible prompt paths</strong>
+                <p className="muted">
+                  {(promptPathEligibility.allowed_prompt_paths as string[]).join(', ') ||
+                    'None for this selection'}
+                </p>
+                {Array.isArray(promptPathEligibility.blocked_prompt_paths) &&
+                (promptPathEligibility.blocked_prompt_paths as string[]).length ? (
+                  <p className="muted">
+                    Blocked for this selection:{' '}
+                    {(promptPathEligibility.blocked_prompt_paths as string[]).join(', ')}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {selectablePlanAssets.length ? (
               <div className="review-actions cinematic-asset-select-all">
                 <button
@@ -6321,6 +6658,69 @@ function withHookLayoutIntent({
       intent: layout.intent,
     },
   };
+}
+
+/** Timeline-derived layers for FFmpeg — avoids stacking every checkbox asset (duplicate pans). */
+function cinematicCompositionRolesFromPlan(
+  planUnknown: Record<string, unknown>,
+  rejectedIds: Set<string>,
+  assetsById: Map<string, AssetLibraryItem>,
+): Record<string, unknown> | null {
+  type PlanObj = {
+    asset_id?: string;
+    role?: string;
+    start_time?: number;
+  };
+  const scenesUnknown = planUnknown.scenes;
+  const scenes = Array.isArray(scenesUnknown) ? (scenesUnknown as { objects?: PlanObj[] }[]) : [];
+  if (!scenes.length) {
+    return null;
+  }
+
+  let environmentAssetId: string | undefined;
+  for (const scene of scenes) {
+    const objs = Array.isArray(scene.objects) ? scene.objects : [];
+    for (const obj of objs) {
+      const aid = typeof obj.asset_id === 'string' ? obj.asset_id : '';
+      if (!aid || rejectedIds.has(aid)) continue;
+      if (obj.role === 'environment_base') {
+        environmentAssetId = aid;
+        break;
+      }
+    }
+    if (environmentAssetId) break;
+  }
+
+  const foregroundOrder: string[] = [];
+  const seenFore = new Set<string>();
+  for (const scene of scenes) {
+    const objsRaw = Array.isArray(scene.objects) ? scene.objects : [];
+    const objs = [...objsRaw].sort((a, b) => Number(a.start_time ?? 0) - Number(b.start_time ?? 0));
+    for (const obj of objs) {
+      const aid = typeof obj.asset_id === 'string' ? obj.asset_id : '';
+      if (!aid || rejectedIds.has(aid)) continue;
+      if (obj.role === 'environment_base') continue;
+      if (seenFore.has(aid)) continue;
+      seenFore.add(aid);
+      foregroundOrder.push(aid);
+    }
+  }
+
+  const roles: Record<string, unknown> = {};
+  const envAsset =
+    environmentAssetId !== undefined ? assetsById.get(environmentAssetId) : undefined;
+  if (envAsset) {
+    roles.background = localAssetForManifest(envAsset);
+  }
+
+  foregroundOrder.slice(0, 12).forEach((assetId, index) => {
+    const asset = assetsById.get(assetId);
+    if (!asset) return;
+    const key = index === 0 ? 'foreground' : `foreground_${index + 1}`;
+    roles[key] = localAssetForManifest(asset);
+  });
+
+  return Object.keys(roles).length ? roles : null;
 }
 
 function localAssetForManifest(asset: AssetLibraryItem): Record<string, unknown> {

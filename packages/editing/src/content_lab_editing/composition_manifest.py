@@ -82,6 +82,28 @@ class CompositionAnimation(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class LayerHarmonisationPass(BaseModel):
+    """Per-layer colour and edge harmonisation applied during FFmpeg composition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    colour_match_to_scene: bool = False
+    brightness_match: bool = False
+    contrast_match: bool = False
+    shadow_blend: bool = False
+    edge_softening: bool = False
+    strength: float = Field(default=0.75, ge=0.0, le=1.0)
+
+    def any_enabled(self) -> bool:
+        return (
+            self.colour_match_to_scene
+            or self.brightness_match
+            or self.contrast_match
+            or self.shadow_blend
+            or self.edge_softening
+        )
+
+
 class CompositionLayer(BaseModel):
     """One timed visual or audio layer in a composition manifest."""
 
@@ -107,6 +129,7 @@ class CompositionLayer(BaseModel):
     animation: CompositionAnimation | None = None
     motion_transform: MotionTransform | None = None
     safe_area_constraints: SafeAreaConstraints | None = None
+    harmonisation: LayerHarmonisationPass | None = None
 
     @model_validator(mode="after")
     def _validate_layer(self) -> CompositionLayer:
@@ -231,6 +254,7 @@ __all__ = [
     "CompositionExportPreset",
     "CompositionLayer",
     "CompositionManifest",
+    "LayerHarmonisationPass",
     "MaskMode",
     "MediaType",
     "MotionTransform",

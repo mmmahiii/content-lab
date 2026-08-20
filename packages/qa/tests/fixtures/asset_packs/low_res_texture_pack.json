@@ -1,0 +1,20 @@
+{
+  "pack_id": "low_res_texture_pack",
+  "assets": [
+    {
+      "asset_id": "tiny_surface",
+      "role": "environment_base",
+      "view_angle": "top_down",
+      "surface_plane": "horizontal",
+      "width": 301,
+      "height": 167
+    },
+    {
+      "asset_id": "foreground_cutout",
+      "role": "hero_subject",
+      "view_angle": "top_down",
+      "surface_plane": "horizontal",
+      "transparent": true
+    }
+  ]
+}

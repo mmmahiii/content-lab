@@ -10,6 +10,7 @@ python = "^3.11"
 content-lab-shared = {path = "../shared/py", develop = true}
 content-lab-core = {path = "../core", develop = true}
 content-lab-creative = {path = "../creative", develop = true}
+content-lab-assets = {path = "../assets", develop = true}
 content-lab-editing = {path = "../editing", develop = true}
 
 [tool.poetry.group.dev.dependencies]
@@ -29,6 +30,7 @@ extend-select = ["I", "UP", "B", "SIM"]
 known-first-party = [
     "content_lab_qa",
     "content_lab_core",
+    "content_lab_assets",
     "content_lab_creative",
     "content_lab_shared",
     "content_lab_editing",

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from collections.abc import Mapping
 from typing import Any, cast
 
+from content_lab_editing.compositor import preflight_compositor_timeline
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, insert
@@ -74,15 +76,25 @@ from content_lab_api.services import (
     register_source_asset_for_pack,
     reject_asset_pack_plan,
 )
+from content_lab_api.services.cinematic_overlap import build_cinematic_overlap_context
 from content_lab_assets.combinator import CandidateComposition, PackAsset
 from content_lab_assets.role_assignment import normalize_asset_for_cinematic_planning
+from content_lab_creative.prompt_path_eligibility import selected_assets_capability_summary
+from content_lab_creative.repair_prompt import (
+    PlannerValidationFinding,
+    PlannerValidationReport,
+    build_repair_prompt,
+)
 from content_lab_creative.single_prompt_reel_planner import (
     SinglePromptPlannerInput,
+    attach_plan_hash,
     build_master_planning_prompt,
     build_plan_artifacts,
+    compute_plan_hash,
     validate_pasted_cinematic_plan,
 )
 from content_lab_qa.plan_realism import validate_cinematic_plan_realism
+from content_lab_qa.plan_repair import repair_cinematic_plan_for_realism
 from content_lab_runs import RunStatus, TaskStatus
 from content_lab_shared.logging import ANONYMOUS_ACTOR
 
@@ -913,15 +925,108 @@ def generate_cinematic_plan_prompt(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    prompt_eligibility = selected_assets_capability_summary(planner_input.selected_assets)
     return CinematicPlanPromptOut(
         recommended_model=prompt_package.recommended_model,
         planning_prompt_version=prompt_package.planning_prompt_version,
         input_page_context_hash=prompt_package.input_page_context_hash,
         selected_asset_ids=[uuid.UUID(asset_id) for asset_id in prompt_package.selected_asset_ids],
         suggested_prompt_paths=prompt_package.suggested_prompt_paths,
+        prompt_path_eligibility=prompt_eligibility,
         master_prompt=prompt_package.master_prompt,
         planner_input=planner_input.model_dump(mode="json"),
     )
+
+
+def _raise_cinematic_plan_repair_required(
+    *,
+    planner_input: SinglePromptPlannerInput,
+    failed_plan: dict[str, Any],
+    source: str,
+    failures: list[dict[str, Any]],
+) -> None:
+    structured_failures = _dedupe_structured_repair_failures(
+        [_structured_repair_failure(source, failure) for failure in failures]
+    )
+    report = PlannerValidationReport(
+        passed=False,
+        findings=tuple(
+            PlannerValidationFinding(
+                code=str(item["failure_code"]),
+                severity="fail",
+                message=str(item["problem"]),
+                suggested_fix=str(item["suggested_fix"]),
+                scene_id=cast(str | None, item.get("scene_id")),
+                details={
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"problem", "suggested_fix"}
+                },
+            )
+            for item in structured_failures
+        ),
+    )
+    failed_json = json.dumps(failed_plan, indent=2, sort_keys=True)
+    repair_prompt = build_repair_prompt(
+        planner_input=planner_input,
+        invalid_plan_json_text=failed_json,
+        validation_report=report,
+    )
+    codes = sorted({str(item["failure_code"]) for item in structured_failures})
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "error": "cinematic_plan_repair_required",
+            "message": "Cinematic plan failed validation and must be repaired by the planner.",
+            "failure_codes": codes,
+            "failures": structured_failures,
+            "repair_prompt": repair_prompt,
+        },
+    )
+
+
+def _structured_repair_failure(source: str, failure: dict[str, Any]) -> dict[str, Any]:
+    details = dict(failure.get("details") or {})
+    code = str(details.get("failure_code") or failure.get("code") or "validation_failed")
+    object_id = details.get("object_id")
+    problem = str(details.get("problem") or failure.get("message") or code)
+    suggested_fix = str(
+        failure.get("suggested_fix")
+        or details.get("suggested_fix")
+        or "Return corrected CinematicReelPlan JSON or reject the object with a reason."
+    )
+    return {
+        "source": source,
+        "failure_code": code,
+        "object_id": None if object_id is None else str(object_id),
+        "scene_id": failure.get("scene_id"),
+        "problem": problem,
+        "suggested_fix": suggested_fix,
+        "details": details,
+    }
+
+
+def _dedupe_structured_repair_failures(
+    failures: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    has_specific_depth = {
+        item.get("object_id")
+        for item in failures
+        if item.get("failure_code") == "background_reveal_too_forward"
+    }
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None]] = set()
+    for item in failures:
+        code = str(item.get("failure_code"))
+        object_id = cast(str | None, item.get("object_id"))
+        if code == "background_reveal_foreground_depth" and object_id in has_specific_depth:
+            continue
+        key = (code, object_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 @router.post("/{asset_pack_id}/cinematic-plan-validate", response_model=CinematicPlanValidateOut)
@@ -944,34 +1049,85 @@ def validate_cinematic_plan(
             body.raw_plan_json if body.raw_plan_json is not None else dict(body.plan or {})
         )
         validated = validate_pasted_cinematic_plan(plan_payload, planner_input=planner_input)
-        realism_report = validate_cinematic_plan_realism(validated.plan)
-        if not realism_report.passed:
-            raise ValueError(
-                "realism QA failed: "
-                + ", ".join(
-                    finding.code for finding in realism_report.findings if finding.severity == "fail"
-                )
+        eligibility_record = validated.validation_report.get("prompt_path_eligibility") or {}
+        aggregate_payload = eligibility_record.get("aggregate") if isinstance(eligibility_record, dict) else None
+        overlap_context = build_cinematic_overlap_context(db, validated.plan)
+        plan = validated.plan
+        plan_hash = validated.plan_hash
+        realism_report = validate_cinematic_plan_realism(
+            plan,
+            prompt_path_capabilities_aggregate=aggregate_payload
+            if isinstance(aggregate_payload, dict)
+            else None,
+            overlap_context=overlap_context,
+        )
+        deterministic_repair = repair_cinematic_plan_for_realism(plan, realism_report)
+        if deterministic_repair.repaired:
+            plan = deterministic_repair.plan
+            plan_hash = compute_plan_hash(plan)
+            plan = attach_plan_hash(plan, plan_hash)
+            realism_report = validate_cinematic_plan_realism(
+                plan,
+                prompt_path_capabilities_aggregate=aggregate_payload
+                if isinstance(aggregate_payload, dict)
+                else None,
+                overlap_context=overlap_context,
             )
-        validation_report = {
-            **validated.validation_report,
-            "plan_realism": realism_report.as_dict(),
-        }
+        if not realism_report.passed:
+            failures = [
+                finding.as_dict()
+                for finding in realism_report.findings
+                if finding.severity == "fail"
+            ]
+            _raise_cinematic_plan_repair_required(
+                planner_input=planner_input,
+                failed_plan=plan.model_dump(mode="json"),
+                source="realism_qa",
+                failures=failures,
+            )
         artifacts = build_plan_artifacts(
-            validated.plan,
+            plan,
             realism_qa={
                 "scene_regulation": validated.validation_report.get("scene_regulation"),
+                "deterministic_repair": deterministic_repair.as_dict(),
                 "plan_realism": realism_report.as_dict(),
             },
         )
+        compositor_report = preflight_compositor_timeline(
+            artifacts["reel_timeline.json"],
+            overlap_context=overlap_context,
+        )
+        if not compositor_report.passed:
+            layout = compositor_report.relationship_layout
+            failures = [
+                finding.as_dict()
+                for finding in layout.findings
+                if finding.severity == "fail"
+            ]
+            _raise_cinematic_plan_repair_required(
+                planner_input=planner_input,
+                failed_plan=plan.model_dump(mode="json"),
+                source="compositor_preflight",
+                failures=failures,
+            )
+        validation_report = {
+            **validated.validation_report,
+            "plan_hash": plan_hash,
+            "deterministic_repair": deterministic_repair.as_dict(),
+            "plan_realism": realism_report.as_dict(),
+            "compositor_preflight": compositor_report.as_dict(),
+        }
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
     return CinematicPlanValidateOut(
-        plan=validated.plan.model_dump(mode="json"),
+        plan=plan.model_dump(mode="json"),
         validation_report=validation_report,
-        plan_hash=validated.plan_hash,
+        plan_hash=plan_hash,
         artifacts=artifacts,
     )
 

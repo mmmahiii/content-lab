@@ -1,0 +1,20 @@
+{
+  "pack_id": "valid_compatible_pack",
+  "assets": [
+    {
+      "asset_id": "studio_surface",
+      "role": "environment_base",
+      "view_angle": "top_down",
+      "surface_plane": "horizontal",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "asset_id": "hero_product",
+      "role": "hero_subject",
+      "view_angle": "top_down",
+      "surface_plane": "horizontal",
+      "transparent": true
+    }
+  ]
+}

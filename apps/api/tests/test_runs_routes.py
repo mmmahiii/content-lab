@@ -671,6 +671,137 @@ def test_generate_package_from_cinematic_plan_run_merges_plan_and_package_steps(
     assert package_run.external_ref == "local-process:12345"
 
 
+def test_generate_package_from_cinematic_plan_reuses_linked_package_without_force(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Second POST returns the existing package run so clients do not enqueue duplicate renders."""
+    org_id = seeded_run_scope["org_id"]
+    page_id = seeded_run_scope["page_id"]
+    plan_run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="manual",
+        status="succeeded",
+        input_params={
+            "page_id": str(page_id),
+            "workflow_stage": "asset_composition_render",
+        },
+        run_metadata={"client": {"workflow_stage": "asset_composition_render"}},
+        output_payload={
+            "output_type": "cinematic_reel_plan",
+            "package": {
+                "composition_manifest": {
+                    "schema_version": "cinematic_reel_plan_manifest.v1",
+                    "roles": {
+                        "background": {
+                            "asset_id": "bg",
+                            "asset_kind": "background",
+                            "metadata": {
+                                "storage_uri": "s3://content-lab/assets/bg.png",
+                                "media_type": "image/png",
+                            },
+                        }
+                    },
+                },
+                "cinematic_plan": {"plan_id": "p1", "scenes": [], "total_duration_seconds": 6.0},
+                "cinematic_artifacts": {},
+            },
+        },
+    )
+    db_session.add(plan_run)
+    db_session.flush()
+
+    monkeypatch.setattr(
+        runs_route,
+        "_launch_process_reel_flow",
+        lambda **_: {"pid": 12345, "mode": "test"},
+    )
+
+    first = runs_client.post(
+        f"/orgs/{org_id}/pages/{page_id}/cinematic-plans/{plan_run.id}/generate-package",
+        json={"generation_mode": "smoke_test"},
+    )
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    second = runs_client.post(
+        f"/orgs/{org_id}/pages/{page_id}/cinematic-plans/{plan_run.id}/generate-package",
+        json={"generation_mode": "smoke_test"},
+    )
+    assert second.status_code == 201
+    assert second.json()["id"] == first_id
+
+
+def test_generate_package_from_cinematic_plan_force_new_package_creates_second_run(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = seeded_run_scope["org_id"]
+    page_id = seeded_run_scope["page_id"]
+    plan_run = Run(
+        org_id=org_id,
+        workflow_key="process_reel",
+        flow_trigger="manual",
+        status="succeeded",
+        input_params={
+            "page_id": str(page_id),
+            "workflow_stage": "asset_composition_render",
+        },
+        run_metadata={"client": {"workflow_stage": "asset_composition_render"}},
+        output_payload={
+            "output_type": "cinematic_reel_plan",
+            "package": {
+                "composition_manifest": {
+                    "schema_version": "cinematic_reel_plan_manifest.v1",
+                    "roles": {
+                        "background": {
+                            "asset_id": "bg",
+                            "asset_kind": "background",
+                            "metadata": {
+                                "storage_uri": "s3://content-lab/assets/bg.png",
+                                "media_type": "image/png",
+                            },
+                        }
+                    },
+                },
+                "cinematic_plan": {"plan_id": "p1", "scenes": [], "total_duration_seconds": 6.0},
+                "cinematic_artifacts": {},
+            },
+        },
+    )
+    db_session.add(plan_run)
+    db_session.flush()
+
+    monkeypatch.setattr(
+        runs_route,
+        "_launch_process_reel_flow",
+        lambda **_: {"pid": 12345, "mode": "test"},
+    )
+
+    first = runs_client.post(
+        f"/orgs/{org_id}/pages/{page_id}/cinematic-plans/{plan_run.id}/generate-package",
+        json={"generation_mode": "smoke_test"},
+    )
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    second = runs_client.post(
+        f"/orgs/{org_id}/pages/{page_id}/cinematic-plans/{plan_run.id}/generate-package",
+        json={"generation_mode": "smoke_test", "force_new_package": True},
+    )
+    assert second.status_code == 201
+    second_id = second.json()["id"]
+    assert second_id != first_id
+
+    db_session.refresh(plan_run)
+    assert plan_run.output_payload["used_in_package_run_id"] == second_id
+
+
 def test_list_page_runs_returns_only_matching_page_runs_in_newest_first_order(
     runs_client: TestClient,
     db_session: Session,

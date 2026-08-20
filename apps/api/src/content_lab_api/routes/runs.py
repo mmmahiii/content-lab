@@ -133,6 +133,13 @@ class PackageGenerationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     generation_mode: Literal["runway", "smoke_test"]
+    force_new_package: bool = Field(
+        default=False,
+        description=(
+            "When True, cinematic plan package generation skips returning an existing linked "
+            "package run so each click triggers a fresh package job."
+        ),
+    )
 
 
 class HookCoverUpdate(BaseModel):
@@ -1197,7 +1204,7 @@ def generate_package_from_cinematic_plan(
 
     plan_payload = dict(plan_run.output_payload or {})
     existing_package_run_id = plan_payload.get("used_in_package_run_id")
-    if existing_package_run_id is not None:
+    if existing_package_run_id is not None and not body.force_new_package:
         existing_run = db.get(Run, uuid.UUID(str(existing_package_run_id)))
         if existing_run is not None and existing_run.status != RunStatus.FAILED.value:
             return run_to_out(existing_run)

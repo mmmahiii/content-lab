@@ -54,3 +54,17 @@ def test_cinematic_roles_cover_subject_effect_and_audio_assets() -> None:
         pack_role="sizzle audio",
         metadata={},
     ) == ("audio_layer",)
+
+
+def test_plant_assets_include_background_reveal_role() -> None:
+    descriptor = normalize_asset_for_cinematic_planning(
+        {
+            "asset_id": "plant_1",
+            "asset_kind": "transparent_cutout_png",
+            "pack_role": "plant_in_pot_m6oj908",
+            "metadata": {"description": "small kitchen plant"},
+        }
+    )
+
+    assert "background_reveal" in descriptor.possible_cinematic_roles
+    assert "supporting_subject" in descriptor.possible_cinematic_roles

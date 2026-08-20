@@ -11,6 +11,37 @@ function resolveApiBaseUrl(): string {
   return raw.replace(/\/$/, '');
 }
 
+export async function POST(request: Request, { params }: { params: Promise<{ orgId: string }> }) {
+  const { orgId } = await params;
+  const body = await request.text();
+  let response: Response;
+  try {
+    response = await fetch(`${resolveApiBaseUrl()}/orgs/${orgId}/asset-packs`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-Actor-Id': request.headers.get('x-actor-id') ?? 'operator:ui-rebuild',
+      },
+      body,
+      cache: 'no-store',
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: 'API is not reachable. Start the backend on port 8000, then try again.' },
+      { status: 503 },
+    );
+  }
+
+  return new NextResponse(await response.text(), {
+    status: response.status,
+    headers: {
+      'Content-Type': response.headers.get('content-type') ?? 'application/json',
+      'X-Request-Id': response.headers.get('x-request-id') ?? '',
+    },
+  });
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
   const requestUrl = new URL(request.url);

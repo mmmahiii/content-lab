@@ -18,12 +18,23 @@ from content_lab_assets.combinator import (
     generate_candidate_compositions,
     select_performance_weighted_combinations,
 )
+from content_lab_assets.compatibility import (
+    AlphaQuality,
+    AssetPairCompatibilityScore,
+    AssetResolutionClass,
+    LightingDirection,
+    LightingQuality,
+    SurfacePlane,
+    ViewAngle,
+    compatibility_score,
+)
 from content_lab_assets.importer import (
     MAX_APPROVED_IMPORT_BYTES,
     ApprovedImportValidationError,
     assert_safe_http_url_for_fetch,
     usage_metadata_sufficient,
 )
+from content_lab_assets.metadata import derive_asset_compatibility_metadata
 from content_lab_assets.motion_suitability import (
     MotionSuitabilityAssessment,
     evaluate_motion_suitability,
@@ -46,12 +57,19 @@ from content_lab_assets.provenance import (
     build_provenance,
     serialize_provenance_json,
 )
+from content_lab_assets.quality import (
+    EnvironmentBaseQualityResult,
+    FullFrameQualityScore,
+    evaluate_environment_base_quality,
+    score_full_frame_quality,
+)
 from content_lab_assets.registry import (
     AlphaMode,
     AssetKind,
     AssetRecord,
     AssetRegistry,
     AssetSource,
+    AssetPlacementOverlapMetadata,
     AssetTransparencyMetadata,
     AssetVisualMetadata,
     GenerateDecision,
@@ -79,6 +97,7 @@ from content_lab_assets.role_assignment import (
 )
 from content_lab_assets.store import RunwayAssetStore, SQLRunwayAssetStore, StoredRunwayGeneration
 from content_lab_assets.types import (
+    AssetPlacementOverlapMetadata,
     AssetSourceMetadata,
     AssetSourceType,
     infer_asset_source_type_from_asset_source,
@@ -100,6 +119,7 @@ __all__ = [
     "AssetSource",
     "AssetSourceMetadata",
     "AssetSourceType",
+    "AssetPlacementOverlapMetadata",
     "AssetTransparencyMetadata",
     "AssetVisualMetadata",
     "CINEMATIC_ROLES",
@@ -152,4 +172,20 @@ __all__ = [
     "usage_metadata_sufficient",
     "validate_requested_asset_mix",
     "validate_asset_kind_media_type",
+]
+
+__all__ += [
+    "AlphaQuality",
+    "AssetPairCompatibilityScore",
+    "AssetResolutionClass",
+    "EnvironmentBaseQualityResult",
+    "FullFrameQualityScore",
+    "LightingDirection",
+    "LightingQuality",
+    "SurfacePlane",
+    "ViewAngle",
+    "compatibility_score",
+    "derive_asset_compatibility_metadata",
+    "evaluate_environment_base_quality",
+    "score_full_frame_quality",
 ]

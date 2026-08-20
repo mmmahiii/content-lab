@@ -13,19 +13,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from itertools import product
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
+from content_lab_assets.compatibility import (
+    AssetCompatibilityMetadata,
+    CompatibilityDimension,
+)
 from content_lab_assets.types import AssetKind
-
-CompatibilityDimension = Literal[
-    "niche",
-    "topic",
-    "theme",
-    "emotion",
-    "visual_style",
-    "pace",
-    "format_type",
-]
 
 ROLE_BACKGROUND = "background"
 ROLE_FOREGROUND = "foreground"
@@ -33,85 +27,6 @@ ROLE_HOOK = "hook"
 ROLE_AUDIO = "audio"
 ROLE_EFFECT = "effect"
 ROLE_FORMAT = "format"
-
-
-class AssetCompatibilityMetadata(BaseModel):
-    """What an asset works with when composing new reels."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    niche: list[str] = Field(default_factory=list)
-    topic: list[str] = Field(default_factory=list)
-    theme: list[str] = Field(default_factory=list)
-    emotion: list[str] = Field(default_factory=list)
-    visual_style: list[str] = Field(default_factory=list)
-    pace: list[str] = Field(default_factory=list)
-    format_type: list[str] = Field(default_factory=list)
-    works_as_background_for: list[str] = Field(default_factory=list)
-    works_with_object_types: list[str] = Field(default_factory=list)
-    works_with_audio_moods: list[str] = Field(default_factory=list)
-    works_with_hook_types: list[str] = Field(default_factory=list)
-    requires_transparency: bool = False
-    requires_safe_area: bool = False
-
-    @field_validator(
-        "niche",
-        "topic",
-        "theme",
-        "emotion",
-        "visual_style",
-        "pace",
-        "format_type",
-        "works_as_background_for",
-        "works_with_object_types",
-        "works_with_audio_moods",
-        "works_with_hook_types",
-        mode="before",
-    )
-    @classmethod
-    def _normalize_list(cls, value: Any) -> list[str]:
-        if value is None:
-            return []
-        values: Iterable[Any] = [value] if isinstance(value, str) else value
-        normalized: list[str] = []
-        for item in values:
-            text = _normalize_token(item)
-            if text is not None and text not in normalized:
-                normalized.append(text)
-        return normalized
-
-    @classmethod
-    def from_metadata(cls, metadata: Mapping[str, Any] | None) -> AssetCompatibilityMetadata:
-        """Hydrate compatibility from common pack metadata shapes."""
-
-        if not metadata:
-            return cls()
-        candidate = metadata.get("compatibility")
-        if isinstance(candidate, Mapping):
-            return cls.model_validate(dict(candidate))
-        candidate = metadata.get("compatible_with")
-        if isinstance(candidate, Mapping):
-            mapped = dict(candidate)
-            if "reel_formats" in mapped and "format_type" not in mapped:
-                mapped["format_type"] = mapped.pop("reel_formats")
-            return cls.model_validate(mapped)
-        return cls.model_validate(
-            {key: value for key, value in metadata.items() if key in cls.model_fields}
-        )
-
-    def matches_filters(
-        self,
-        *,
-        format_filters: Sequence[str] | None = None,
-        style_filters: Sequence[str] | None = None,
-    ) -> bool:
-        formats = _token_set(format_filters or [])
-        styles = _token_set(style_filters or [])
-        if formats and self.format_type and not formats.intersection(self.format_type):
-            return False
-        if styles and self.visual_style and not styles.intersection(self.visual_style):
-            return False
-        return True
 
 
 class PackAsset(BaseModel):

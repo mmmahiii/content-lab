@@ -25,6 +25,7 @@ content-lab-qa = {path = "../../packages/qa", develop = true}
 content-lab-runs = {path = "../../packages/runs", develop = true}
 content-lab-outbox = {path = "../../packages/outbox", develop = true}
 content-lab-creative = {path = "../../packages/creative", develop = true}
+content-lab-editing = {path = "../../packages/editing", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
