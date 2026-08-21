@@ -2,14 +2,14 @@
   ".codex/hooks.json": {
     "mtime": 1787236769.0126984,
     "seen": 1787240678.4948113,
-    "ast_hash": "0327585c32af74f76b36c17470dce4b3",
-    "semantic_hash": "0327585c32af74f76b36c17470dce4b3"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   ".dev-stack/failed-run.json": {
     "mtime": 1777836497.4408894,
     "seen": 1787240678.4948113,
-    "ast_hash": "6942546993df44026ab56e3abb3a5698",
-    "semantic_hash": "6942546993df44026ab56e3abb3a5698"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   ".dev-stack/worker-watch.ps1": {
     "mtime": 1777673548.9691436,
@@ -1436,26 +1436,26 @@
   "artifacts/asset_packs/faceless_cooking_real_png/20260511-164911/summary.json": {
     "mtime": 1778516434.9687808,
     "seen": 1787240678.4948113,
-    "ast_hash": "1db5461e1ab6d8176b72139224a9030b",
-    "semantic_hash": "1db5461e1ab6d8176b72139224a9030b"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "artifacts/e2e_composable_asset_registry/20260507-214834/summary.json": {
     "mtime": 1778186923.1777802,
     "seen": 1787240678.4948113,
-    "ast_hash": "4329ba83d70d52ac7e87f8794810d8ab",
-    "semantic_hash": "4329ba83d70d52ac7e87f8794810d8ab"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "artifacts/e2e_composable_asset_registry/20260507-214917/summary.json": {
     "mtime": 1778186963.859677,
     "seen": 1787240678.4948113,
-    "ast_hash": "3e68a7a53f6d4f751badf1d02ed773c2",
-    "semantic_hash": "3e68a7a53f6d4f751badf1d02ed773c2"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "artifacts/last_run_ids.json": {
     "mtime": 1776779761.0872529,
     "seen": 1787240678.4948113,
-    "ast_hash": "1c5acc29c18afe7115a6a41a1d6ef28a",
-    "semantic_hash": "1c5acc29c18afe7115a6a41a1d6ef28a"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "artifacts/manual_reel_demo.sh": {
     "mtime": 1776779761.1078103,
@@ -1472,20 +1472,20 @@
   "artifacts/page/579f8404-1737-47a5-9c06-66a0a07b2515/reel/8ac8e82f-d112-4e08-b77a-b4e07dddb798/posting_plan.json": {
     "mtime": 1776779761.1161244,
     "seen": 1787240678.4948113,
-    "ast_hash": "9ef11663139379da506b6688ec4a8b54",
-    "semantic_hash": "9ef11663139379da506b6688ec4a8b54"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "artifacts/seed_steakpagetest/hook_canvas_layout.json": {
     "mtime": 1778857167.6989713,
     "seen": 1787240678.4948113,
-    "ast_hash": "e65b633ea77fff973bb2ad01492304ed",
-    "semantic_hash": "e65b633ea77fff973bb2ad01492304ed"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "artifacts/seed_steakpagetest/saved_hook_generations.json": {
     "mtime": 1778857167.6999712,
     "seen": 1787240678.4948113,
-    "ast_hash": "5251bf34eca4d7d8d549d824ed1f7700",
-    "semantic_hash": "5251bf34eca4d7d8d549d824ed1f7700"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "open-console.ps1": {
     "mtime": 1776776832.3477356,
@@ -2372,8 +2372,8 @@
   "packages/editing/tests/fixtures/ffprobe_sample.json": {
     "mtime": 1774523035.040922,
     "seen": 1787240678.4948113,
-    "ast_hash": "506b66fe8e7fe624c25d044ef2fd39ff",
-    "semantic_hash": "506b66fe8e7fe624c25d044ef2fd39ff"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/editing/tests/test_canonical_timeline.py": {
     "mtime": 1777923789.1060822,
@@ -2816,20 +2816,20 @@
   "packages/qa/tests/fixtures/asset_packs/low_res_texture_pack.json": {
     "mtime": 1779048775.9283786,
     "seen": 1787240678.4948113,
-    "ast_hash": "17f9317887e7af57d8e6a3ae3b6eb4e5",
-    "semantic_hash": "17f9317887e7af57d8e6a3ae3b6eb4e5"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/asset_packs/mismatched_perspective_pack.json": {
     "mtime": 1779048775.9298887,
     "seen": 1787240678.4948113,
-    "ast_hash": "f1155c29689e87a20a8e99eb73d5ef4d",
-    "semantic_hash": "f1155c29689e87a20a8e99eb73d5ef4d"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/asset_packs/valid_compatible_pack.json": {
     "mtime": 1779048775.925378,
     "seen": 1787240678.4948113,
-    "ast_hash": "6f5b10bff34382219be8f1b3eea7bd0d",
-    "semantic_hash": "6f5b10bff34382219be8f1b3eea7bd0d"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/bad_reels/__init__.py": {
     "mtime": 1776899182.8508356,
@@ -2840,26 +2840,26 @@
   "packages/qa/tests/fixtures/bad_reels/cases/intent_drift_solar_mismatch.json": {
     "mtime": 1776899182.8551545,
     "seen": 1787240678.4948113,
-    "ast_hash": "5c3c5a68c5a519f04b1fbdc903766d84",
-    "semantic_hash": "5c3c5a68c5a519f04b1fbdc903766d84"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/bad_reels/cases/latest_trace_smoke_operations.json": {
     "mtime": 1777466515.426374,
     "seen": 1787240678.4948113,
-    "ast_hash": "98098c594b77d5fe1d253cfebeae0975",
-    "semantic_hash": "98098c594b77d5fe1d253cfebeae0975"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/bad_reels/cases/well_aligned_baseline.json": {
     "mtime": 1776899182.8551545,
     "seen": 1787240678.4948113,
-    "ast_hash": "3d7a8d8855e384323a750054daa57578",
-    "semantic_hash": "3d7a8d8855e384323a750054daa57578"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/bad_reels/expected_outcomes.json": {
     "mtime": 1777466515.4284158,
     "seen": 1787240678.4948113,
-    "ast_hash": "91ca6c89674d847cec4eb3fdf192aa35",
-    "semantic_hash": "91ca6c89674d847cec4eb3fdf192aa35"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "packages/qa/tests/fixtures/bad_reels/loader.py": {
     "mtime": 1776979299.4467237,
@@ -3761,12 +3761,6 @@
     "ast_hash": "f99773fad00bf6c8e0d6a580d9cea5a0",
     "semantic_hash": "f99773fad00bf6c8e0d6a580d9cea5a0"
   },
-  "graphify-out/transcripts/final_video.txt": {
-    "mtime": 1787239991.5591066,
-    "seen": 1787240678.4948113,
-    "ast_hash": "04c59793f41ca453038e78472494245e",
-    "semantic_hash": "04c59793f41ca453038e78472494245e"
-  },
   "artifacts/asset_packs/faceless_cooking_real_png/20260511-164817/chicken_and_vegetables.png": {
     "mtime": 1778514516.140315,
     "seen": 1787240678.4948113,
@@ -4084,5 +4078,17 @@
     "seen": 1787240678.4948113,
     "ast_hash": "d8c6f2c905548f8212c6774a723f4252",
     "semantic_hash": "d8c6f2c905548f8212c6774a723f4252"
+  },
+  "graphify-out/memory/query_20260820_152520_has_everything_been_mapped.md": {
+    "mtime": 1787239520.4497557,
+    "seen": 1787340300.1006403,
+    "ast_hash": "6c94db0dc44f523941dc7b5f181c0dac",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260820_165827_just_to_confirm_has_the_whole_repo_been_graphed_an.md": {
+    "mtime": 1787245107.4172263,
+    "seen": 1787340300.1006403,
+    "ast_hash": "0ca7a0b8ac51b658b230e741f62ab633",
+    "semantic_hash": ""
   }
 }
