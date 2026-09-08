@@ -1,8 +1,24 @@
 {
-  "generated_at": "2026-08-20T16:58:00.764761+00:00",
+  "generated_at": "2026-09-08T19:57:29.171184+00:00",
   "nodes": {
+    "agents_repository_operating_guide": {
+      "code_fingerprint": "dbf87a1719bc6ce9206e0b526178cbffaf590460291c3952a3d5b1827a5ce1cf",
+      "label": "Repository Operating Guide",
+      "last": "2026-08-20T16:58:27.417226+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-20T16:58:27.417226+00:00",
+          "outcome": "useful",
+          "q": "just to confirm has the whole repo been graphed and mapped"
+        }
+      ],
+      "score": 0.642835929,
+      "source_file": "AGENTS.md",
+      "status": "tentative",
+      "uses": 1
+    },
     "apps_api_src_content_lab_api_services_asset_packs": {
-      "code_fingerprint": "e6ad73e11db6d5edaaecdd3a86cc639d5617c965e5461f62b3be8b9174e4f9a3",
+      "code_fingerprint": "09660c2b5369008d77e24706c1532151d175313edaa8da1f56fd78b0341d48ba",
       "label": "services/asset_packs.py",
       "last": "2026-08-20T15:25:20.449755+00:00",
       "provenance": [
@@ -12,12 +28,28 @@
           "q": "has everything been mapped"
         }
       ],
-      "score": 0.998514177,
+      "score": 0.641876214,
       "source_file": "apps/api/src/content_lab_api/services/asset_packs.py",
       "status": "tentative",
       "uses": 1
     },
-    "apps_web_app_page_workspace": {
+    "artifacts_asset_packs_faceless_cooking_real_png_20260511_164911_ginger_ginger_root": {
+      "code_fingerprint": "b26f2cb0a382c9b11b0003f57bd525d523f8ef5b06f16e5f3709503948c3cd06",
+      "label": "Whole Ginger Root",
+      "last": "2026-08-20T16:58:27.417226+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-20T16:58:27.417226+00:00",
+          "outcome": "useful",
+          "q": "just to confirm has the whole repo been graphed and mapped"
+        }
+      ],
+      "score": 0.642835929,
+      "source_file": "artifacts/asset_packs/faceless_cooking_real_png/20260511-164911/ginger.png",
+      "status": "tentative",
+      "uses": 1
+    },
+    "legacy_ui_2026_09_08_apps_web_app_page_workspace": {
       "code_fingerprint": "5ae862f1a293e32e32d4eae10725141593dba419632c01b20d18234c7bf55963",
       "label": "app/page-workspace.tsx",
       "last": "2026-08-20T15:25:20.449755+00:00",
@@ -28,8 +60,24 @@
           "q": "has everything been mapped"
         }
       ],
-      "score": 0.998514177,
-      "source_file": "apps/web/app/page-workspace.tsx",
+      "score": 0.641876214,
+      "source_file": "legacy/ui/2026-09-08/apps-web/app/page-workspace.tsx",
+      "status": "tentative",
+      "uses": 1
+    },
+    "packages_editing_src_content_lab_editing_composition_manifest_compositionmanifest": {
+      "code_fingerprint": "2783f171f69a0cddf341446f7349538489587e15ff6c26bf5d1bf0f2a46c3c99",
+      "label": "CompositionManifest",
+      "last": "2026-08-20T16:58:27.417226+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-20T16:58:27.417226+00:00",
+          "outcome": "useful",
+          "q": "just to confirm has the whole repo been graphed and mapped"
+        }
+      ],
+      "score": 0.642835929,
+      "source_file": "packages/editing/src/content_lab_editing/composition_manifest.py",
       "status": "tentative",
       "uses": 1
     }
