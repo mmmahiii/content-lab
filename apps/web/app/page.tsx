@@ -1,7 +1,3 @@
-import React from 'react';
-
-import { PageWorkspace } from './page-workspace';
-
 export default function HomePage() {
-  return <PageWorkspace />;
+  return <main aria-label="Content Lab UI rebuild workspace" />;
 }
