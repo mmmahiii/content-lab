@@ -1158,7 +1158,7 @@ function PackDetail({ pack, state, execute, navigate }: WorkspaceProps & { pack:
     );
     setPending('');
   }
-  async function usePack() {
+  async function createFromPack() {
     setPending('create');
     const response = await execute({
       type: 'createContent',
@@ -1287,7 +1287,7 @@ function PackDetail({ pack, state, execute, navigate }: WorkspaceProps & { pack:
           <button
             className="button secondary"
             disabled={!editable || !!pending || !ready.length}
-            onClick={() => void usePack()}
+            onClick={() => void createFromPack()}
           >
             {pending === 'create' ? 'Creating…' : `Create from ${ready.length} ready assets`}
           </button>
@@ -1472,6 +1472,7 @@ function ExperimentForm({
   close,
 }: Pick<WorkspaceProps, 'state' | 'execute'> & { close: () => void }) {
   const [name, setName] = useState('');
+  const [pageId, setPageId] = useFirstPage(state);
   const [contentIds, setContentIds] = useState<string[]>([]);
   const [metric, setMetric] = useState('3-second retention');
   const [days, setDays] = useState(7);
@@ -1480,6 +1481,7 @@ function ExperimentForm({
   );
   const [result, setResult] = useState<CommandResult | null>(null);
   const [pending, setPending] = useState(false);
+  const pageContents = state.contents.filter((content) => content.pageId === pageId);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
@@ -1538,9 +1540,18 @@ function ExperimentForm({
             />
           </Field>
         </div>
+        <PageSelect
+          state={state}
+          value={pageId}
+          onChange={(id) => {
+            setPageId(id);
+            setContentIds([]);
+          }}
+          label="Experiment page"
+        />
         <fieldset className="support-content-options">
           <legend>Content variants to compare</legend>
-          {state.contents.map((content) => (
+          {pageContents.map((content) => (
             <label className="support-checkbox" key={content.id}>
               <input
                 type="checkbox"
@@ -1561,20 +1572,23 @@ function ExperimentForm({
               </span>
             </label>
           ))}
-          {!state.contents.length && (
-            <p className="muted">Create content before adding experiment variants.</p>
+          {!pageContents.length && (
+            <p className="muted">
+              This page has no content yet. Create at least two variants to compare.
+            </p>
           )}
         </fieldset>
         <Field label="Stopping rule and minimum evidence">
           <textarea required rows={3} value={rule} onChange={(e) => setRule(e.target.value)} />
         </Field>
         <p className="muted">
-          Declare the decision rule before observing results. These experiments illustrate a
-          workflow; they do not establish causal evidence.
+          Select at least two variants from the same page. Declare the decision rule before
+          observing results. These experiments illustrate a workflow; they do not establish causal
+          evidence.
         </p>
         <button
           className="button primary"
-          disabled={pending || !state.contents.length}
+          disabled={pending || contentIds.length < 2}
           type="submit"
         >
           {pending ? 'Saving experiment…' : 'Create experiment'}
@@ -1593,9 +1607,9 @@ function MetricsForm({ state, execute }: Pick<WorkspaceProps, 'state' | 'execute
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<CommandResult | null>(null);
   useEffect(() => {
-    if (!publications.some((p) => p.id === publicationId))
-      setPublicationId(publications[0]?.id ?? '');
-  }, [publications, publicationId]);
+    const published = state.publications.filter((p) => p.status === 'published');
+    if (!published.some((p) => p.id === publicationId)) setPublicationId(published[0]?.id ?? '');
+  }, [state.publications, publicationId]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
@@ -1934,7 +1948,7 @@ export function LearningWorkspace({ state, execute, navigate }: WorkspaceProps) 
             this prototype. It does not update production policy or trigger generation.
           </div>
           <PermissionNote
-            allowed={state.role === 'owner'}
+            allowed={canReview(state.role)}
             action="accept or dismiss policy proposals"
           />
           {state.suggestions.map((suggestion) => (
@@ -1959,7 +1973,7 @@ export function LearningWorkspace({ state, execute, navigate }: WorkspaceProps) 
                   <button
                     className="button primary"
                     disabled={
-                      state.role !== 'owner' ||
+                      !canReview(state.role) ||
                       suggestion.status !== 'proposed' ||
                       pendingId === suggestion.id
                     }
@@ -1970,7 +1984,7 @@ export function LearningWorkspace({ state, execute, navigate }: WorkspaceProps) 
                   <button
                     className="button secondary"
                     disabled={
-                      state.role !== 'owner' ||
+                      !canReview(state.role) ||
                       suggestion.status !== 'proposed' ||
                       pendingId === suggestion.id
                     }
