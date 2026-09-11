@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  cloneElement,
+  useEffect,
+  useId,
+  useState,
+  type FormEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import {
   canEdit,
   canReview,
@@ -10,6 +18,7 @@ import {
   type AssetKind,
   type AssetPack,
   type CommandResult,
+  type Idea,
   type PageProfile,
   type Representation,
   type WorkspaceProps,
@@ -40,12 +49,20 @@ function Feedback({ result }: { result: CommandResult | null }) {
   );
 }
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+  const id = useId();
   return (
-    <label className="field support-field">
-      <span>{label}</span>
-      {children}
-      {hint && <small className="muted">{hint}</small>}
-    </label>
+    <div className="field support-field">
+      <label htmlFor={id}>{label}</label>
+      {cloneElement(children as ReactElement<{ id: string; 'aria-describedby'?: string }>, {
+        id,
+        'aria-describedby': hint ? `${id}-hint` : undefined,
+      })}
+      {hint && (
+        <small id={`${id}-hint`} className="muted">
+          {hint}
+        </small>
+      )}
+    </div>
   );
 }
 function PermissionNote({
@@ -212,7 +229,7 @@ export function PagesWorkspace({ state, execute, navigate }: WorkspaceProps) {
                   </div>
                   <div className="support-card-stat-row">
                     <Count value={items.length} label="Content items" />
-                    <Count value={money(page.budgetMinor)} label="Per-run limit" />
+                    <Count value={money(page.budgetMinor)} label="Production budget" />
                   </div>
                   <div className="support-card-actions">
                     <button className="button secondary" onClick={() => open(page)}>
@@ -362,8 +379,8 @@ export function PagesWorkspace({ state, execute, navigate }: WorkspaceProps) {
                   </div>
                   <p className="muted">
                     {editing.policyOverride
-                      ? 'This page has its own per-run spending limit.'
-                      : 'This page inherits the organisation’s default £25.00 per-run limit. Required rights and QA checks still apply.'}
+                      ? 'This page has its own production budget across runs.'
+                      : 'This page inherits the organisation’s default £25.00 page production budget. Required rights and QA checks still apply.'}
                   </p>
                   <label className="support-checkbox">
                     <input
@@ -376,7 +393,7 @@ export function PagesWorkspace({ state, execute, navigate }: WorkspaceProps) {
                     />
                     Set a page-specific budget
                   </label>
-                  <Field label="Per-run budget (£)">
+                  <Field label="Page production budget (£)">
                     <input
                       type="number"
                       min="1"
@@ -404,7 +421,113 @@ export function PagesWorkspace({ state, execute, navigate }: WorkspaceProps) {
   );
 }
 
+function NewIdeaForm({
+  state,
+  execute,
+  close,
+}: Pick<WorkspaceProps, 'state' | 'execute'> & { close: () => void }) {
+  const [idea, setIdea] = useState<Omit<Idea, 'id' | 'status'>>({
+    pageId: state.pages[0]?.id ?? '',
+    title: '',
+    summary: '',
+    evidence: '',
+    fit: '',
+    freshness: 'fresh',
+    family: 'product',
+  });
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<CommandResult | null>(null);
+  return (
+    <section className="panel" aria-label="New idea">
+      <div className="section-heading">
+        <h3>Give the next idea a place.</h3>
+        <button className="button ghost" onClick={close}>
+          Close idea form
+        </button>
+      </div>
+      <form
+        className="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setPending(true);
+          const response = await execute({ type: 'createIdea', idea });
+          setResult(response);
+          setPending(false);
+          if (response.ok) close();
+        }}
+      >
+        <fieldset className="form-grid" disabled={!canEdit(state.role) || pending}>
+          <PageSelect
+            state={state}
+            value={idea.pageId}
+            onChange={(pageId) => setIdea({ ...idea, pageId })}
+            label="Idea page"
+          />
+          <Field label="Idea title">
+            <input
+              required
+              value={idea.title}
+              onChange={(e) => setIdea({ ...idea, title: e.target.value })}
+            />
+          </Field>
+          <Field label="Premise">
+            <textarea
+              required
+              value={idea.summary}
+              onChange={(e) => setIdea({ ...idea, summary: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Evidence and source note"
+            hint="State what you observed, or label it as a creative hypothesis."
+          >
+            <textarea
+              required
+              value={idea.evidence}
+              onChange={(e) => setIdea({ ...idea, evidence: e.target.value })}
+            />
+          </Field>
+          <Field label="Why this page">
+            <input
+              required
+              value={idea.fit}
+              onChange={(e) => setIdea({ ...idea, fit: e.target.value })}
+            />
+          </Field>
+          <Field label="Evidence freshness">
+            <select
+              value={idea.freshness}
+              onChange={(e) => setIdea({ ...idea, freshness: e.target.value as Idea['freshness'] })}
+            >
+              <option value="fresh">Current</option>
+              <option value="expiring">Expiring soon</option>
+              <option value="expired">Expired · briefing blocked</option>
+            </select>
+          </Field>
+          <Field label="Production family">
+            <select
+              value={idea.family}
+              onChange={(e) => setIdea({ ...idea, family: e.target.value as Idea['family'] })}
+            >
+              <option value="product">Layered product story</option>
+              <option value="graphic">Graphic explainer</option>
+              <option value="video">Narrated source video</option>
+            </select>
+          </Field>
+        </fieldset>
+        <button
+          className="button primary"
+          disabled={pending || !idea.pageId || !canEdit(state.role)}
+        >
+          {pending ? 'Saving idea…' : 'Save idea'}
+        </button>
+        <Feedback result={result} />
+      </form>
+    </section>
+  );
+}
 export function IdeasWorkspace({ state, execute, navigate }: WorkspaceProps) {
+  const [creating, setCreating] = useState(false);
   const editable = canEdit(state.role);
   const [pageFilter, setPageFilter] = useState('all');
   const [status, setStatus] = useState('suggested');
@@ -450,8 +573,27 @@ export function IdeasWorkspace({ state, execute, navigate }: WorkspaceProps) {
         <div className="support-mini-stat">
           <strong>{state.ideas.filter((i) => i.status === 'suggested').length}</strong>
           <span>to consider</span>
+          <button
+            className="button primary"
+            disabled={!canEdit(state.role)}
+            onClick={() => setCreating(true)}
+          >
+            New idea
+          </button>
         </div>
       </div>
+      {creating && (
+        <NewIdeaForm
+          state={state}
+          execute={execute}
+          close={() => {
+            setCreating(false);
+            setStatus('suggested');
+            setPageFilter('all');
+            setQuery('');
+          }}
+        />
+      )}
       <div className="panel support-toolbar">
         <Field label="Search ideas">
           <input

@@ -157,7 +157,7 @@
 .support-master-detail {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 450px);
-  align-items: start;
+  align-items: flex-start;
   gap: 24px;
 }
 .support-master-detail .support-page-grid {
@@ -365,7 +365,7 @@
   min-height: 155px;
   padding: 18px 20px;
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   position: relative;
   overflow: hidden;
@@ -551,7 +551,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(310px, 370px);
   gap: 23px;
-  align-items: start;
+  align-items: flex-start;
 }
 .support-registry-layout .support-asset-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -603,7 +603,7 @@
 }
 .support-version-list li {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   gap: 12px;
   padding-bottom: 15px;
   font-size: 12px;
@@ -738,7 +738,7 @@
 .support-pack-layout {
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  align-items: start;
+  align-items: flex-start;
   gap: 25px;
 }
 .support-pack-form,
@@ -826,7 +826,7 @@
 }
 .support-pack-item {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   gap: 16px;
   border-top: 1px solid var(--support-border);
   padding: 19px 0;
@@ -1144,7 +1144,7 @@
   .support-pack-layout > .stack {
     display: grid;
     grid-template-columns: 1.4fr 1fr;
-    align-items: start;
+    align-items: flex-start;
   }
   .support-experiment-grid {
     grid-template-columns: 1fr;
@@ -1172,7 +1172,7 @@
     gap: 12px;
   }
   .support-summary-row {
-    align-items: start;
+    align-items: flex-start;
     flex-wrap: wrap;
   }
   .support-summary-row h2 {

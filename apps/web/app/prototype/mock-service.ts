@@ -492,6 +492,23 @@ export function createMockOperatorService(options: Options = {}): OperatorServic
           entityId: page.id,
         };
       }
+      case 'createIdea': {
+        const idea = clone(command.idea);
+        findPage(idea.pageId);
+        if (!idea.title.trim() || !idea.summary.trim() || !idea.evidence.trim() || !idea.fit.trim())
+          fail('validation', 'Add an idea title, premise, evidence note and page fit.');
+        if (
+          !['fresh', 'expiring', 'expired'].includes(idea.freshness) ||
+          !['product', 'graphic', 'video'].includes(idea.family)
+        )
+          fail('validation', 'Choose a supported freshness state and production family.');
+        const created = { ...idea, id: id('idea'), status: 'suggested' as const };
+        state.ideas.push(created);
+        return {
+          message: 'Idea saved locally. Supplied evidence has not been independently verified.',
+          entityId: created.id,
+        };
+      }
       case 'setIdeaStatus': {
         const idea = requireValue(
           state.ideas.find((i) => i.id === command.ideaId),
@@ -524,6 +541,11 @@ export function createMockOperatorService(options: Options = {}): OperatorServic
               ? 'graphic'
               : 'product');
         const draft = createFixtureComposition(family, command.title?.trim() || idea?.title);
+        if (idea) {
+          draft.brief.objective = idea.summary;
+          draft.brief.audienceValue = idea.fit;
+          draft.brief.evidence = idea.evidence;
+        }
         let selected = command.assetIds;
         if (command.packId) {
           const pack = requireValue(
@@ -607,7 +629,7 @@ export function createMockOperatorService(options: Options = {}): OperatorServic
       case 'saveRevision': {
         const content = findContent(command.contentId);
         if (!content.draft.title.trim()) fail('validation', 'Give this revision a title.');
-        const revision = saveRevision(content, false, true);
+        const revision = saveRevision(content);
         return {
           message: `Revision ${revision.number} saved as an immutable snapshot.`,
           entityId: revision.id,
@@ -874,6 +896,15 @@ export function createMockOperatorService(options: Options = {}): OperatorServic
         publication.externalReference = command.externalReference.trim();
         publication.postedAt = new Date(postedTime).toISOString();
         findContent(publication.contentId).stage = 'published';
+        state.metrics.push({
+          id: id('metric'),
+          publicationId: publication.id,
+          views: null,
+          retention: null,
+          maturity: 'unavailable',
+          window: 'Awaiting the first supplied observation',
+          source: 'Simulated post recorded; no platform measurements have been supplied.',
+        });
         return {
           message:
             'Manual post reference recorded locally. The prototype has not verified it with a platform.',

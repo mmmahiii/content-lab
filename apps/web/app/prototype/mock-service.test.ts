@@ -253,6 +253,51 @@ describe('state, permissions and immutable revisions', () => {
 });
 
 describe('execution, budget and recovery', () => {
+  it('validates original ideas and carries their premise and evidence into the brief', async () => {
+    const { service } = setup();
+    const idea = {
+      pageId: 'page-objects',
+      title: 'The first quiet minute',
+      summary: 'An everyday object ritual',
+      evidence: 'Creative hypothesis; no observed performance',
+      fit: 'Thoughtful objects',
+      freshness: 'fresh' as const,
+      family: 'product' as const,
+    };
+    expect(
+      await service.execute({ type: 'createIdea', idea: { ...idea, evidence: '' } }),
+    ).toMatchObject({ ok: false, kind: 'validation' });
+    const created = await command(service, { type: 'createIdea', idea });
+    const brief = await command(service, {
+      type: 'createContent',
+      pageId: idea.pageId,
+      ideaId: created.entityId,
+    });
+    expect(brief.state.contents.find((c) => c.id === brief.entityId)?.draft.brief).toMatchObject({
+      objective: idea.summary,
+      evidence: idea.evidence,
+      audienceValue: idea.fit,
+    });
+    await command(service, { type: 'setRole', role: 'viewer' });
+    expect(await service.execute({ type: 'createIdea', idea })).toMatchObject({
+      ok: false,
+      kind: 'permission',
+    });
+  });
+  it('keeps approval valid when saving an unchanged approved composition', async () => {
+    const { service } = setup();
+    const before = await service.load();
+    const pack = before.packages.find((p) => p.contentId === 'content-approved')!;
+    const saved = await command(service, { type: 'saveRevision', contentId: pack.contentId });
+    expect(saved.entityId).toBe(pack.revisionId);
+    expect(saved.state.revisions).toEqual(before.revisions);
+    await command(service, {
+      type: 'preparePublication',
+      packageId: pack.id,
+      account: '@demo',
+      timezone: 'Europe/London',
+    });
+  });
   it('reserves whole pence atomically, rejects duplicate starts, and settles once after a reload', async () => {
     const context = setup();
     const { service, storage, advance, now } = context;

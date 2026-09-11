@@ -2,6 +2,8 @@
 
 Use this guide to review the principal workflows and information architecture before backend implementation. The application labels simulated service activity and uses sample brands, assets and observations. It is a working interface prototype, not an operating publishing or media-generation system.
 
+See [local startup and five complete journeys](UI_PROTOTYPE_RUN.md) and [verification / screenshots](UI_PROTOTYPE_VERIFICATION.md).
+
 ## Workspace map
 
 | Workspace      | Decisions to review                                                                                                                     |
@@ -27,6 +29,8 @@ Consider whether this is enough brand context to guide your creative choices. Sa
 ### 2. Turn an idea into an editable story
 
 Open **Ideas**. Filter by page, inspect the source/evidence note and freshness, and put a suggestion on hold. Reconsider it and create a brief. An expired opportunity should explain why creating a brief is blocked.
+
+Use **New idea** to enter your own premise, evidence note, page fit, freshness and production family. Creating a brief carries that editorial context forward.
 
 In the resulting content detail, edit the objective, audience takeaway, claims, evidence and payoff. Choose a hook and blueprint. Inspect the ingredients and distinguish optional selected assets from mandatory assets that must appear in the composition.
 
@@ -102,5 +106,8 @@ Resetting the demo replaces locally edited sample data. Use the explicit reset c
 5. Is exact package approval the right boundary for copy, cover and disclosures, or do you need separately scoped approvals for any of them?
 6. Which performance metrics and observation windows should be primary for your first real page and experiment?
 7. Does the preview/review distinction communicate the cost and confidence of the next step clearly enough?
+8. Which real brands and first platform (Instagram, TikTok, YouTube Shorts or another destination) should drive the pilot fixtures and publishing requirements?
+9. What per-page and per-acquisition pilot budgets should replace the illustrative GBP amounts?
+10. Is lightweight frame/position editing sufficient, or do you need precise masks, keyframes, audio mixing or other controls before reviewing backend integration?
 
 This guide describes review scenarios. It is not a claim that all scenarios were browser-tested. The integrated delivery report should identify the checks actually performed and their results.

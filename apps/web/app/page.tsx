@@ -1,3 +1,10 @@
+import { OperatorApp } from './prototype/operator-app';
+import { OperatorProvider } from './prototype/provider';
+
 export default function HomePage() {
-  return <main aria-label="Content Lab UI rebuild workspace" />;
+  return (
+    <OperatorProvider>
+      <OperatorApp />
+    </OperatorProvider>
+  );
 }

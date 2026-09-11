@@ -2,6 +2,12 @@
 
 Local-first MVP for **ready-to-post reel packages** (MP4 + cover + captions + posting_plan + provenance) with an **Asset Registry** and strict anti-repetition.
 
+## New operator UI prototype
+
+The active web app is a new, frontend-only operator prototype. From the repository root, run `pnpm install --frozen-lockfile` once, then `pnpm dev` and open **http://127.0.0.1:3000**. Node 24+ and pnpm 9 are sufficient; Python, Docker, provider credentials and publishing connections are not needed for this prototype.
+
+See the [startup and verification guide](docs/UI_PROTOTYPE_RUN.md), [workflow review guide](docs/UI_PROTOTYPE_REVIEW.md) and [source audit / integration conflicts](docs/UI_PROTOTYPE_AUDIT.md). Preview rendering, costs, provider activity and publication records are explicitly simulated. The full-stack commands below describe the existing backend, which remains separate from the prototype.
+
 ## Repo layout
 
 | Path | Description |

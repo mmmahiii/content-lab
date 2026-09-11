@@ -116,6 +116,7 @@ export interface WorkspaceState {
 export type Command =
   | { type: 'setRole'; role: Role }
   | { type: 'savePage'; page: PageProfile }
+  | { type: 'createIdea'; idea: Omit<Idea, 'id' | 'status'> }
   | { type: 'setIdeaStatus'; ideaId: string; status: Idea['status'] }
   | { type: 'createContent'; pageId: string; title?: string; family?: Family; ideaId?: string; assetIds?: string[]; packId?: string }
   | { type: 'updateDraft'; contentId: string; draft: Composition }
@@ -146,7 +147,7 @@ export interface OperatorService {
 export interface WorkspaceProps {
   state: WorkspaceState;
   execute: (command: Command) => Promise<CommandResult>;
-  navigate: (view: string, id?: string, tab?: string) => void;
+  navigate: (view: string, id?: string, tab?: string, detail?: string) => void;
 }
 export function money(value: Money | number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: typeof value === 'number' ? 'GBP' : value.currency }).format((typeof value === 'number' ? value : value.minor) / 100);
