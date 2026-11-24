@@ -353,11 +353,13 @@ def _idea_plan_payload(*, page: Page, run_id: uuid.UUID, plan_number: int) -> di
                 {
                     "label": "Proof",
                     "text": "Show the useful shift, example, or operating principle.",
+                    "overlay_text": "Useful shift",
                     "seconds": 6,
                 },
                 {
                     "label": "Action",
                     "text": "Close with one concrete next step the viewer can try.",
+                    "overlay_text": "One concrete next step",
                     "seconds": 3,
                 },
             ],

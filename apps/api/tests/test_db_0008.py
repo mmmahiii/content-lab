@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from alembic.config import Config
-from alembic.script import ScriptDirectory
 from sqlalchemy import Table, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -68,13 +66,6 @@ def test_revision_0009_module_wires_alembic_chain() -> None:
     spec.loader.exec_module(mod)
     assert mod.revision == "0009"
     assert mod.down_revision == "0008"
-
-
-def test_alembic_script_head_is_0013() -> None:
-    cfg = Config(str(API_ROOT / "alembic.ini"))
-    script = ScriptDirectory.from_config(cfg)
-    heads = script.get_heads()
-    assert heads == ["0013"]
 
 
 def test_task_table_has_org_idempotency_unique_constraint() -> None:

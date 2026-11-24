@@ -937,14 +937,34 @@ def _source_plan_overlays(
     return overlays
 
 
+# Beat text in the API's template idea plan is a direction for the creator, not viewer copy.
+# Plans saved before the template carried ``overlay_text`` are mapped here by exact match so
+# those directions never render on screen.
+_TEMPLATE_DIRECTION_OVERLAYS: dict[str, str] = {
+    "Show the useful shift, example, or operating principle.": "Useful shift",
+    "Close with one concrete next step the viewer can try.": "One concrete next step",
+}
+
+
+def _beat_overlay_text(beat: Mapping[str, Any]) -> str | None:
+    """Viewer-facing overlay copy for a beat: explicit ``overlay_text`` wins over ``text``."""
+    explicit = _optional_text(beat.get("overlay_text"))
+    if explicit is not None:
+        return explicit
+    text = _optional_text(beat.get("text"))
+    if text is None:
+        return None
+    return _TEMPLATE_DIRECTION_OVERLAYS.get(text, text)
+
+
 def _source_plan_value_overlay(source_plan: Mapping[str, Any]) -> str:
     beats = _source_plan_beats(source_plan)
     for beat in beats[1:-1] or beats[1:]:
-        text = _optional_text(beat.get("text"))
+        text = _beat_overlay_text(beat)
         if text is not None:
             return _fit_text(_viewer_facing_copy(text), max_chars=80)
     if len(beats) == 1:
-        text = _optional_text(beats[0].get("text"))
+        text = _beat_overlay_text(beats[0])
         if text is not None:
             return _fit_text(_viewer_facing_copy(text), max_chars=80)
     return _fit_text(_viewer_facing_copy(_optional_text(source_plan.get("angle")) or "Watch the build"), max_chars=80)
@@ -953,7 +973,7 @@ def _source_plan_value_overlay(source_plan: Mapping[str, Any]) -> str:
 def _source_plan_cta_overlay(source_plan: Mapping[str, Any]) -> str:
     beats = _source_plan_beats(source_plan)
     if beats:
-        text = _optional_text(beats[-1].get("text"))
+        text = _beat_overlay_text(beats[-1])
         if text is not None:
             return _fit_text(_viewer_facing_copy(text), max_chars=80)
     return _fit_text(
