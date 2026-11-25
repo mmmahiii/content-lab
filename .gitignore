@@ -38,3 +38,6 @@ __pycache__/
 .console-state.json
 .console-*-build-fingerprint
 outputs/
+
+# Quick Reel local renders (MP4 + overlay render trace)
+.quick-reel-renders/

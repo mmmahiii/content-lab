@@ -66,3 +66,4 @@ export {
   type TraceLineBox,
 } from './trace';
 export { MAX_RENDER_SECONDS, parseReelTimeline, reelTimelineSchema } from './schema';
+export { quickReelComposed, quickReelFixtures, quickReelHookText } from './fixtures';

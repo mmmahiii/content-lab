@@ -45,6 +45,8 @@ export interface RemotionApi {
     concurrency?: number | null;
     crf?: number;
     imageFormat?: 'jpeg' | 'png';
+    pixelFormat?: 'yuv420p';
+    colorSpace?: 'bt709';
     timeoutInMilliseconds?: number;
     onProgress?: (progress: { progress: number }) => void;
   }): Promise<unknown>;
@@ -206,6 +208,9 @@ export async function renderQuickReel(
     concurrency: options.concurrency ?? null,
     crf: 18,
     imageFormat: 'jpeg',
+    // Limited-range 4:2:0, what Instagram / TikTok / Shorts expect (not full-range yuvj420p).
+    pixelFormat: 'yuv420p',
+    colorSpace: 'bt709',
     timeoutInMilliseconds: 60_000,
     onProgress: ({ progress }) => options.onProgress?.(progress),
   });

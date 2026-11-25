@@ -27,11 +27,11 @@ describe.runIf(enabled)('renderQuickReel (real render)', () => {
     const probe = JSON.parse(
       execFileSync('ffprobe', [
         '-v', 'error', '-select_streams', 'v:0',
-        '-show_entries', 'stream=codec_name,width,height,nb_frames:format=duration',
+        '-show_entries', 'stream=codec_name,width,height,nb_frames,pix_fmt:format=duration',
         '-of', 'json', result.videoPath,
       ]).toString(),
     );
-    expect(probe.streams[0]).toMatchObject({ codec_name: 'h264', width: 1080, height: 1920 });
+    expect(probe.streams[0]).toMatchObject({ codec_name: 'h264', width: 1080, height: 1920, pix_fmt: 'yuv420p' });
     expect(Number(probe.streams[0].nb_frames)).toBe(60);
     const trace = JSON.parse(await readFile(result.tracePath, 'utf8'));
     expect(trace.status).toBe('pass');

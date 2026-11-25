@@ -73,6 +73,8 @@ describe('renderQuickReel', () => {
     expect(calls).toEqual(['QuickReelTrace', 'QuickReel']);
     const render = vi.mocked(remotion.renderMedia).mock.calls[0][0];
     expect(render.codec).toBe('h264');
+    expect(render.pixelFormat).toBe('yuv420p');
+    expect(render.colorSpace).toBe('bt709');
     expect(render.inputProps).toEqual(timeline);
   });
 
