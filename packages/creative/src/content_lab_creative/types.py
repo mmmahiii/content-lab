@@ -204,6 +204,7 @@ class ScriptGeneratorPath(str, Enum):
 
     DETERMINISTIC_STUB = "deterministic_stub"
     RULES_PLUS_PROVIDER = "rules_plus_provider"
+    LLM = "llm"
 
 
 class ScenePurpose(str, Enum):

@@ -31,6 +31,7 @@ from content_lab_creative.script_generator import (
     DeterministicScriptGenerator,
     RulesPlusProviderScriptGenerator,
     build_script_generator,
+    default_script_generator_path,
     generate_script_output,
     normalize_script_generator_path,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "ValidatedCinematicPlan",
     "assert_rendered_media_matches_plan_duration",
     "build_script_generator",
+    "default_script_generator_path",
     "build_alignment_context",
     "build_creative_trace",
     "build_posting_plan",

@@ -172,7 +172,21 @@ def build_script_generator(
         return DeterministicScriptGenerator()
     if path is ScriptGeneratorPath.RULES_PLUS_PROVIDER:
         return RulesPlusProviderScriptGenerator()
+    if path is ScriptGeneratorPath.LLM:
+        from content_lab_creative.generation.llm_script import LLMScriptGenerator
+
+        return LLMScriptGenerator()
     raise ValueError(f"Unsupported script generator path {path.value!r}")
+
+
+def default_script_generator_path() -> ScriptGeneratorPath:
+    """``llm`` when an LLM is configured (credentials present), else the rules generator."""
+
+    from content_lab_intelligence import LLMSettings
+
+    if LLMSettings.from_env().is_enabled():
+        return ScriptGeneratorPath.LLM
+    return ScriptGeneratorPath.RULES_PLUS_PROVIDER
 
 
 def normalize_script_generator_path(
@@ -180,12 +194,13 @@ def normalize_script_generator_path(
 ) -> ScriptGeneratorPath:
     """Resolve the configured script generation path.
 
-    The production path is the default; tests and smoke runs can opt into the
-    deterministic stub by passing ``deterministic_stub`` or setting the env var.
+    ``CONTENT_LAB_SCRIPT_GENERATOR`` wins when set; otherwise the LLM path is used when
+    credentials are configured and the rules generator when they are not. Tests and smoke
+    runs can opt into the deterministic stub by passing ``deterministic_stub``.
     """
 
     if generator_path is None:
-        raw_path = os.getenv(_SCRIPT_GENERATOR_ENV, ScriptGeneratorPath.RULES_PLUS_PROVIDER.value)
+        raw_path = os.getenv(_SCRIPT_GENERATOR_ENV) or default_script_generator_path().value
     elif isinstance(generator_path, ScriptGeneratorPath):
         raw_path = generator_path.value
     else:
@@ -597,6 +612,7 @@ __all__ = [
     "ScriptGenerator",
     "ScriptGeneratorPathLike",
     "build_script_generator",
+    "default_script_generator_path",
     "generate_script_output",
     "normalize_script_generator_path",
 ]
