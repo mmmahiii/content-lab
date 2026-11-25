@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -127,8 +128,12 @@ def _contract_fix_hint(exc_message: str) -> str:
         return "Copy provenance.input_page_context_hash verbatim from planner input payload."
     if "planning_prompt_version" in lowered:
         return f"Set provenance.planning_prompt_version to {PLANNING_PROMPT_VERSION}."
-    if "pan-shaped cutout" in lowered:
-        return "Keep only one pan-shaped foreground asset per scene; reject duplicates."
+    shaped = re.search(r"([a-z0-9]+)-shaped cutout", lowered)
+    if shaped:
+        return (
+            f"Keep only one {shaped.group(1)}-shaped foreground asset per scene; "
+            "reject duplicates."
+        )
     return "Re-read planner contract checklist against planner JSON payload."
 
 

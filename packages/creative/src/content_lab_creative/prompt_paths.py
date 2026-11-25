@@ -71,8 +71,21 @@ def select_prompt_paths_for_context(
     pinned_prompt_paths: Sequence[str] | None = None,
     banned_prompt_paths: Sequence[str] | None = None,
     max_paths: int = 4,
+    niche: str | None = None,
 ) -> list[str]:
-    """Choose deterministic default paths for prompt guidance."""
+    """Choose deterministic default paths for prompt guidance.
+
+    An explicit niche (argument or ``page_context["niche"]``) puts that niche's paths
+    first; niche keyword matches come next (see ``content_lab_creative.niche``), then
+    cross-niche theme cues.
+    """
+
+    from content_lab_creative.niche import (
+        GENERAL_NICHE_KEY,
+        keyword_ranked_prompt_paths,
+        niche_from_mapping,
+        resolve_niche_profile,
+    )
 
     pinned = normalize_prompt_paths(pinned_prompt_paths)
     banned = set(normalize_prompt_paths(banned_prompt_paths))
@@ -81,12 +94,12 @@ def select_prompt_paths_for_context(
 
     text = _context_text(page_context, selected_assets, content_goal).lower()
     ranked: list[str] = []
-    if any(term in text for term in ("food", "kitchen", "cook", "steak", "sizzle", "steam")):
-        ranked.extend(["sensory_hook", "satisfying_process", "cinematic_closeup"])
-    if any(term in text for term in ("luxury", "premium", "high end", "jewelry", "watch")):
-        ranked.extend(["luxury_reveal", "cinematic_closeup", "product_as_background_payoff"])
-    if any(term in text for term in ("business", "saas", "service", "founder", "operations")):
-        ranked.extend(["problem_solution", "educational_overlay", "social_proof"])
+    explicit = niche or niche_from_mapping(page_context)
+    if explicit:
+        profile = resolve_niche_profile(explicit)
+        if profile.key != GENERAL_NICHE_KEY:
+            ranked.extend(profile.prompt_paths)
+    ranked.extend(keyword_ranked_prompt_paths(text))
     if any(term in text for term in ("before", "after", "transform", "reset")):
         ranked.extend(["transformation", "before_after", "contrast_hook"])
     if any(term in text for term in ("routine", "habit", "daily")):

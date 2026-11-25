@@ -83,3 +83,31 @@ def test_register_custom_niche() -> None:
         from content_lab_creative import niche as niche_module
 
         niche_module._REGISTRY.pop("pottery_test", None)
+
+
+def test_planner_guard_uses_the_page_niche() -> None:
+    from types import SimpleNamespace
+
+    from content_lab_creative.single_prompt_reel_planner import (
+        _single_instance_objects_for_input,
+    )
+
+    def objects_for(context: dict[str, object]) -> tuple[str, ...]:
+        return _single_instance_objects_for_input(SimpleNamespace(page_context=context))  # type: ignore[arg-type]
+
+    assert objects_for({"niche": "luxury", "page_name": "Watch Room"}) == ()
+    assert objects_for({"page_name": "Steak Night", "niche": "cooking"}) == ("pan",)
+    assert objects_for({"page_name": "Unlabelled page"}) == ("pan",)
+
+
+def test_explicit_niche_leads_prompt_path_selection() -> None:
+    from content_lab_creative.prompt_paths import select_prompt_paths_for_context
+
+    chosen = select_prompt_paths_for_context(
+        page_context={"page_name": "Iron Habit"}, selected_assets=[], niche="fitness"
+    )
+    assert chosen[0] == "transformation"
+    from_context = select_prompt_paths_for_context(
+        page_context={"page_name": "Iron Habit", "niche": "fitness"}, selected_assets=[]
+    )
+    assert from_context == chosen

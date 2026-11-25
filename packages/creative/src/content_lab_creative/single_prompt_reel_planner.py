@@ -5,11 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from content_lab_creative.niche import (
+    is_single_instance_token,
+    matching_single_instance_object,
+    niche_from_mapping,
+    resolve_niche_profile,
+    single_instance_objects_for,
+)
 from content_lab_creative.planner_prompt import (
     build_master_planning_prompt_document,
     planner_roles_camera_audio_strings,
@@ -52,11 +59,6 @@ ARTIFACT_FILENAMES: tuple[str, ...] = (
 
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL | re.IGNORECASE)
 
-# Cookware-ish slugs: pan2, pan12, pan1test — not panorama / pans (plural) / pantry.
-_PAN_COOKWARE_SUFFIX = re.compile(
-    r"^(?:\d+[a-z0-9]{0,24}|[a-z]{1,16}\d[a-z0-9]{0,24})$",
-    re.IGNORECASE,
-)
 
 _ROLE_ALIASES: dict[str, str] = {
     "colour_contrast_subject": "supporting_subject",
@@ -674,34 +676,45 @@ def _prompt_payload(planner_input: SinglePromptPlannerInput) -> dict[str, Any]:
 
 def _is_pan_cookware_slug_token(token: str) -> bool:
     """Tokens like pan2, pan1test, or pan; not pans (plural) or panorama."""
-    trimmed = token.strip().lower()
-    if not trimmed.startswith("pan"):
-        return False
-    if trimmed == "pan":
-        return True
-    remainder = trimmed.removeprefix("pan")
-    if remainder == "s":
-        return False  # English plural "pans", not a single-pan slug
-    return bool(_PAN_COOKWARE_SUFFIX.fullmatch(remainder))
+    return is_single_instance_token(token, "pan")
+
+
+def _reject_duplicate_single_instance_cutouts(
+    plan: CinematicReelPlan, *, objects: Sequence[str]
+) -> None:
+    """Plan-time guard: each niche single-instance object class appears once per scene."""
+    if not objects:
+        return
+    for scene in plan.scenes:
+        by_object: dict[str, set[str]] = {}
+        for obj in scene.objects:
+            name = matching_single_instance_object(
+                re.findall(r"[A-Za-z0-9]+", obj.asset_label), objects
+            )
+            if name is not None:
+                by_object.setdefault(name, set()).add(obj.asset_id)
+        for name, asset_ids in by_object.items():
+            if len(asset_ids) > 1:
+                raise ValueError(
+                    f"At most one {name}-shaped cutout may appear per scene; got "
+                    f"{sorted(asset_ids)} in scene '{scene.scene_id}'. Reject duplicates in "
+                    "provenance.rejected_assets (Duplicate-role rule)."
+                )
 
 
 def _reject_duplicate_pan_like_cutouts(plan: CinematicReelPlan) -> None:
     """Plan-time guard: one pan-shaped foreground layer per scene."""
-    for scene in plan.scenes:
-        pan_asset_ids = {
-            obj.asset_id
-            for obj in scene.objects
-            if any(
-                _is_pan_cookware_slug_token(piece)
-                for piece in re.findall(r"[A-Za-z0-9]+", obj.asset_label)
-            )
-        }
-        if len(pan_asset_ids) > 1:
-            raise ValueError(
-                "At most one pan-shaped cutout may appear per scene; got "
-                f"{sorted(pan_asset_ids)} in scene '{scene.scene_id}'. Reject duplicates in "
-                "provenance.rejected_assets (Duplicate-role rule)."
-            )
+    _reject_duplicate_single_instance_cutouts(plan, objects=("pan",))
+
+
+def _single_instance_objects_for_input(
+    planner_input: SinglePromptPlannerInput,
+) -> tuple[str, ...]:
+    context = planner_input.page_context
+    profile = resolve_niche_profile(
+        niche_from_mapping(context), text=json.dumps(context, sort_keys=True, default=str)
+    )
+    return single_instance_objects_for(profile)
 
 
 def _compact_prompt_asset(asset: Mapping[str, Any]) -> dict[str, Any]:
@@ -753,7 +766,9 @@ def _validate_against_prompt_request(
     if banned_used:
         raise ValueError(f"selected_prompt_paths includes banned paths: {sorted(banned_used)}")
     validate_prompt_paths_allowed_for_assets(plan.selected_prompt_paths, assets=planner_input.selected_assets)
-    _reject_duplicate_pan_like_cutouts(plan)
+    _reject_duplicate_single_instance_cutouts(
+        plan, objects=_single_instance_objects_for_input(planner_input)
+    )
 
 
 __all__ = [
