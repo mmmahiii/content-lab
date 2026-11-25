@@ -10,6 +10,7 @@ from content_lab_api.routes.orgs import router as orgs_router
 from content_lab_api.routes.packages import router as packages_router
 from content_lab_api.routes.pages import router as pages_router
 from content_lab_api.routes.policy import router as policy_router
+from content_lab_api.routes.quick_reels import router as quick_reels_router
 from content_lab_api.routes.reel_families import router as reel_families_router
 from content_lab_api.routes.reels import router as reels_router
 from content_lab_api.routes.runs import router as runs_router
@@ -23,6 +24,7 @@ api_router.include_router(creative_router)
 api_router.include_router(packages_router)
 api_router.include_router(pages_router)
 api_router.include_router(policy_router)
+api_router.include_router(quick_reels_router)
 api_router.include_router(reel_families_router)
 api_router.include_router(reels_router)
 api_router.include_router(runs_router)
