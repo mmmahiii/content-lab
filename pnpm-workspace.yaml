@@ -1,3 +1,4 @@
 packages:
   - "apps/web"
   - "packages/shared/ts"
+  - "packages/reel-templates"
