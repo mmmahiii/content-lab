@@ -1,0 +1,393 @@
+{
+  "_source": "Fallback hooks/branches + compose_reel for page 'Crispy Kitchen' (cooking), topic 'crispy potatoes', selection breakdown/<energy>/reveal, duration 15. Generated from packages/creative with no LLM.",
+  "hook": {
+    "mechanism": "curiosity_gap",
+    "overlay_text": "The crispy potatoes detail most people miss",
+    "spoken_line": "There's one crispy potatoes detail almost everyone skips.",
+    "visual_direction": "Open on the clearest visual of crispy potatoes.",
+    "payoff_promise": "Reveal the one detail clearly by the end."
+  },
+  "composed": {
+    "chill": {
+      "selection": {
+        "structure": "breakdown",
+        "energy": "chill",
+        "ending": "reveal"
+      },
+      "duration_seconds": 17,
+      "pace": "chill",
+      "music_mood": "warm lo-fi",
+      "ending_style": "reveal",
+      "overlay_timeline": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 3,
+          "text": "The crispy potatoes detail most people miss",
+          "emphasis": "hook"
+        },
+        {
+          "start_seconds": 3,
+          "end_seconds": 7,
+          "text": "Step 1: get ready",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 7,
+          "end_seconds": 11,
+          "text": "Step 2: the key move",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 11,
+          "end_seconds": 14,
+          "text": "Step 3: finish clean",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 14,
+          "end_seconds": 17,
+          "text": "The finished result",
+          "emphasis": "cta"
+        }
+      ],
+      "spoken_script": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 3,
+          "narration": "There's one crispy potatoes detail almost everyone skips.",
+          "shot_direction": "Open on the clearest visual of crispy potatoes."
+        },
+        {
+          "start_seconds": 3,
+          "end_seconds": 7,
+          "narration": "First, get your crispy potatoes ready.",
+          "shot_direction": "Wide setup"
+        },
+        {
+          "start_seconds": 7,
+          "end_seconds": 11,
+          "narration": "Then do the one move that matters most.",
+          "shot_direction": "Close-up"
+        },
+        {
+          "start_seconds": 11,
+          "end_seconds": 14,
+          "narration": "Finish it with care, not speed.",
+          "shot_direction": "Result detail"
+        },
+        {
+          "start_seconds": 14,
+          "end_seconds": 17,
+          "narration": "And that's the result.",
+          "shot_direction": "Hold on the result"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_id": "scene_1_hook",
+          "purpose": "hook",
+          "start_seconds": 0,
+          "end_seconds": 3,
+          "narration": "There's one crispy potatoes detail almost everyone skips.",
+          "overlay_text": "The crispy potatoes detail most people miss",
+          "overlay_role": "hook",
+          "shot_guidance": "Open on the clearest visual of crispy potatoes."
+        },
+        {
+          "scene_id": "scene_2_setup",
+          "purpose": "setup",
+          "start_seconds": 3,
+          "end_seconds": 7,
+          "narration": "First, get your crispy potatoes ready.",
+          "overlay_text": "Step 1: get ready",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Wide setup"
+        },
+        {
+          "scene_id": "scene_3_value",
+          "purpose": "value",
+          "start_seconds": 7,
+          "end_seconds": 11,
+          "narration": "Then do the one move that matters most.",
+          "overlay_text": "Step 2: the key move",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Close-up"
+        },
+        {
+          "scene_id": "scene_4_payoff",
+          "purpose": "payoff",
+          "start_seconds": 11,
+          "end_seconds": 14,
+          "narration": "Finish it with care, not speed.",
+          "overlay_text": "Step 3: finish clean",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Result detail"
+        },
+        {
+          "scene_id": "scene_5_close",
+          "purpose": "close",
+          "start_seconds": 14,
+          "end_seconds": 17,
+          "narration": "And that's the result.",
+          "overlay_text": "The finished result",
+          "overlay_role": "cta",
+          "shot_guidance": "Hold on the result"
+        }
+      ]
+    },
+    "punchy": {
+      "selection": {
+        "structure": "breakdown",
+        "energy": "punchy",
+        "ending": "reveal"
+      },
+      "duration_seconds": 12,
+      "pace": "punchy",
+      "music_mood": "upbeat percussive",
+      "ending_style": "reveal",
+      "overlay_timeline": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 2,
+          "text": "The crispy potatoes detail most people miss",
+          "emphasis": "hook"
+        },
+        {
+          "start_seconds": 2,
+          "end_seconds": 4,
+          "text": "Step 1: get ready",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 4,
+          "end_seconds": 6,
+          "text": "Step 2: the key move",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 6,
+          "end_seconds": 9,
+          "text": "Step 3: finish clean",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 9,
+          "end_seconds": 12,
+          "text": "The finished result",
+          "emphasis": "cta"
+        }
+      ],
+      "spoken_script": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 2,
+          "narration": "There's one crispy potatoes detail almost everyone skips.",
+          "shot_direction": "Open on the clearest visual of crispy potatoes."
+        },
+        {
+          "start_seconds": 2,
+          "end_seconds": 4,
+          "narration": "First, get your crispy potatoes ready.",
+          "shot_direction": "Wide setup"
+        },
+        {
+          "start_seconds": 4,
+          "end_seconds": 6,
+          "narration": "Then do the one move that matters most.",
+          "shot_direction": "Close-up"
+        },
+        {
+          "start_seconds": 6,
+          "end_seconds": 9,
+          "narration": "Finish it with care, not speed.",
+          "shot_direction": "Result detail"
+        },
+        {
+          "start_seconds": 9,
+          "end_seconds": 12,
+          "narration": "And that's the result.",
+          "shot_direction": "Hold on the result"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_id": "scene_1_hook",
+          "purpose": "hook",
+          "start_seconds": 0,
+          "end_seconds": 2,
+          "narration": "There's one crispy potatoes detail almost everyone skips.",
+          "overlay_text": "The crispy potatoes detail most people miss",
+          "overlay_role": "hook",
+          "shot_guidance": "Open on the clearest visual of crispy potatoes."
+        },
+        {
+          "scene_id": "scene_2_setup",
+          "purpose": "setup",
+          "start_seconds": 2,
+          "end_seconds": 4,
+          "narration": "First, get your crispy potatoes ready.",
+          "overlay_text": "Step 1: get ready",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Wide setup"
+        },
+        {
+          "scene_id": "scene_3_value",
+          "purpose": "value",
+          "start_seconds": 4,
+          "end_seconds": 6,
+          "narration": "Then do the one move that matters most.",
+          "overlay_text": "Step 2: the key move",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Close-up"
+        },
+        {
+          "scene_id": "scene_4_payoff",
+          "purpose": "payoff",
+          "start_seconds": 6,
+          "end_seconds": 9,
+          "narration": "Finish it with care, not speed.",
+          "overlay_text": "Step 3: finish clean",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Result detail"
+        },
+        {
+          "scene_id": "scene_5_close",
+          "purpose": "close",
+          "start_seconds": 9,
+          "end_seconds": 12,
+          "narration": "And that's the result.",
+          "overlay_text": "The finished result",
+          "overlay_role": "cta",
+          "shot_guidance": "Hold on the result"
+        }
+      ]
+    },
+    "dramatic": {
+      "selection": {
+        "structure": "breakdown",
+        "energy": "dramatic",
+        "ending": "reveal"
+      },
+      "duration_seconds": 16,
+      "pace": "dramatic",
+      "music_mood": "cinematic build",
+      "ending_style": "reveal",
+      "overlay_timeline": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 3,
+          "text": "The crispy potatoes detail most people miss",
+          "emphasis": "hook"
+        },
+        {
+          "start_seconds": 3,
+          "end_seconds": 6,
+          "text": "Step 1: get ready",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 6,
+          "end_seconds": 9,
+          "text": "Step 2: the key move",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 9,
+          "end_seconds": 12,
+          "text": "Step 3: finish clean",
+          "emphasis": "value"
+        },
+        {
+          "start_seconds": 12,
+          "end_seconds": 16,
+          "text": "The finished result",
+          "emphasis": "cta"
+        }
+      ],
+      "spoken_script": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 3,
+          "narration": "There's one crispy potatoes detail almost everyone skips.",
+          "shot_direction": "Open on the clearest visual of crispy potatoes."
+        },
+        {
+          "start_seconds": 3,
+          "end_seconds": 6,
+          "narration": "First, get your crispy potatoes ready.",
+          "shot_direction": "Wide setup"
+        },
+        {
+          "start_seconds": 6,
+          "end_seconds": 9,
+          "narration": "Then do the one move that matters most.",
+          "shot_direction": "Close-up"
+        },
+        {
+          "start_seconds": 9,
+          "end_seconds": 12,
+          "narration": "Finish it with care, not speed.",
+          "shot_direction": "Result detail"
+        },
+        {
+          "start_seconds": 12,
+          "end_seconds": 16,
+          "narration": "And that's the result.",
+          "shot_direction": "Hold on the result"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_id": "scene_1_hook",
+          "purpose": "hook",
+          "start_seconds": 0,
+          "end_seconds": 3,
+          "narration": "There's one crispy potatoes detail almost everyone skips.",
+          "overlay_text": "The crispy potatoes detail most people miss",
+          "overlay_role": "hook",
+          "shot_guidance": "Open on the clearest visual of crispy potatoes."
+        },
+        {
+          "scene_id": "scene_2_setup",
+          "purpose": "setup",
+          "start_seconds": 3,
+          "end_seconds": 6,
+          "narration": "First, get your crispy potatoes ready.",
+          "overlay_text": "Step 1: get ready",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Wide setup"
+        },
+        {
+          "scene_id": "scene_3_value",
+          "purpose": "value",
+          "start_seconds": 6,
+          "end_seconds": 9,
+          "narration": "Then do the one move that matters most.",
+          "overlay_text": "Step 2: the key move",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Close-up"
+        },
+        {
+          "scene_id": "scene_4_payoff",
+          "purpose": "payoff",
+          "start_seconds": 9,
+          "end_seconds": 12,
+          "narration": "Finish it with care, not speed.",
+          "overlay_text": "Step 3: finish clean",
+          "overlay_role": "emphasis",
+          "shot_guidance": "Result detail"
+        },
+        {
+          "scene_id": "scene_5_close",
+          "purpose": "close",
+          "start_seconds": 12,
+          "end_seconds": 16,
+          "narration": "And that's the result.",
+          "overlay_text": "The finished result",
+          "overlay_role": "cta",
+          "shot_guidance": "Hold on the result"
+        }
+      ]
+    }
+  }
+}

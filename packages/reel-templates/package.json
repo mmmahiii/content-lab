@@ -4,24 +4,30 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./render": "./render/index.ts"
   },
   "scripts": {
     "studio": "remotion studio src/entry.ts --public-dir=../../artifacts/asset_packs/faceless_cooking_real_png/20260511-164911",
     "render:operations": "remotion render src/entry.ts OperationsBaseline out/operations-remotion.mp4",
     "render:ratatouille": "remotion render src/entry.ts RatatouilleAssets out/ratatouille-remotion.mp4 --public-dir=../../artifacts/asset_packs/faceless_cooking_real_png/20260511-164911",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:render": "RENDER_INTEGRATION=1 vitest run render/renderQuickReel.integration.test.ts",
+    "render:quick-reel": "remotion render src/entry.ts QuickReel out/quick-reel-punchy.mp4"
   },
   "dependencies": {
-    "@remotion/google-fonts": "4.0.539",
+    "@remotion/bundler": "4.0.539",
     "@remotion/layout-utils": "4.0.539",
+    "@remotion/renderer": "4.0.539",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "remotion": "4.0.539"
+    "remotion": "4.0.539",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@remotion/cli": "4.0.539",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"

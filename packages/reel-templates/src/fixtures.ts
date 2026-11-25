@@ -1,4 +1,6 @@
-import { fromPipelineOverlays, type ReelTimeline } from './timeline';
+import crispyPotatoes from './fixtures/crispy-potatoes.compose.json';
+import { fromComposedReel, type ComposedReelInput } from './quickReel';
+import { fromPipelineOverlays, type Energy, type ReelTimeline } from './timeline';
 
 /**
  * A: the exact overlay_timeline from
@@ -56,4 +58,22 @@ export const ratatouilleAssets: ReelTimeline = {
     { src: 'ratatouille_ingredients.png', startFrame: 180, endFrame: 255 },
     { src: 'basil.png', startFrame: 255, endFrame: 330 },
   ],
+};
+
+/**
+ * C: Quick Reel. The real fallback `quick-reel/compose` output (no LLM) for "crispy
+ * potatoes", one composed reel per energy, on the gradient backdrop.
+ */
+const crispy = crispyPotatoes as unknown as {
+  hook: { overlay_text: string };
+  composed: Record<Energy, ComposedReelInput>;
+};
+
+export const quickReelComposed: Record<Energy, ComposedReelInput> = crispy.composed;
+export const quickReelHookText = crispy.hook.overlay_text;
+
+export const quickReelFixtures: Record<Energy, ReelTimeline> = {
+  chill: fromComposedReel(crispy.composed.chill),
+  punchy: fromComposedReel(crispy.composed.punchy),
+  dramatic: fromComposedReel(crispy.composed.dramatic),
 };

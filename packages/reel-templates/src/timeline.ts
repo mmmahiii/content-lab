@@ -6,7 +6,18 @@
  * `overlay_timeline` (see packages/creative OverlayCue) into this shape.
  */
 
-export type OverlayRole = 'hook' | 'value' | 'cta';
+export type OverlayRole = 'hook' | 'value' | 'cta' | 'disclosure';
+
+/** Pacing / motion style chosen in Quick Reel (matches the API's `Pace`). */
+export type Energy = 'chill' | 'punchy' | 'dramatic';
+
+export const ENERGIES: readonly Energy[] = ['chill', 'punchy', 'dramatic'];
+
+/**
+ * How a visual is placed: `cutout` sits in the middle band between hook and captions
+ * (transparent PNGs), `cover` fills the frame behind scrims (photos).
+ */
+export type VisualFit = 'cutout' | 'cover';
 
 export interface TimelineOverlay {
   text: string;
@@ -16,10 +27,15 @@ export interface TimelineOverlay {
 }
 
 export interface TimelineVisual {
-  /** File name under the Remotion public dir; omitted = plain backdrop. */
+  /**
+   * File name under the Remotion public dir, or an absolute / root-relative URL
+   * (`https://…`, `/api/…`, `data:`). Omitted = plain backdrop.
+   */
   src?: string;
   startFrame: number;
   endFrame: number;
+  /** Defaults to `cutout`. */
+  fit?: VisualFit;
 }
 
 // A type alias (not an interface) so Remotion accepts it as composition props.
@@ -32,6 +48,10 @@ export type ReelTimeline = {
   backdrop: [string, string];
   overlays: TimelineOverlay[];
   visuals: TimelineVisual[];
+  /** Motion style. Omitted = the original proof look. */
+  energy?: Energy;
+  /** In-video story progress bar. Defaults to true; Quick Reel hides it while building. */
+  showProgress?: boolean;
 };
 
 /** Shape of one entry in the pipeline's `script.overlay_timeline`. */
@@ -47,6 +67,7 @@ const ROLE_BY_EMPHASIS: Record<string, OverlayRole> = {
   value: 'value',
   emphasis: 'value',
   cta: 'cta',
+  disclosure: 'disclosure',
 };
 
 export function fromPipelineOverlays(
