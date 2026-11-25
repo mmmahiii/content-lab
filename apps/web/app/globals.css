@@ -1,11 +1,77 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+@import 'tailwindcss';
+
+/*
+ * Content Lab design tokens. Quick Reel is a full-bleed video surface, so the shell is
+ * dark by default; colours are tokens so Studio can reuse them.
+ */
+@theme {
+  --color-ink: #07070b;
+  --color-ink-raised: #111118;
+  --color-ink-sunken: #030305;
+  --color-line: rgb(255 255 255 / 0.1);
+  --color-line-strong: rgb(255 255 255 / 0.22);
+  --color-fg: #f6f6f8;
+  --color-fg-muted: rgb(246 246 248 / 0.66);
+  --color-fg-subtle: rgb(246 246 248 / 0.42);
+  --color-accent: #ffe135;
+  --color-accent-ink: #111111;
+  --color-signal: #7cf2c4;
+  --color-danger: #ff6b6b;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-display: 'Montserrat Reel', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1.25rem;
+  --radius-phone: 2.75rem;
+
+  --animate-shimmer: shimmer 1.8s ease-in-out infinite;
+  --animate-breathe: breathe 2.4s ease-in-out infinite;
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: scale(0.98);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
 }
 
-html,
-body {
-  min-height: 100%;
-  margin: 0;
+@layer base {
+  html,
+  body {
+    min-height: 100%;
+    margin: 0;
+    background: var(--color-ink);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
