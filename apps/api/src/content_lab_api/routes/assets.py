@@ -52,7 +52,7 @@ def _latest_gen_params(db: Session, *, asset_id: uuid.UUID) -> AssetGenParam | N
         db.query(AssetGenParam)
         .filter(AssetGenParam.asset_id == asset_id)
         .order_by(AssetGenParam.seq.desc())
-        .one_or_none()
+        .first()
     )
 
 

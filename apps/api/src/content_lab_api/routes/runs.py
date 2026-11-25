@@ -350,20 +350,32 @@ _IDEA_PLAN_EXPECTED_OUTPUTS: tuple[str, ...] = (
 )
 
 
-def _idea_plan_payload(
-    *,
-    page: Page,
-    run_id: uuid.UUID,
-    plan_number: int,
-    llm_client: LLMClient | None = None,
-) -> dict[str, Any]:
-    """LLM-written idea plan for the page; the original template when no LLM is available."""
+IDEA_PLAN_WORKFLOW_KEY = "idea_plan"
+"""Record-only workflow key for idea plans: no flow runs, so it is not a ``WorkflowKey``."""
 
-    page_context = CreativePageContext.from_page(
+
+def _page_creative_context(page: Page) -> CreativePageContext:
+    return CreativePageContext.from_page(
         display_name=page.display_name,
         handle=page.handle,
         metadata=page.metadata_,
     )
+
+
+def _idea_plan_payload(
+    *,
+    run_id: uuid.UUID,
+    plan_number: int,
+    page: Page | None = None,
+    page_context: CreativePageContext | None = None,
+    llm_client: LLMClient | None = None,
+) -> dict[str, Any]:
+    """LLM-written idea plan for the page; the original template when no LLM is available."""
+
+    if page_context is None:
+        if page is None:
+            raise ValueError("page or page_context is required")
+        page_context = _page_creative_context(page)
     plan = dict(generate_idea_plan(page_context, plan_number=plan_number, client=llm_client).plan)
     plan["package_intent"] = {"expected_outputs": list(_IDEA_PLAN_EXPECTED_OUTPUTS)}
     return {
@@ -859,6 +871,8 @@ def update_run_hook_cover(
 def list_page_runs(
     org_id: uuid.UUID,
     page_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[RunOut]:
     _get_org_or_404(db, org_id)
@@ -879,6 +893,8 @@ def list_page_runs(
             page_match,
         )
         .order_by(Run.updated_at.desc(), Run.id.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     return [run_to_out(run) for run in runs]
@@ -908,9 +924,20 @@ def create_page_idea_plan(
         .scalar()
         or 0
     ) + 1
+    page_context = _page_creative_context(page)
+    # End the (read-only) transaction before the LLM call so no connection or snapshot is
+    # held open for the possibly slow network request. Nothing has been written yet.
+    db.commit()
+    run_id = uuid.uuid4()
+    output_payload = _idea_plan_payload(
+        page_context=page_context,
+        run_id=run_id,
+        plan_number=plan_number,
+        llm_client=llm_client,
+    )
     run = Run(
         org_id=org_id,
-        workflow_key=WorkflowKey.DAILY_REEL_FACTORY.value,
+        workflow_key=IDEA_PLAN_WORKFLOW_KEY,
         flow_trigger=FlowTrigger.MANUAL.value,
         status=RunStatus.SUCCEEDED.value,
         input_params={
@@ -931,11 +958,10 @@ def create_page_idea_plan(
         started_at=_now(),
         finished_at=_now(),
     )
+    run.id = run_id
+    run.output_payload = output_payload
     db.add(run)
     db.flush()
-    run.output_payload = _idea_plan_payload(
-        page=page, run_id=run.id, plan_number=plan_number, llm_client=llm_client
-    )
     task = Task(
         org_id=org_id,
         task_type="idea_planning",
@@ -1024,11 +1050,13 @@ def generate_package_from_page_idea_plan(
     if plan_run.status == RunStatus.CANCELLED.value:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Plan has been discarded")
     plan_payload = dict(plan_run.output_payload or {})
-    if plan_payload.get("used_in_package_run_id") is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Plan has already been used to generate a package",
-        )
+    existing_package_run_id = plan_payload.get("used_in_package_run_id")
+    if existing_package_run_id is not None and not body.force_new_package:
+        # Same contract as the cinematic route: a live or finished package run is returned
+        # as-is (no duplicate render); a failed one can be retried with a fresh run.
+        existing_run = db.get(Run, uuid.UUID(str(existing_package_run_id)))
+        if existing_run is not None and existing_run.status != RunStatus.FAILED.value:
+            return run_to_out(existing_run)
 
     plan = dict(plan_payload.get("plan") or {})
     plan_duration_seconds = _plan_duration_seconds(plan)
@@ -1208,7 +1236,8 @@ def generate_package_from_cinematic_plan(
     plan = _cinematic_plan_payload(plan_run)
     artifacts = _cinematic_plan_artifacts(plan_run)
     composition_manifest = _cinematic_composition_manifest(plan_run)
-    plan_duration_seconds = max(_cinematic_duration_seconds(artifacts, plan), 10)
+    # Respect the plan length within what one Runway-sized clip can cover (5-10 s).
+    plan_duration_seconds = min(max(_cinematic_duration_seconds(artifacts, plan), 5), 10)
     render_source_plan = _cinematic_render_source_plan(
         page=page,
         plan=plan,

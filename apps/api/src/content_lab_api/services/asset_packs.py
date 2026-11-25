@@ -904,10 +904,11 @@ def regenerate_asset_pack_plan(
         AssetPackStatus.PLANNED.value,
         AssetPackStatus.APPROVED.value,
         AssetPackStatus.REJECTED.value,
+        AssetPackStatus.FAILED.value,
     }:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only ungenerated asset packs can regenerate their plan",
+            detail="Only ungenerated or failed asset packs can regenerate their plan",
         )
 
     plan = generate_asset_pack_plan(
@@ -967,10 +968,10 @@ def generate_approved_asset_pack(
 
     _get_org_or_404(db, org_id)
     asset_pack = _get_asset_pack_or_404(db, org_id=org_id, asset_pack_id=asset_pack_id)
-    if asset_pack.status != AssetPackStatus.APPROVED.value:
+    if asset_pack.status not in {AssetPackStatus.APPROVED.value, AssetPackStatus.FAILED.value}:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Asset pack must be approved before generation",
+            detail="Asset pack must be approved (or have failed generation) before generation",
         )
     if body.ready_threshold is not None and body.ready_threshold > asset_pack.requested_asset_count:
         raise HTTPException(
@@ -1004,72 +1005,83 @@ def generate_approved_asset_pack(
     )
     db.commit()
 
-    generation_decisions: list[dict[str, Any]] = []
-    for spec in sorted(persisted_specs, key=lambda item: item.priority):
-        item = items_by_spec[spec.id]
-        if item.asset_id is not None:
-            continue
-        acquisition = evaluate_acquisition_before_generation(
-            planned_asset_spec_id=spec.id,
-            required_traits=spec.required_traits or {},
-            compatible_with=spec.compatible_with or {},
-            pack_niche=asset_pack.niche,
-            asset_kind=spec.asset_kind,
-            media_type=spec.media_type,
-            purpose=spec.purpose,
-            prompt_or_description=spec.prompt_or_description,
-        )
-        if acquisition.recommended_acquisition_path is AssetAcquisitionPath.BLOCK_OR_REPLACE_ASSET:
-            _apply_acquisition_block_to_item(db, item=item, spec=spec, acquisition=acquisition)
-            generation_decisions.append(jsonable_encoder(acquisition.model_dump(mode="python")))
-            continue
-        if (
-            acquisition.recommended_acquisition_path
-            is AssetAcquisitionPath.USE_APPROVED_EXTERNAL_ASSET
-            and _try_attach_acquisition_external_asset(
+    asset_pack_id_value = asset_pack.id
+    try:
+        generation_decisions: list[dict[str, Any]] = []
+        for spec in sorted(persisted_specs, key=lambda item: item.priority):
+            item = items_by_spec[spec.id]
+            if item.asset_id is not None:
+                continue
+            acquisition = evaluate_acquisition_before_generation(
+                planned_asset_spec_id=spec.id,
+                required_traits=spec.required_traits or {},
+                compatible_with=spec.compatible_with or {},
+                pack_niche=asset_pack.niche,
+                asset_kind=spec.asset_kind,
+                media_type=spec.media_type,
+                purpose=spec.purpose,
+                prompt_or_description=spec.prompt_or_description,
+            )
+            if acquisition.recommended_acquisition_path is AssetAcquisitionPath.BLOCK_OR_REPLACE_ASSET:
+                _apply_acquisition_block_to_item(db, item=item, spec=spec, acquisition=acquisition)
+                generation_decisions.append(jsonable_encoder(acquisition.model_dump(mode="python")))
+                continue
+            if (
+                acquisition.recommended_acquisition_path
+                is AssetAcquisitionPath.USE_APPROVED_EXTERNAL_ASSET
+                and _try_attach_acquisition_external_asset(
+                    db,
+                    org_id=org_id,
+                    spec=spec,
+                    item=item,
+                    acquisition=acquisition,
+                )
+            ):
+                acquisition = acquisition.model_copy(
+                    update={
+                        "resolved_acquisition_path": AssetAcquisitionPath.USE_APPROVED_EXTERNAL_ASSET
+                    }
+                )
+                _merge_acquisition_into_item_metadata(item, acquisition)
+                generation_decisions.append(jsonable_encoder(acquisition.model_dump(mode="python")))
+                db.flush()
+                continue
+            decision = _resolve_planned_spec_generation(
                 db,
+                request,
                 org_id=org_id,
-                spec=spec,
+                asset_pack=asset_pack,
                 item=item,
-                acquisition=acquisition,
+                spec=spec,
+                body=body,
             )
-        ):
-            acquisition = acquisition.model_copy(
-                update={
-                    "resolved_acquisition_path": AssetAcquisitionPath.USE_APPROVED_EXTERNAL_ASSET
-                }
-            )
-            _merge_acquisition_into_item_metadata(item, acquisition)
-            generation_decisions.append(jsonable_encoder(acquisition.model_dump(mode="python")))
-            db.flush()
-            continue
-        decision = _resolve_planned_spec_generation(
+            finalized = _finalize_acquisition_after_generation(acquisition)
+            decision["acquisition_decision"] = jsonable_encoder(finalized.model_dump(mode="python"))
+            generation_decisions.append(jsonable_encoder(decision))
+            _apply_resolution_to_item(db, item=item, spec=spec, decision=decision)
+
+        refresh_asset_pack_readiness(
+            db,
+            asset_pack=asset_pack,
+            ready_threshold=body.ready_threshold,
+        )
+        _record_batch_audit(
             db,
             request,
             org_id=org_id,
             asset_pack=asset_pack,
-            item=item,
-            spec=spec,
-            body=body,
+            summary=_resolution_summary(db, asset_pack_id=asset_pack.id),
         )
-        finalized = _finalize_acquisition_after_generation(acquisition)
-        decision["acquisition_decision"] = jsonable_encoder(finalized.model_dump(mode="python"))
-        generation_decisions.append(jsonable_encoder(decision))
-        _apply_resolution_to_item(db, item=item, spec=spec, decision=decision)
-
-    refresh_asset_pack_readiness(
-        db,
-        asset_pack=asset_pack,
-        ready_threshold=body.ready_threshold,
-    )
-    _record_batch_audit(
-        db,
-        request,
-        org_id=org_id,
-        asset_pack=asset_pack,
-        summary=_resolution_summary(db, asset_pack_id=asset_pack.id),
-    )
-    db.commit()
+        db.commit()
+    except Exception:
+        # Never leave the pack in GENERATING with no way out: mark it FAILED so the UI can
+        # retry generation or regenerate the plan, then surface the original error.
+        db.rollback()
+        failed_pack = db.get(AssetPack, asset_pack_id_value)
+        if failed_pack is not None:
+            failed_pack.status = AssetPackStatus.FAILED.value
+            db.commit()
+        raise
     return _batch_out_from_rows(
         db,
         asset_pack_id=asset_pack.id,

@@ -696,7 +696,9 @@ def test_asset_pack_review_gate_blocks_direct_generation_and_requires_approval(
         json={},
     )
     assert unapproved_generate.status_code == 422
-    assert unapproved_generate.json()["detail"] == "Asset pack must be approved before generation"
+    assert unapproved_generate.json()["detail"] == (
+        "Asset pack must be approved (or have failed generation) before generation"
+    )
 
     approve_response = asset_pack_client.post(
         f"/orgs/{org_id}/asset-packs/{pack_id}/approve",

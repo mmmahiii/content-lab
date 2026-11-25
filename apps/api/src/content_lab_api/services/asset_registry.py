@@ -115,7 +115,7 @@ class SQLAlchemyPhase1AssetRegistryStore:
                 AssetGenParam.asset_key_hash == asset_key_hash,
             )
             .order_by(AssetGenParam.seq.desc())
-            .one_or_none()
+            .first()
         )
         return None if row is None else self._to_registry_gen_params(row)
 
@@ -243,7 +243,7 @@ class SQLAlchemyPhase1AssetRegistryStore:
             self._db.query(AssetGenParam)
             .filter(AssetGenParam.asset_id == asset.id)
             .order_by(AssetGenParam.seq.desc())
-            .one_or_none()
+            .first()
         )
         next_seq = 0 if latest is None else latest.seq + 1
         row = AssetGenParam(

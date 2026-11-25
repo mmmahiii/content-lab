@@ -663,7 +663,8 @@ def test_generate_package_from_cinematic_plan_run_merges_plan_and_package_steps(
     assert package_run.input_params["generation_mode"] == "smoke_test"
     assert package_run.input_params["dry_run"] is False
     reel = db_session.get(Reel, uuid.UUID(package_run.input_params["reel_id"]))
-    assert reel.metadata_["duration_seconds"] == 10
+    # The 7 s cinematic plan keeps its length (clamped to 5-10 s), no longer padded to 10 s.
+    assert reel.metadata_["duration_seconds"] == 7
     assert reel.metadata_["idea_plan"]["hook"] == "Tomato texture starts the stack"
     assert reel.metadata_["idea_plan"]["beats"][1]["text"] == "Basil makes it ready"
     assert reel.metadata_["idea_plan"]["composition_manifest"]["roles"]["background"]["asset_id"] == "tomato-bg"

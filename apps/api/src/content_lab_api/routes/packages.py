@@ -19,6 +19,7 @@ from content_lab_api.schemas.packages import (
     PackageOutboxNotificationOut,
 )
 from content_lab_outbox import PROCESS_REEL_PACKAGE_READY_EVENT
+from content_lab_runs import RunStatus
 from content_lab_shared.settings import Settings
 from content_lab_storage import (
     CAPTION_VARIANTS_FILENAME,
@@ -39,6 +40,9 @@ _SUPPORT_ARTIFACT_NAMES = frozenset(
     {"manifest", "package_manifest", "provenance", "creative_trace"}
 )
 _PROCESS_REEL_PACKAGING_TASK_TYPE = "packaging"
+_IN_PROGRESS_RUN_STATUSES = frozenset(
+    {RunStatus.PENDING.value, RunStatus.QUEUED.value, RunStatus.RUNNING.value}
+)
 
 
 def _packaged_at_from_tasks(tasks: list[Task]) -> datetime | None:
@@ -256,6 +260,12 @@ def get_package(
 ) -> PackageDetailOut:
     _get_org_or_404(db, org_id)
     run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
+    if run.status in _IN_PROGRESS_RUN_STATUSES:
+        # Distinguish 'still rendering' from 'no such package' so clients can keep polling.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Package not ready yet", "run_status": run.status},
+        )
     package_payload = _extract_package_payload(run)
     task_rows = db.query(Task).filter(Task.run_id == run_id).all()
     artifacts = _normalized_artifacts(package_payload)
