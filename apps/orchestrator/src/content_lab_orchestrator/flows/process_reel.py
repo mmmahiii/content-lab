@@ -1055,9 +1055,22 @@ def _source_plan_beat_durations(
             durations.append(seconds)
     if len(durations) != count or sum(durations) <= 0:
         return _even_durations(total=total, count=count)
-    delta = total - sum(durations)
-    durations[-1] = max(1, durations[-1] + delta)
-    return durations
+    if sum(durations) == total:
+        return durations
+    # The reel is capped (e.g. Runway's 10 s clip limit): scale every beat proportionally
+    # instead of squeezing the last one, then absorb rounding on the longest beats.
+    scale = total / sum(durations)
+    scaled = [max(1, round(seconds * scale)) for seconds in durations]
+    drift = total - sum(scaled)
+    while drift != 0:
+        step = 1 if drift > 0 else -1
+        candidates = [i for i in range(count) if step > 0 or scaled[i] > 1]
+        if not candidates:
+            break
+        index = max(candidates, key=lambda i: (scaled[i] * -step, i))
+        scaled[index] += step
+        drift -= step
+    return scaled
 
 
 def _source_plan_duration_seconds(

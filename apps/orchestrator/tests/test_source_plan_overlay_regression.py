@@ -126,3 +126,20 @@ def test_source_plan_narration_is_spoken_instead_of_creator_directions() -> None
         "Pick the three things Monday must protect.",
         "Block them before anything else lands.",
     ]
+
+
+def test_capped_plan_scales_beats_instead_of_squeezing_the_last() -> None:
+    from content_lab_orchestrator.flows.process_reel import _source_plan_beat_durations
+
+    plan = {
+        "beats": [
+            {"text": "a", "seconds": 3},
+            {"text": "b", "seconds": 6},
+            {"text": "c", "seconds": 3},
+        ]
+    }
+    assert _source_plan_beat_durations(plan, count=3, total=12) == [3, 6, 3]
+    capped = _source_plan_beat_durations(plan, count=3, total=10)
+    assert sum(capped) == 10
+    assert capped[-1] >= 2  # previously squeezed to 1 s
+    assert capped == [2, 5, 3] or capped == [3, 5, 2] or capped == [2, 6, 2]
