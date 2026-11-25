@@ -1,12 +1,23 @@
 FROM python:3.11-slim AS base
 
-RUN pip install --no-cache-dir poetry && \
+# FFmpeg + a default font: the API launches the process_reel flow (editing renders video).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir poetry && \
     poetry config virtualenvs.in-project true
 
 WORKDIR /app
 
 COPY packages /app/packages
 COPY apps/api /app/apps/api
+# routes/runs.py launches `poetry run python -m content_lab_orchestrator.cli` from
+# apps/orchestrator, so the orchestrator (and the worker it depends on) must be in this image.
+COPY apps/worker /app/apps/worker
+COPY apps/orchestrator /app/apps/orchestrator
+
+WORKDIR /app/apps/orchestrator
+RUN poetry install --no-interaction
 
 WORKDIR /app/apps/api
 RUN poetry install --no-interaction

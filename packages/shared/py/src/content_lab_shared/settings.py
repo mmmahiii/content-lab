@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://contentlab:contentlab@localhost:5433/contentlab"
     redis_url: str = "redis://localhost:6379/0"
     minio_endpoint: str = "http://localhost:9000"
+    # Endpoint browsers use for presigned download links; defaults to minio_endpoint.
+    minio_public_endpoint: str | None = None
     minio_bucket: str = "content-lab"
     minio_root_user: str = "minioadmin"
     minio_root_password: SecretStr = SecretStr("minioadmin")

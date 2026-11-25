@@ -11,7 +11,9 @@ def build_signed_download(*, storage_uri: str, expires_in_seconds: int = 900) ->
     settings = Settings()
     presigner = S3Presigner(
         S3PresignerConfig(
-            endpoint=settings.minio_endpoint,
+            # Links are opened by browsers, so sign for the publicly reachable endpoint
+            # (e.g. localhost:9000) rather than the in-network one (minio:9000).
+            endpoint=settings.minio_public_endpoint or settings.minio_endpoint,
             access_key_id=settings.minio_root_user,
             secret_access_key=settings.minio_root_password.get_secret_value(),
             expires_in_seconds=expires_in_seconds,
