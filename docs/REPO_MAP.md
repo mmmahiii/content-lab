@@ -204,8 +204,8 @@ their authors assumed", not "the product works".
    the second row. Should be `.first()`.
 4. **Asset packs can get stuck in `generating`**: `generate_approved_asset_pack` commits `GENERATING`
    before the per-item loop; an exception leaves no valid transition out (approve needs `planned`,
-   generate needs `approved`, regenerate-plan needs planned/approved/rejected). It also runs generation
-   (possibly Runway submissions) synchronously inside the HTTP request.
+   generate needs `approved`, regenerate-plan needs planned/approved/rejected). (Correction: it does
+   not call Runway in the request; it only records provider jobs for the worker.)
 5. **`GET /packages/{run_id}` returns 404 "Package not found" while a run is in progress** — the UI must
    poll `GET /runs/{id}` and only then fetch the package.
 6. **`GET /pages/{id}/runs` has no pagination** — returns every run the page has ever had.
@@ -216,3 +216,35 @@ their authors assumed", not "the product works".
 9. Cinematic plans: `max(duration, 10)` plus the orchestrator's 10 s cap means every cinematic reel is
    exactly 10 s.
 10. No dead private helpers in the four files; all public service functions have callers.
+
+### Fixes (branch `fix/review-findings`, 2026-11-25)
+
+Verified by a second end-to-end run **through the Docker API** (no host workarounds): queued →
+succeeded in 114 s, package links signed for `localhost:9000`. API 208 passed (0 skipped with
+Postgres), orchestrator 51, worker 24, all other packages green.
+
+| Finding | Fix |
+|---|---|
+| Docker API can't launch the pipeline | `Dockerfile.api` ships `apps/orchestrator` + `apps/worker` and installs the orchestrator env |
+| No FFmpeg in any image | api/worker/orchestrator images install `ffmpeg` (7.1) + `fonts-dejavu-core` |
+| Download links unusable from a browser in Docker | new `MINIO_PUBLIC_ENDPOINT` setting used for presigning; compose sets it to `http://localhost:9000` |
+| Pipeline crashed in containers (`TimeoutError`) | Prefect ephemeral-API timeout patch moved to `content_lab_orchestrator.prefect_compat` and applied by the CLI (was test-only) |
+| Crashed runs stuck in `queued` forever | the CLI marks its run `failed` (with the error) when the flow raises |
+| Failed launch burns the idea plan | idea-plan route now matches the cinematic route: returns a live run, retries a failed one, honours `force_new_package` |
+| `.one_or_none()` 500s on assets with several gen-param rows | `.first()` in all four queries |
+| Packs stuck in `generating` | failures mark the pack `failed`; generate and regenerate-plan accept `failed` |
+| Package 404 while rendering | `GET /packages/{run_id}` returns `409 {"message": "Package not ready yet", "run_status": …}` while pending/queued/running |
+| Page runs unpaginated | `limit` (default 100, max 500) and `offset` |
+| Idea plans labelled `daily_reel_factory` | stored with workflow key `idea_plan` |
+| LLM call inside a DB transaction | transaction ended before the call; run id assigned up front |
+| Cinematic reels forced to 10 s | clamped to 5–10 s, so a 7 s plan stays 7 s |
+| Capped plans squeeze the last beat to 1 s | beats scale proportionally to the cap |
+| Worker connection leak | stores share one engine per database URL (outbox, editing, assets); worker steady at 66 connections over minutes (8 processes) instead of growing past 160 |
+
+Still open (not review items; need real feature work):
+
+- **10 s maximum reel length**: one Runway clip per reel and editing cannot loop or hold a clip.
+- **Blank last ~4 s**: the editing overlay pipeline (`packages/editing/overlays.py`) leaves the last
+  scenes without text even when every beat has copy.
+- **Silent audio**: no voiceover synthesis exists; QA should fail silent or blank segments.
+- Seed scripts download from Wikimedia every run; `open-console.ps1` image freshness and fingerprinting.
