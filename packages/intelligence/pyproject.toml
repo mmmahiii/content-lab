@@ -8,6 +8,8 @@ packages = [{ include = "content_lab_intelligence", from = "src" }]
 [tool.poetry.dependencies]
 python = "^3.11"
 content-lab-shared = {path = "../shared/py", develop = true}
+anthropic = "^1.17.0"
+pydantic = "^2.7.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
