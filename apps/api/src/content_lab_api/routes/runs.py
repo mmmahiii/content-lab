@@ -13,12 +13,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from content_lab_intelligence import LLMClient
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, insert, or_
 from sqlalchemy.orm import Session, selectinload
 
-from content_lab_api.deps import get_db
+from content_lab_api.deps import get_db, get_llm_client
 from content_lab_api.models.audit_log import AuditLog
 from content_lab_api.models.org import Org
 from content_lab_api.models.outbox import OutboxEvent
@@ -39,6 +40,7 @@ from content_lab_api.schemas.runs import (
     run_to_out,
 )
 from content_lab_api.services import apply_task_row_spec, create_run_row, create_task_row
+from content_lab_creative.generation import CreativePageContext, generate_idea_plan
 from content_lab_runs import (
     DuplicateIdempotencyKeyError,
     RunRowSpec,
@@ -336,56 +338,41 @@ def _launch_process_reel_flow(
     }
 
 
-def _idea_plan_payload(*, page: Page, run_id: uuid.UUID, plan_number: int) -> dict[str, Any]:
-    handle = page.handle or page.display_name
-    title = f"{page.display_name} plan {plan_number}"
+_IDEA_PLAN_EXPECTED_OUTPUTS: tuple[str, ...] = (
+    "final_video",
+    "cover",
+    "caption_variants",
+    "posting_plan",
+    "timeline",
+    "creative_trace",
+    "provenance",
+    "package_manifest",
+)
+
+
+def _idea_plan_payload(
+    *,
+    page: Page,
+    run_id: uuid.UUID,
+    plan_number: int,
+    llm_client: LLMClient | None = None,
+) -> dict[str, Any]:
+    """LLM-written idea plan for the page; the original template when no LLM is available."""
+
+    page_context = CreativePageContext.from_page(
+        display_name=page.display_name,
+        handle=page.handle,
+        metadata=page.metadata_,
+    )
+    plan = dict(generate_idea_plan(page_context, plan_number=plan_number, client=llm_client).plan)
+    plan["package_intent"] = {"expected_outputs": list(_IDEA_PLAN_EXPECTED_OUTPUTS)}
     return {
-        "plan": {
-            "title": title,
-            "hook": f"What would make {handle} worth following this week?",
-            "angle": "Turn one practical page insight into a clear short-form reel.",
-            "beats": [
-                {
-                    "label": "Hook",
-                    "text": "Open with the exact problem the audience already feels.",
-                    "seconds": 3,
-                },
-                {
-                    "label": "Proof",
-                    "text": "Show the useful shift, example, or operating principle.",
-                    "overlay_text": "Useful shift",
-                    "seconds": 6,
-                },
-                {
-                    "label": "Action",
-                    "text": "Close with one concrete next step the viewer can try.",
-                    "overlay_text": "One concrete next step",
-                    "seconds": 3,
-                },
-            ],
-            "caption_angles": [
-                "Save this before your next content planning block.",
-                "A simple way to turn page strategy into a reel.",
-                "Use this as the spine for the next post.",
-            ],
-            "package_intent": {
-                "expected_outputs": [
-                    "final_video",
-                    "cover",
-                    "caption_variants",
-                    "posting_plan",
-                    "timeline",
-                    "creative_trace",
-                    "provenance",
-                    "package_manifest",
-                ],
-            },
-        },
+        "plan": plan,
         "plans": [
             {
                 "id": str(run_id),
                 "label": f"Plan {plan_number}",
-                "title": title,
+                "title": plan["title"],
                 "status": "ready_for_generation",
             }
         ],
@@ -907,6 +894,7 @@ def create_page_idea_plan(
     page_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    llm_client: LLMClient | None = Depends(get_llm_client),
 ) -> RunOut:
     _get_org_or_404(db, org_id)
     page = _get_page_or_404(db, org_id, page_id)
@@ -945,7 +933,9 @@ def create_page_idea_plan(
     )
     db.add(run)
     db.flush()
-    run.output_payload = _idea_plan_payload(page=page, run_id=run.id, plan_number=plan_number)
+    run.output_payload = _idea_plan_payload(
+        page=page, run_id=run.id, plan_number=plan_number, llm_client=llm_client
+    )
     task = Task(
         org_id=org_id,
         task_type="idea_planning",
@@ -963,7 +953,11 @@ def create_page_idea_plan(
         action="idea_plan.created",
         resource_type="run",
         resource_id=str(run.id),
-        payload={"page_id": str(page_id), "status": run.status},
+        payload={
+            "page_id": str(page_id),
+            "status": run.status,
+            "generation_source": run.output_payload["plan"]["generation"]["source"],
+        },
     )
     db.commit()
     db.refresh(run)

@@ -47,3 +47,13 @@ def pytest_configure(config: pytest.Config) -> None:
 
     prefect_client_base.LifespanManager = _LifespanManager  # type: ignore[method-assign]
     _PREFECT_LIFESPAN_PATCHED = True
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests offline even when the shell has Claude credentials."""
+
+    from content_lab_intelligence.config import CREDENTIAL_ENV_VARS
+
+    for name in CREDENTIAL_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)

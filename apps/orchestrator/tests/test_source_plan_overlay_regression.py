@@ -97,3 +97,32 @@ def test_source_plan_overlays_do_not_reintroduce_word_clipping() -> None:
         "none",
         "none",
     ]
+
+
+def test_source_plan_narration_is_spoken_instead_of_creator_directions() -> None:
+    from content_lab_orchestrator.flows.process_reel import _source_plan_spoken_lines
+
+    source_plan: dict[str, Any] = {
+        "hook": "The Sunday habit behind calm Mondays",
+        "beats": [
+            {
+                "label": "Hook",
+                "text": "Open on a notebook, pen already moving.",
+                "narration": "This ten-minute habit changed my Mondays.",
+            },
+            {
+                "label": "Proof",
+                "text": "Show the useful shift, example, or operating principle.",
+                "narration": "Pick the three things Monday must protect.",
+                "overlay_text": "Pick three priorities",
+            },
+            # Older plans without narration still fall back to beat text.
+            {"label": "Action", "text": "Block them before anything else lands."},
+        ],
+    }
+    lines = _source_plan_spoken_lines(source_plan, hook_text=source_plan["hook"])
+    assert lines == [
+        "This ten-minute habit changed my Mondays.",
+        "Pick the three things Monday must protect.",
+        "Block them before anything else lands.",
+    ]

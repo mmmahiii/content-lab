@@ -877,8 +877,16 @@ def _source_plan_spoken_lines(source_plan: Mapping[str, Any], *, hook_text: str)
 
     lines: list[str] = []
     for index, beat in enumerate(beats):
-        beat_text = _required_text(beat.get("text"), field_name=f"source_plan.beats[{index}].text")
-        line = hook_text if index == 0 else beat_text
+        # ``narration`` is viewer copy; ``text`` may be a creator direction, so it is only
+        # spoken for older plans that have no narration.
+        narration = _optional_text(beat.get("narration"))
+        if narration is not None:
+            line = narration
+        else:
+            beat_text = _required_text(
+                beat.get("text"), field_name=f"source_plan.beats[{index}].text"
+            )
+            line = hook_text if index == 0 else beat_text
         lines.append(_fit_text(_viewer_facing_copy(line), max_chars=280))
     return lines
 

@@ -48,3 +48,18 @@ def db_session(db_engine: Engine) -> Generator[Session, None, None]:
     if transaction.is_active:
         transaction.rollback()
     connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_credentials(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Keep API tests offline even when the shell has Claude credentials."""
+
+    from content_lab_intelligence.config import CREDENTIAL_ENV_VARS
+
+    from content_lab_api.deps.llm import _cached_client
+
+    for name in CREDENTIAL_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    _cached_client.cache_clear()
+    yield
+    _cached_client.cache_clear()
