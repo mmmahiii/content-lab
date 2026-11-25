@@ -19,10 +19,10 @@ runs a large set of QA checks, and outputs a **ready-to-post package** (MP4 + co
 |------|--------|
 | Backend structure (API, worker, orchestrator, DB) | Real, organised, mostly tested |
 | Tests | ~1,000 tests; **2 failing**, ~111 skipped (need Postgres running) |
-| AI script writing | **No LLM is wired in.** Scripts come from rule/template code (`RulesPlusProviderScriptGenerator`). The "cinematic planner" builds a prompt you **paste into ChatGPT by hand**, then paste the JSON back to validate. |
+| AI script writing | **Claude via `packages/intelligence`** (Nov 2026). Hooks, Quick Reel branches, idea plans and reel scripts are LLM-written when `ANTHROPIC_API_KEY` is set, with the old rule/template generators as offline fallbacks. The cinematic planner still uses the manual ChatGPT copy-paste flow. |
 | Video generation | Runway `gen4.5` client exists (needs `RUNWAY_API_KEY`) |
-| "Learns from performance" (charter vision) | **Not built.** `packages/features`, `ingestion`, `intelligence` are empty one-line stubs. |
-| Content variety | Code is heavily tuned to **cooking/food demos** (steak, pans, ratatouille appear across planner/QA/editing code). Other niches will hit cooking-specific assumptions. |
+| "Learns from performance" (charter vision) | **Not built.** `packages/features` and `ingestion` are empty one-line stubs. |
+| Content variety | Niche-specific rules now live in `content_lab_creative/niche.py` (cooking, luxury, business, fitness, finance, beauty, travel; register more). Some QA motion checks (sizzle/steam) and planner prompt examples are still food-flavoured. |
 | Web UI | Old UI archived to `legacy/ui/2026-09-08/`. `apps/web` is now an empty page **plus ~30 working API proxy routes** in `apps/web/app/api/` — keep these for the new UI. |
 | End-to-end run | Not verified in this survey (needs Docker running). |
 
@@ -88,7 +88,8 @@ Asset-pack path: `asset_pack_generation` (plan + generate a reusable pack) →
 | `auth` | Auth/policy engine | Small |
 | `core` | Base types, budget logic | Small |
 | `shared` | Shared Python models (`py/`) + TypeScript types (`ts/`) | Used by web |
-| `features`, `ingestion`, `intelligence` | — | **Empty stubs** |
+| `intelligence` | Structured-output LLM client (Claude), fake client for tests | Real |
+| `features`, `ingestion` | — | **Empty stubs** |
 
 ### Infra & tooling
 
