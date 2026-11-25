@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from content_lab_api.routes.asset_packs import router as asset_packs_router
 from content_lab_api.routes.assets import router as assets_router
+from content_lab_api.routes.creative import router as creative_router
 from content_lab_api.routes.health import router as health_router
 from content_lab_api.routes.orgs import router as orgs_router
 from content_lab_api.routes.packages import router as packages_router
@@ -18,6 +19,7 @@ api_router.include_router(health_router)
 api_router.include_router(orgs_router)
 api_router.include_router(asset_packs_router)
 api_router.include_router(assets_router)
+api_router.include_router(creative_router)
 api_router.include_router(packages_router)
 api_router.include_router(pages_router)
 api_router.include_router(policy_router)
