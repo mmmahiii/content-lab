@@ -13,16 +13,24 @@ export function resolveApiBaseUrl(): string {
 
 /** Forward a JSON POST body to the API and relay its status, body and request id. */
 export async function proxyJsonPost(request: Request, apiPath: string): Promise<NextResponse> {
-  const response = await fetch(`${resolveApiBaseUrl()}${apiPath}`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'X-Actor-Id': request.headers.get('x-actor-id') ?? 'operator:ui-rebuild',
-    },
-    body: (await request.text()) || '{}',
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${resolveApiBaseUrl()}${apiPath}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-Actor-Id': request.headers.get('x-actor-id') ?? 'operator:ui-rebuild',
+      },
+      body: (await request.text()) || '{}',
+      cache: 'no-store',
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: 'API is not reachable. Start the backend on port 8000, then try again.' },
+      { status: 503 },
+    );
+  }
 
   return new NextResponse(await response.text(), {
     status: response.status,

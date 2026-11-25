@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { POST as postHooks } from '../hooks/route';
 import { POST as postBranches } from './branches/route';
 import { POST as postCompose } from './compose/route';
+import { POST as postReview } from './reels/route';
 
 const params = Promise.resolve({ orgId: 'org-1', pageId: 'page-1' });
 
@@ -15,6 +16,7 @@ describe('creative generation proxy routes', () => {
     ['hooks', postHooks, '/orgs/org-1/pages/page-1/hooks'],
     ['branches', postBranches, '/orgs/org-1/pages/page-1/quick-reel/branches'],
     ['compose', postCompose, '/orgs/org-1/pages/page-1/quick-reel/compose'],
+    ['send to review', postReview, '/orgs/org-1/pages/page-1/quick-reel/reels'],
   ])('forwards %s requests with their JSON body', async (_name, handler, apiPath) => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -58,5 +60,16 @@ describe('creative generation proxy routes', () => {
 
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ detail: 'unknown structure option' });
+  });
+
+  it('answers 503 with JSON when the API is down', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    const response = await postHooks(new Request('http://web.test/api', { method: 'POST' }), {
+      params,
+    });
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).detail).toMatch(/not reachable/);
   });
 });
