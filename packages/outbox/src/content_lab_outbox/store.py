@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Any
 
 import sqlalchemy as sa
@@ -20,6 +21,18 @@ from content_lab_outbox.event import (
     build_package_ready_event,
 )
 from content_lab_shared.settings import Settings
+
+
+@lru_cache(maxsize=8)
+def _shared_engine(database_url: str) -> Engine:
+    """One engine (and connection pool) per database URL per process.
+
+    Stores are built per message/poll; creating a new engine each time leaked a pool per
+    call until Postgres refused connections ("too many clients already").
+    """
+
+    return create_engine(database_url, pool_pre_ping=True)
+
 
 _METADATA = sa.MetaData()
 OUTBOX_EVENTS = sa.Table(
@@ -153,10 +166,7 @@ class SQLOutboxStore:
     ) -> None:
         if session_factory is None:
             resolved_settings = settings or Settings()
-            resolved_engine = engine or create_engine(
-                resolved_settings.database_url,
-                pool_pre_ping=True,
-            )
+            resolved_engine = engine or _shared_engine(resolved_settings.database_url)
             session_factory = sessionmaker(
                 bind=resolved_engine,
                 class_=Session,

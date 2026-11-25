@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -40,6 +41,18 @@ from content_lab_storage import (
     checksum_bytes,
 )
 from content_lab_worker.actors._shared import ActorLike, build_queue_name, get_actor_logger
+
+
+@lru_cache(maxsize=8)
+def _shared_engine(database_url: str) -> Engine:
+    """One engine (and connection pool) per database URL per process.
+
+    Stores are built per message/poll; creating a new engine each time leaked a pool per
+    call until Postgres refused connections ("too many clients already").
+    """
+
+    return create_engine(database_url, pool_pre_ping=True)
+
 
 logger = get_actor_logger("editing")
 QUEUE_NAME = build_queue_name("editing")
@@ -373,10 +386,7 @@ class SQLLayeredCompositionStore:
     ) -> None:
         if session_factory is None:
             resolved_settings = settings or Settings()
-            resolved_engine = engine or create_engine(
-                resolved_settings.database_url,
-                pool_pre_ping=True,
-            )
+            resolved_engine = engine or _shared_engine(resolved_settings.database_url)
             session_factory = sessionmaker(
                 bind=resolved_engine,
                 class_=Session,
