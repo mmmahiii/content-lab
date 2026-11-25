@@ -23,7 +23,7 @@ runs a large set of QA checks, and outputs a **ready-to-post package** (MP4 + co
 | Video generation | Runway `gen4.5` client exists (needs `RUNWAY_API_KEY`) |
 | "Learns from performance" (charter vision) | **Not built.** `packages/features` and `ingestion` are empty one-line stubs. |
 | Content variety | Niche-specific rules now live in `content_lab_creative/niche.py` (cooking, luxury, business, fitness, finance, beauty, travel; register more). Some QA motion checks (sizzle/steam) and planner prompt examples are still food-flavoured. |
-| Web UI | Old UI archived to `legacy/ui/2026-09-08/`. `apps/web` is now an empty page **plus ~30 working API proxy routes** in `apps/web/app/api/` — keep these for the new UI. |
+| Web UI | Old UI archived to `legacy/ui/2026-09-08/`. `apps/web` has the ~30 API proxy routes, a small design system, and **Quick Reel at `/make`** (Nov 2026, see [Quick Reel](#quick-reel-make-2026-11-25)). Studio is not built. |
 | End-to-end run | Not verified in this survey (needs Docker running). |
 
 ### The 2 failing tests
@@ -61,7 +61,7 @@ Asset-pack path: `asset_pack_generation` (plan + generate a reusable pack) →
 | `apps/api` | FastAPI HTTP API + Alembic migrations (`migrations/versions`, up to 0015) | `routes/asset_packs.py` (1.6k lines), `routes/runs.py` (1.4k), `services/asset_packs.py` (2.3k), `services/process_reel.py` (1.8k) |
 | `apps/worker` | Dramatiq background jobs | `actors/editing.py` (render), `actors/runway.py` (video gen), `actors/outbox_dispatcher.py` |
 | `apps/orchestrator` | Prefect flows that sequence the pipeline | `flows/process_reel.py` (2.9k — the heart), `flows/daily_reel_factory.py`, `flows/asset_pack_*.py`, plus maintenance flows (`provider_job_sweeper`, `storage_integrity_check`, `outbox_drain`) |
-| `apps/web` | Next.js 15 UI — **empty shell**, proxy routes kept | `app/api/**/route.ts`, `app/_lib/operator-context.ts` |
+| `apps/web` | Next.js 15 UI: design system, Quick Reel (`/make`), local Remotion render service, API proxy routes | `app/make/**`, `components/ui/*`, `app/_lib/quick-reel/render-queue.ts`, `app/api/**/route.ts` |
 
 ### API endpoints (grouped)
 
@@ -70,6 +70,7 @@ Asset-pack path: `asset_pack_generation` (plan + generate a reusable pack) →
 - **Assets:** list, get, download, resolve
 - **Asset packs:** create, list, items, plan, regenerate-plan, ideas, combinations, approve/reject, cinematic-plan-prompt, cinematic-plan-validate, generate
 - **Reel families / Reels:** create/list/get; approve, archive, mark-posted
+- **Creative / Quick Reel:** hooks, quick-reel branches, quick-reel compose (stateless), **quick-reel reels** (Send to Review: saves a `ready` reel into the page's "Quick Reel" family)
 - **Runs:** trigger, list, get; idea-plan discard; hook-cover update
 - **Packages:** metadata + signed download
 - **Health**
@@ -89,6 +90,7 @@ Asset-pack path: `asset_pack_generation` (plan + generate a reusable pack) →
 | `core` | Base types, budget logic | Small |
 | `shared` | Shared Python models (`py/`) + TypeScript types (`ts/`) | Used by web |
 | `intelligence` | Structured-output LLM client (Claude), fake client for tests | Real |
+| `reel-templates` (TS) | Remotion compositions (`KineticReel`), energy styles, caption geometry + overlay render trace, Quick Reel adapter, local Node render (`render/`) | Real; vitest; used by `/make` |
 | `features`, `ingestion` | — | **Empty stubs** |
 
 ### Infra & tooling
@@ -248,3 +250,104 @@ Still open (not review items; need real feature work):
   scenes without text even when every beat has copy.
 - **Silent audio**: no voiceover synthesis exists; QA should fail silent or blank segments.
 - Seed scripts download from Wikimedia every run; `open-console.ps1` image freshness and fingerprinting.
+
+## Quick Reel (`/make`, 2026-11-25)
+
+The hook-first creator from `docs/UI_PLAN.md` section 3, for internal use (no auth, billing or
+sign-up). Branch `claude/quick-reel-creator-24gjod`.
+
+### What is where
+
+| Path | What it is |
+|---|---|
+| `apps/web/app/make/_lib/` | Pure logic, all unit-tested: `machine.ts` (the flow as a reducer), `session.ts` (hooks → branches → compose pre-fetching), `api.ts`, `selection.ts`, `timelines.ts`, `caption.ts`, `visuals.ts`, `suggestions.ts`, `keyboard.ts` |
+| `apps/web/app/make/_components/` | Screens: `SeedScreen`, `HookReel`, `BuildStage` (+ `ChoiceSheet`), `DropScreen`, `ShipScreen`; `ReelPlayer` wraps `@remotion/player`; `QuickReelApp` wires it together |
+| `apps/web/components/ui/`, `lib/cn.ts` | Design system: Tailwind v4 tokens, Button / Chip / Kbd / StoryBars / PhoneFrame / Toaster (Radix) |
+| `apps/web/app/_lib/quick-reel/render-queue.ts`, `app/api/quick-reel/renders/**` | Local render service: `POST /api/quick-reel/renders`, `GET …/{id}`, `…/{id}/video` (`?download=1`), `…/{id}/trace` |
+| `packages/reel-templates/src/` | `energy.ts` (chill / punchy / dramatic), `geometry.ts` (caption boxes shared by renderer and trace), `trace.ts`, `quickReel.ts` (compose response → timeline, segments, loop previews), `schema.ts` (zod), `fonts.ts` (self-hosted Montserrat) |
+| `packages/reel-templates/render/` | Node render: bundle once, trace in the headless page, `renderMedia` H.264, trace JSON next to the MP4 |
+| `apps/api/src/content_lab_api/routes/quick_reels.py` | `POST /orgs/{org}/pages/{page}/quick-reel/reels` (Send to Review) |
+| `scripts/seed_quick_reel_demo.py` | Seeds a demo org: cooking page with an image pack (committed PNGs), fitness page without one |
+
+### How it works
+
+- **Flow:** seed (page + topic or suggestion) → hook reel (3 hooks, swipe / ↑↓, tap / Enter) →
+  three cliffhangers (structure, energy, ending: the frame holds on the last fully visible
+  caption, dims, and cards with looping ~2 s previews slide up; tap or 1/2/3) → drop (full replay,
+  no UI) → ship (Download MP4, Copy caption, Send to Review, Remix, Change one thing). Surprise me
+  skips to the drop. Desktop shows a centred phone frame with a keyboard legend.
+- **No dead time:** branches are fetched for every hook as soon as hooks arrive; once a hook is
+  picked every combination is composed in the background (compose has no LLM call), so taps play
+  from cache. The MP4 render starts when the drop starts.
+- **Visuals:** asset packs are org-scoped, so a pack is the page's when its niche matches the page
+  niche. Images go through the same-origin asset proxy (`/api/orgs/{org}/assets/{id}/file`); with
+  no matching pack the energy's gradient backdrop is used.
+- **Render trace:** `QuickReelTrace`'s `calculateMetadata` computes the trace inside the headless
+  page with the real font, using the same `captionGeometry` the renderer draws with. Field names
+  match `packages/qa` (`source_text`, `rendered_text`, `clipped`, `safe_area_passed`, `font_size`,
+  `visible_start/end_seconds`), plus line boxes and frame intervals. A failing trace blocks the render.
+- **Send to Review** re-composes server-side from hook + branches + selection, reuses or creates the
+  page's "Quick Reel" family, and creates a generated reel in `ready`, so
+  `GET …/reels?status=ready` lists it and the existing approve / archive / mark-posted actions work.
+  Pipeline QA does not run on it (recorded as `qa.status = not_run`); `client_request_id` makes
+  retries idempotent.
+
+### Run it locally
+
+```bash
+docker compose -f infra/docker-compose.yml up -d postgres redis
+# minio/minio is gone from Docker Hub (see below); any S3-compatible MinIO on :9000 works:
+docker run -d --name cl-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin chainguard/minio server /data --console-address :9001
+(cd apps/api && poetry run alembic upgrade head && poetry run python ../../scripts/seed_quick_reel_demo.py)
+(cd apps/api && poetry run uvicorn content_lab_api.main:app --port 8000)  # no ANTHROPIC_API_KEY = fallback hooks
+REMOTION_BROWSER_EXECUTABLE=/path/to/chrome-headless-shell pnpm --filter web dev  # omit to let Remotion download one
+```
+
+Open http://127.0.0.1:3000/make.
+Renders land in `apps/web/.quick-reel-renders/` (gitignored; override with `QUICK_REEL_RENDER_DIR`).
+Real-render test: `cd packages/reel-templates && RENDER_INTEGRATION=1 pnpm test:render`.
+
+### Verified (2026-11-25, fallback hooks, no API key)
+
+- Full flow in headless Chromium at 375×812 (mouse-drag swipe and clicks; touch events were not
+  emulated) and 1440×900 (keyboard only):
+  seed → hooks → swipe → 3 cliffhangers → drop → ship → MP4 download → caption copy → Send to
+  Review; plus Change one thing, Remix, Esc / D shortcuts, Surprise me from the seed (1.4 s to the
+  drop), and the gradient page. No console errors.
+- Exported MP4 (ffprobe): H.264, 1080×1920, 30 fps, yuv420p; 480 frames = 16.000 s = the composed
+  `duration_seconds`. Traced line boxes drawn over extracted frames sit on the rendered glyphs;
+  nothing is cut off. `validate_package_overlay_render_trace` (packages/qa) passes on the trace.
+- The sent reels appear in `GET …/reels?status=ready` in the page's "Quick Reel" family.
+- `next build` and a render through `next start` work.
+
+### Found while building it
+
+- **`minio/minio` can no longer be pulled from Docker Hub** ("pull access denied"), so
+  `docker compose up` fails for MinIO on a fresh machine. Verification used `chainguard/minio`
+  with the same ports and credentials; `infra/docker-compose.yml` was not changed.
+- One page with invalid persona metadata (e.g. `persona` without `label` / `audience`) makes
+  `GET /orgs/{org}/pages` return 500 for the whole org.
+- Python suites on Linux: every suite passes except `apps/orchestrator`
+  `test_process_reel_flow_runs_full_phase_one_package_generation` (looks for
+  `tmp/pytest-of-root/…/timeline.json`, a path missing its leading `/`; it fails the same with
+  `main`'s code, so it predates this work). `packages/creative` and `packages/qa` need
+  `pytest tests`: their committed `py/tests -> ../tests` symlinks make a bare `pytest` collect
+  everything twice. `packages/editing`'s `poetry.lock` is out of date (`poetry install` refuses);
+  its 175 tests pass from the orchestrator env.
+- Template fixes: cut-out captions sat below the bottom safe line, and uppercase captions were
+  measured in mixed case (could overflow). Both fixed in `reel-templates`.
+- Renders depend on image size: ~70 s for a 16 s reel with six 2.6–14 MB PNGs (first render adds
+  a ~10 s bundle); ~20 s for a short text-only clip. Renders run one at a time, so a quick Remix
+  after Change one thing queues behind the earlier render.
+
+### Not done yet
+
+- **Audio:** no music bed or voiceover; `music_mood` is shown but not played. The MP4 is silent.
+- MP4s stay on the web server's disk; Send to Review stores the render id, not the file. Next:
+  upload the MP4 + trace to MinIO and run `packages/qa` on them.
+- Studio Review UI does not exist yet; reviewers use the reels API.
+- Fallback hooks/branches are generic templates; real variety needs `ANTHROPIC_API_KEY`.
+- Pre-resize asset representations to 1080 px for faster previews and renders.
+- Remotion licence: `acknowledgeRemotionLicense` is deliberately not set (UI_PLAN open decision 4).
+
