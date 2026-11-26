@@ -99,6 +99,9 @@ export interface PageOut {
   handle: string | null;
   ownership: PageOwnership;
   metadata: PageMetadata;
+  /** False when stored metadata no longer validates; `metadata` is then empty. PATCH to repair. */
+  metadata_valid?: boolean;
+  metadata_errors?: string[];
   created_at: ISODateTimeString;
   updated_at: ISODateTimeString;
 }

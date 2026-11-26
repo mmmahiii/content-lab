@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Any, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from content_lab_api.models.page import Page, PageKind
 from content_lab_creative.persona import (
@@ -15,6 +24,8 @@ from content_lab_creative.persona import (
     PersonaProfile,
     validate_page_metadata,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "PageConstraints",
@@ -133,6 +144,11 @@ class PageOut(BaseModel):
     handle: str | None
     ownership: PageKind
     metadata: PageMetadata
+    # False when the stored metadata no longer validates (e.g. persona without label/audience).
+    # The page is still listed, with empty metadata, so one bad row cannot 500 the org's page
+    # list; PATCH valid metadata to repair it.
+    metadata_valid: bool = True
+    metadata_errors: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -150,8 +166,22 @@ def dump_page_metadata(metadata: PageMetadata) -> dict[str, Any]:
 
 
 def page_to_out(page: Page) -> PageOut:
-    """Build a response payload from the ORM row."""
+    """Build a response payload from the ORM row.
 
+    Stored metadata that no longer validates is reported (``metadata_valid=False``) instead of
+    raising, so a single legacy or hand-edited page cannot make the whole page list return 500.
+    """
+
+    try:
+        metadata = parse_page_metadata(page.metadata_)
+        metadata_errors: list[str] = []
+    except ValidationError as exc:
+        errors = exc.errors(include_url=False)
+        logger.warning("Page %s has invalid metadata: %s", page.id, errors)
+        metadata = PageMetadata()
+        metadata_errors = [
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in errors
+        ]
     return PageOut(
         id=page.id,
         org_id=page.org_id,
@@ -160,7 +190,9 @@ def page_to_out(page: Page) -> PageOut:
         external_page_id=page.external_page_id,
         handle=page.handle,
         ownership=PageKind(page.kind),
-        metadata=parse_page_metadata(page.metadata_),
+        metadata=metadata,
+        metadata_valid=not metadata_errors,
+        metadata_errors=metadata_errors,
         created_at=page.created_at,
         updated_at=page.updated_at,
     )

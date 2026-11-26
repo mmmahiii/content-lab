@@ -173,3 +173,63 @@ def test_pages_can_be_filtered_by_ownership(
     assert {page["ownership"] for page in all_response.json()} == {"owned", "competitor"}
     assert [page["ownership"] for page in owned_only_response.json()] == ["owned"]
     assert [page["ownership"] for page in competitor_only_response.json()] == ["competitor"]
+
+
+def test_one_page_with_invalid_metadata_does_not_break_the_page_list(
+    pages_client: TestClient,
+    db_session: Session,
+    seeded_orgs: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """Regression: a persona without label/audience made GET /pages return 500 for the org."""
+
+    from content_lab_api.models import Page
+
+    org_id, _ = seeded_orgs
+    good = pages_client.post(
+        f"/orgs/{org_id}/pages",
+        json={
+            "platform": "instagram",
+            "display_name": "Good",
+            "external_page_id": "page-good-001",
+            "ownership": "owned",
+            "metadata": {"constraints": {}},
+        },
+    )
+    assert good.status_code == 201
+    # Written straight to the DB (legacy row / manual edit), bypassing request validation.
+    bad = Page(
+        org_id=org_id,
+        platform="instagram",
+        display_name="Broken persona",
+        external_page_id="page-bad-001",
+        kind="owned",
+        metadata_={"persona": {"brand_tone": ["calm"]}},
+    )
+    db_session.add(bad)
+    db_session.flush()
+
+    listed = pages_client.get(f"/orgs/{org_id}/pages")
+
+    assert listed.status_code == 200
+    by_name = {page["display_name"]: page for page in listed.json()}
+    assert by_name["Good"]["metadata_valid"] is True
+    assert by_name["Good"]["metadata_errors"] == []
+    broken = by_name["Broken persona"]
+    assert broken["metadata_valid"] is False
+    assert any(error.startswith("persona.label") for error in broken["metadata_errors"])
+    assert pages_client.get(f"/orgs/{org_id}/pages/{bad.id}").status_code == 200
+
+    repaired = pages_client.patch(
+        f"/orgs/{org_id}/pages/{bad.id}",
+        json={
+            "metadata": {
+                "persona": {
+                    "label": "Calm",
+                    "audience": "Home cooks",
+                    "content_pillars": ["prep"],
+                }
+            }
+        },
+    )
+    assert repaired.status_code == 200, repaired.text
+    assert repaired.json()["metadata_valid"] is True
