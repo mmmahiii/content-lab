@@ -292,7 +292,7 @@ Python suites (Linux, Postgres on 5433): api 229 (0 skipped), worker 24, orchest
 
 - **Narration does not fill long beats.** Template narration is about 2 s per line, so a 10 s beat has ~6 s of dead air (QA warns). Scripts should write narration to the beat length. There is no music bed.
 - **Not exercised against live providers** (no keys here): ElevenLabs, and Runway with several clips per reel. Multi-clip multiplies Runway cost per reel, and it assumes gen4.5 accepts any whole-second duration in 5–10 (as the existing clamp already did). Clip boundaries are hard cuts; continuity between clips relies only on prompts.
-- **`infra/docker-compose.yml` still uses `minio/minio` and `minio/mc`, which can't be pulled.** `chainguard/minio` works as both (it ships `mc`, but no `curl`, so the healthcheck must be `mc ready local` with `MC_HOST_local`). Not changed here.
+- ~~`infra/docker-compose.yml` still uses `minio/minio` and `minio/mc`~~ — fixed in round 2 (`chainguard/minio`).
 - **Not run here:** `open-console.ps1` (no PowerShell in this sandbox), the seed scripts against Wikimedia (blocked here; covered by unit tests), and the images on a real `python:3.11-slim` base (Debian mirrors are blocked here, so a local Ubuntu 24.04 / Python 3.12 stand-in was used).
 - The cinematic/layered composition path was not part of the end-to-end run (idea plans only).
 - The earlier uncommitted blank-tail attempt (`content-lab-archive/uncommitted/z58o`, on the Windows machine) was not reachable from this session and was not reviewed; the fix was written from the code.
@@ -343,10 +343,7 @@ sign-up). Branch `claude/quick-reel-creator-24gjod`.
 ### Run it locally
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d postgres redis
-# minio/minio is gone from Docker Hub (see below); any S3-compatible MinIO on :9000 works:
-docker run -d --name cl-minio -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin \
-  -e MINIO_ROOT_PASSWORD=minioadmin chainguard/minio server /data --console-address :9001
+docker compose -f infra/docker-compose.yml up -d postgres redis minio minio-init
 (cd apps/api && poetry run alembic upgrade head && poetry run python ../../scripts/seed_quick_reel_demo.py)
 (cd apps/api && poetry run uvicorn content_lab_api.main:app --port 8000)  # no ANTHROPIC_API_KEY = fallback hooks
 REMOTION_BROWSER_EXECUTABLE=/path/to/chrome-headless-shell pnpm --filter web dev  # omit to let Remotion download one
