@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import shutil
+import subprocess
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -264,17 +267,26 @@ class HTTPRunwayClient:
 
 
 class MockRunwayClient:
-    """Deterministic in-memory Runway client for scaffolded smoke flows."""
+    """Deterministic in-memory Runway client for scaffolded smoke flows.
+
+    By default each task renders a moving test pattern (720x1280, tinted by the seed) at the
+    requested clip duration (capped at Runway's 10 s), so smoke runs exercise real footage
+    lengths, multi-clip reels and blank/static QA. The old fixed fixture (10 s, 90x160, black)
+    is used when ``output_bytes`` is given or FFmpeg is not installed.
+    """
 
     def __init__(
         self,
         *,
-        output_bytes: bytes = MOCK_RUNWAY_VIDEO_MP4,
+        output_bytes: bytes | None = None,
         content_type: str = "video/mp4",
+        ffmpeg_bin: str = "ffmpeg",
     ) -> None:
         self._output_bytes = output_bytes
         self._content_type = content_type
+        self._ffmpeg_bin = ffmpeg_bin
         self._poll_counts: dict[str, int] = {}
+        self._task_params: dict[str, tuple[int, int]] = {}
 
     def submit_generation(
         self,
@@ -283,9 +295,16 @@ class MockRunwayClient:
         canonical_params: Mapping[str, Any],
         idempotency_key: str,
     ) -> RunwaySubmittedTask:
-        _ = task_payload
-        _ = canonical_params
+        request_payload = _mapping(task_payload.get("request"))
+        duration = _clamp_runway_duration_seconds(
+            _int_or_default(
+                canonical_params.get("duration_seconds", request_payload.get("duration_seconds")),
+                default=6,
+            )
+        )
+        seed = _int_or_default(canonical_params.get("seed", request_payload.get("seed")), default=0)
         task_id = str(uuid5(NAMESPACE_URL, f"content-lab-mock-runway:{idempotency_key}"))
+        self._task_params[task_id] = (duration, seed)
         return RunwaySubmittedTask(
             id=task_id,
             raw_response={
@@ -324,11 +343,61 @@ class MockRunwayClient:
         )
 
     def download_output(self, task: RunwayTaskSnapshot) -> RunwayDownloadedAsset:
+        body = self._output_bytes
+        if body is None:
+            duration, seed = self._task_params.get(task.id, (6, 0))
+            body = render_mock_clip(
+                duration_seconds=duration, seed=seed, ffmpeg_bin=self._ffmpeg_bin
+            )
         return RunwayDownloadedAsset(
             url=task.primary_output_url(),
-            body=self._output_bytes,
+            body=body,
             content_type=self._content_type,
         )
+
+
+def render_mock_clip(*, duration_seconds: int, seed: int, ffmpeg_bin: str = "ffmpeg") -> bytes:
+    """Render the deterministic mock clip, or return the static fixture without FFmpeg."""
+
+    if shutil.which(ffmpeg_bin) is None:
+        return MOCK_RUNWAY_VIDEO_MP4
+    with tempfile.TemporaryDirectory(prefix="mock-runway-") as tmpdir:
+        output = Path(tmpdir) / "clip.mp4"
+        completed = subprocess.run(
+            [
+                ffmpeg_bin,
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"testsrc2=size=720x1280:rate=24:duration={int(duration_seconds)}",
+                "-vf",
+                f"hue=h={(int(seed) * 47) % 360}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-threads",
+                "1",
+                "-map_metadata",
+                "-1",
+                "-fflags",
+                "+bitexact",
+                "-flags:v",
+                "+bitexact",
+                str(output),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(f"Mock Runway clip render failed: {completed.stderr.strip()}")
+        return output.read_bytes()
 
 
 def _runway_error_body_indicates_insufficient_credits(body: str) -> bool:

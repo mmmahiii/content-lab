@@ -457,6 +457,15 @@ def _cinematic_composition_manifest(run: Run) -> dict[str, Any] | None:
     return dict(manifest) if isinstance(manifest, dict) else None
 
 
+# Mirrors content_lab_orchestrator.flows.process_reel.{MIN,MAX}_REEL_DURATION_SECONDS.
+MIN_REEL_DURATION_SECONDS = 5
+MAX_REEL_DURATION_SECONDS = 60
+
+
+def _bounded_reel_duration_seconds(seconds: int) -> int:
+    return min(max(int(seconds), MIN_REEL_DURATION_SECONDS), MAX_REEL_DURATION_SECONDS)
+
+
 def _cinematic_duration_seconds(artifacts: Mapping[str, Any], plan: Mapping[str, Any]) -> int:
     timeline = artifacts.get("reel_timeline.json")
     if isinstance(timeline, Mapping):
@@ -1238,8 +1247,10 @@ def generate_package_from_cinematic_plan(
     plan = _cinematic_plan_payload(plan_run)
     artifacts = _cinematic_plan_artifacts(plan_run)
     composition_manifest = _cinematic_composition_manifest(plan_run)
-    # Respect the plan length within what one Runway-sized clip can cover (5-10 s).
-    plan_duration_seconds = min(max(_cinematic_duration_seconds(artifacts, plan), 5), 10)
+    # Respect the plan length; editing chains provider clips, so reels are not capped at 10 s.
+    plan_duration_seconds = _bounded_reel_duration_seconds(
+        _cinematic_duration_seconds(artifacts, plan)
+    )
     render_source_plan = _cinematic_render_source_plan(
         page=page,
         plan=plan,

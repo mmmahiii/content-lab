@@ -133,11 +133,36 @@ _RUNWAY_SYNC_POLL_INTERVAL_SECONDS = 5.0
 _DURATION_MISMATCH_TOLERANCE_SECONDS = 0.25
 
 
-def _primary_asset_duration_seconds(requested_duration_seconds: int) -> int:
-    return min(
-        max(requested_duration_seconds, 5),
-        RUNWAY_GEN45_MAX_DURATION_SECONDS,
-    )
+# Reels are no longer limited to one provider clip: editing chains (and, if needed, loops)
+# clips, so a reel runs as long as its plan within these bounds.
+MIN_REEL_DURATION_SECONDS = 5
+MAX_REEL_DURATION_SECONDS = 60
+# One Runway gen4.5 clip is 5-10 s (provider limit, enforced again in packages/assets).
+_MIN_CLIP_DURATION_SECONDS = 5
+
+
+def _reel_duration_seconds(requested_duration_seconds: int) -> int:
+    return min(max(int(requested_duration_seconds), MIN_REEL_DURATION_SECONDS), MAX_REEL_DURATION_SECONDS)
+
+
+def _clip_plan(reel_duration_seconds: int) -> list[tuple[int, int]]:
+    """Split a reel into the fewest provider clips (each 5-10 s) that cover it exactly.
+
+    12 s -> (0-6, 6-12); 15 s -> (0-8, 8-15); 30 s -> three 10 s clips; 7 s -> one 7 s clip.
+    """
+
+    total = _reel_duration_seconds(reel_duration_seconds)
+    count = -(-total // RUNWAY_GEN45_MAX_DURATION_SECONDS)
+    base, remainder = divmod(total, count)
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    for index in range(count):
+        length = base + (1 if index < remainder else 0)
+        spans.append((cursor, cursor + length))
+        cursor += length
+    if any(end - start < _MIN_CLIP_DURATION_SECONDS for start, end in spans):
+        raise ValueError(f"clip plan for {total}s produced a clip under 5s: {spans}")
+    return spans
 
 
 class ProcessReelExecutionLike(Protocol):
@@ -351,6 +376,28 @@ class SQLProcessReelAssetResolver:
         if composition_asset is not None:
             return composition_asset
 
+        primary = self._resolve_clip(execution, request_payload=request_payload)
+        source_clips = [_source_clip_entry(primary, request_payload, clip_index=0)]
+        for raw in creative_output.get("supplementary_asset_requests") or []:
+            clip_request = _mapping(raw)
+            if not clip_request:
+                continue
+            resolved = self._resolve_clip(execution, request_payload=clip_request)
+            source_clips.append(
+                _source_clip_entry(
+                    resolved,
+                    clip_request,
+                    clip_index=_optional_int(clip_request.get("clip_index")) or len(source_clips),
+                )
+            )
+        return {**primary, "source_clips": source_clips}
+
+    def _resolve_clip(
+        self,
+        execution: ProcessReelExecution,
+        *,
+        request_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
         with self._session_factory() as session:
             store = SQLAlchemyPhase1AssetRegistryStore(session, settings=self._settings)
             decision = resolve_phase1_asset(
@@ -380,7 +427,7 @@ class SQLProcessReelAssetResolver:
                 motion=_mapping(request_payload.get("motion")) or None,
                 init_image_hash=_optional_text(request_payload.get("init_image_hash")),
                 reference_asset_ids=_sequence_of_text(request_payload.get("reference_asset_ids")),
-                request_payload=request_payload,
+                request_payload=dict(request_payload),
             )
             if isinstance(decision, ReuseExactDecision):
                 return {
@@ -568,9 +615,10 @@ class SQLProcessReelAssetResolver:
             and role not in {"audio", "format"}
             and not _role_has_baked_reference_marks(value)
         ][:12]
-        duration = _optional_float(request_payload.get("duration_seconds")) or _optional_float(
+        # The layered composition is rendered locally at the reel's length, not a provider clip's.
+        duration = _optional_float(
             _mapping(creative_output.get("scene_plan")).get("duration_seconds")
-        ) or _DEFAULT_REEL_DURATION_SECONDS
+        ) or _optional_float(request_payload.get("duration_seconds")) or _DEFAULT_REEL_DURATION_SECONDS
         duration = max(1.0, float(duration))
         background_asset_id = _role_asset_id(background_role[1], fallback=f"{background_role[0]}-asset")
         asset_sources: dict[str, dict[str, object]] = {
@@ -1213,7 +1261,7 @@ class PhaseOneProcessReelExecutor:
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
         context = self._planning_context_loader.load(execution)
-        duration_seconds = _primary_asset_duration_seconds(context.duration_seconds)
+        duration_seconds = _reel_duration_seconds(context.duration_seconds)
         brief = plan_creative_brief(
             DirectorPlanInput(
                 page_name=context.page_name,
@@ -1305,7 +1353,25 @@ class PhaseOneProcessReelExecutor:
             scene_plan=scene_plan,
         )
         compiled_prompt_payload = compiled_prompt.model_dump(mode="json")
-        duration_seconds = _primary_asset_duration_seconds(int(brief_payload["duration_seconds"]))
+        reel_duration_seconds = _reel_duration_seconds(int(brief_payload["duration_seconds"]))
+        clip_spans = _clip_plan(reel_duration_seconds)
+        duration_seconds = clip_spans[0][1] - clip_spans[0][0]
+        supplementary_asset_requests = [
+            _supplementary_asset_request(
+                brief_payload=brief_payload,
+                scene_plan=scene_plan,
+                fallback_prompt=compiled_prompt,
+                clip_index=index,
+                clip_count=len(clip_spans),
+                span=span,
+                seed=context.brief_index + 1 + index,
+                reel_id=execution.reel_id,
+                page_name=context.page_name,
+                family_name=context.family_name,
+            )
+            for index, span in enumerate(clip_spans)
+            if index > 0
+        ]
         return {
             "brief": brief_payload,
             "script": script_payload,
@@ -1336,6 +1402,12 @@ class PhaseOneProcessReelExecutor:
                     "reel_id": execution.reel_id,
                 },
             },
+            # Clips 2..N for reels longer than one provider clip; editing chains them.
+            "supplementary_asset_requests": supplementary_asset_requests,
+            "clip_plan": [
+                {"index": index, "start_seconds": start, "end_seconds": end}
+                for index, (start, end) in enumerate(clip_spans)
+            ],
         }
 
     def resolve_assets(self, execution: ProcessReelExecution) -> dict[str, Any]:
@@ -1387,8 +1459,24 @@ class PhaseOneProcessReelExecutor:
         ) or _optional_float(
             _mapping(creative_output.get("primary_asset_request")).get("duration_seconds")
         )
+        source_clips = [
+            _mapping(item) for item in asset_output.get("source_clips") or [] if _mapping(item)
+        ]
+        additional_source_uris = [
+            _required_text(item.get("storage_uri"), field_name="source_clips[].storage_uri")
+            for item in source_clips[1:]
+        ]
+        if len(source_clips) > 1:
+            requested_clip_seconds = [
+                _optional_float(item.get("requested_duration_seconds")) for item in source_clips
+            ]
+            if all(value is not None for value in requested_clip_seconds):
+                requested_provider_duration_seconds = sum(
+                    float(value) for value in requested_clip_seconds if value is not None
+                )
         if cinematic_source_duration is not None:
             requested_provider_duration_seconds = cinematic_source_duration
+            additional_source_uris = []
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
         voiceover = self._build_voiceover(
@@ -1404,6 +1492,7 @@ class PhaseOneProcessReelExecutor:
             scene_plan_for_overlay_diagnostics=canonical_scene_plan,
             expected_timeline_duration_seconds=expected_timeline_duration_seconds,
             voiceover=voiceover,
+            additional_source_uris=additional_source_uris,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
         )
@@ -1493,6 +1582,7 @@ class PhaseOneProcessReelExecutor:
             "overlay_render_trace_path": str(artifact.overlay_render_trace_path),
             "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
             "voiceover": artifact.voiceover,
+            "source_composition": artifact.source_composition,
         }
 
     def _build_voiceover(
@@ -2544,6 +2634,90 @@ def _retime_span(
             target_duration_seconds,
         )
     return item
+
+
+def _source_clip_entry(
+    resolved: Mapping[str, Any],
+    request_payload: Mapping[str, Any],
+    *,
+    clip_index: int,
+) -> dict[str, Any]:
+    return {
+        "clip_index": clip_index,
+        "storage_uri": _required_text(resolved.get("storage_uri"), field_name="clip.storage_uri"),
+        "asset_id": _optional_text(resolved.get("asset_id")),
+        "resolution_source": _optional_text(resolved.get("resolution_source")),
+        "requested_duration_seconds": _optional_float(request_payload.get("duration_seconds")),
+    }
+
+
+def _supplementary_asset_request(
+    *,
+    brief_payload: Mapping[str, Any],
+    scene_plan: Any,
+    fallback_prompt: Any,
+    clip_index: int,
+    clip_count: int,
+    span: tuple[int, int],
+    seed: int,
+    reel_id: str,
+    page_name: str,
+    family_name: str,
+) -> dict[str, Any]:
+    """Provider request for clip ``clip_index`` (1-based after the primary), covering ``span``."""
+
+    start, end = span
+    compiled = fallback_prompt
+    sliced = _slice_scene_plan(scene_plan, start=start, end=end)
+    if sliced is not None:
+        compiled = _build_primary_asset_prompt(brief_payload=brief_payload, scene_plan=sliced)
+    compiled_payload = compiled.model_dump(mode="json")
+    return {
+        "asset_class": _PRIMARY_ASSET_CLASS,
+        "provider": _PRIMARY_ASSET_PROVIDER,
+        "model": _PRIMARY_ASSET_MODEL,
+        "prompt": compiled.prompt,
+        "compiled_prompt": compiled_payload,
+        "prompt_trace": compiled_payload["trace"],
+        "negative_prompt": compiled.negative_prompt,
+        "seed": seed,
+        "duration_seconds": end - start,
+        "fps": 24,
+        "ratio": _PRIMARY_ASSET_RATIO,
+        "motion": {"camera": "dynamic", "pace": "medium"},
+        "reference_asset_ids": [],
+        "clip_index": clip_index,
+        "clip_count": clip_count,
+        "timeline_start_seconds": start,
+        "timeline_end_seconds": end,
+        "request_context": {
+            "page_name": page_name,
+            "family_name": family_name,
+            "reel_id": reel_id,
+            "clip_index": clip_index,
+        },
+    }
+
+
+def _slice_scene_plan(scene_plan: Any, *, start: int, end: int) -> Any | None:
+    """Scenes overlapping ``[start, end)``, shifted to clip-local time; None if invalid."""
+
+    scenes = []
+    for scene in scene_plan.scenes:
+        lo = max(int(scene.start_seconds), start)
+        hi = min(int(scene.end_seconds), end)
+        if hi > lo:
+            scenes.append(scene.model_copy(update={"start_seconds": lo - start, "end_seconds": hi - start}))
+    try:
+        return scene_plan.model_validate(
+            {
+                **scene_plan.model_dump(),
+                "duration_seconds": end - start,
+                "scenes": [item.model_dump() for item in scenes],
+            }
+        )
+    except ValueError:
+        return None
 
 
 def _build_primary_asset_prompt(

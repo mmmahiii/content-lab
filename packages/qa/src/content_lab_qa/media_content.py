@@ -262,8 +262,10 @@ def evaluate_audio_content_qa(
                 if segment.duration_seconds > effective.max_silent_segment_seconds:
                     findings.append(
                         {
+                            # Dead air between narration lines is a pacing issue, not a
+                            # silent reel: advisory, so it shows up without blocking.
                             "code": "audio_silent_segment",
-                            "severity": "fail",
+                            "severity": "warn",
                             "message": (
                                 f"Audio is silent for {segment.duration_seconds:.2f}s "
                                 f"({segment.start_seconds:.2f}-{segment.end_seconds:.2f}s)."
@@ -297,7 +299,7 @@ def evaluate_audio_content_qa(
         message = "; ".join(item["message"] for item in findings if item["severity"] == "fail")
     elif findings:
         verdict = QAVerdict.WARN
-        message = "Audio present; voiceover is mock audio."
+        message = "; ".join(item["message"] for item in findings)
     else:
         verdict = QAVerdict.PASS
         message = "Audio present and not silent."

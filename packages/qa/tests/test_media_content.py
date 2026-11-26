@@ -151,7 +151,7 @@ def test_missing_voiceover_fails_when_script_has_narration() -> None:
     assert [f["code"] for f in result.details["findings"]] == ["voiceover_missing"]  # type: ignore[union-attr]
 
 
-def test_long_silent_gap_inside_audible_audio_fails() -> None:
+def test_long_silent_gap_inside_audible_audio_warns() -> None:
     analysis = MediaContentAnalysis(
         duration_seconds=10,
         has_audio=True,
@@ -161,7 +161,8 @@ def test_long_silent_gap_inside_audible_audio_fails() -> None:
 
     result = evaluate_audio_content_qa(analysis=analysis)
 
-    assert result.verdict == QAVerdict.FAIL
+    assert result.verdict == QAVerdict.WARN
+    assert not qa_result_blocks_readiness(result)
     assert result.details["findings"][0]["code"] == "audio_silent_segment"  # type: ignore[index]
 
 

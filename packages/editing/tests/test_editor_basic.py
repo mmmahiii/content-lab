@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -421,3 +422,103 @@ def test_render_basic_vertical_edit_applies_editorial_template(tmp_path: Path) -
     hook_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=0.2)
     late_frame = extract_png_bytes(artifact.final_video_path, timestamp_seconds=1.2)
     assert hook_frame != late_frame
+
+
+def _moving_clip(path: Path, *, seconds: float, hue: int = 0) -> Path:
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc2=s=360x640:r=24:d={seconds}",
+            "-vf",
+            f"hue=h={hue}",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        ],
+        check=True,
+    )
+    return path
+
+
+def test_render_chains_two_provider_clips_into_a_twenty_second_reel(tmp_path: Path) -> None:
+    first = _moving_clip(tmp_path / "clip-1.mp4", seconds=10)
+    second = _moving_clip(tmp_path / "clip-2.mp4", seconds=10, hue=120)
+
+    artifact = render_basic_vertical_edit(
+        source_uri=first,
+        additional_source_uris=[second],
+        workdir=tmp_path / "job",
+        expected_timeline_duration_seconds=20,
+    )
+
+    assert artifact.duration_seconds == pytest.approx(20.0, abs=0.1)
+    assert artifact.audio_duration_seconds == pytest.approx(20.0, abs=0.15)
+    assert artifact.edit_mode == "multi_clip"
+    assert artifact.source_composition is not None
+    assert artifact.source_composition["mode"] == "chain"
+    assert [p["clip_index"] for p in artifact.source_composition["placements"]] == [0, 1]
+    assert len(artifact.staged_segment_paths) == 2
+
+
+def test_render_cuts_the_last_chained_clip_to_the_timeline(tmp_path: Path) -> None:
+    first = _moving_clip(tmp_path / "clip-1.mp4", seconds=8)
+    second = _moving_clip(tmp_path / "clip-2.mp4", seconds=10)
+
+    artifact = render_basic_vertical_edit(
+        source_uri=first,
+        additional_source_uris=[second],
+        workdir=tmp_path / "job",
+        expected_timeline_duration_seconds=15,
+    )
+
+    assert artifact.duration_seconds == pytest.approx(15.0, abs=0.1)
+    placements = artifact.source_composition["placements"]  # type: ignore[index]
+    assert placements[-1]["timeline_end_seconds"] == pytest.approx(15.0)
+
+
+def test_render_rejects_chained_clips_shorter_than_the_plan_unless_looping(tmp_path: Path) -> None:
+    first = _moving_clip(tmp_path / "clip-1.mp4", seconds=5)
+    second = _moving_clip(tmp_path / "clip-2.mp4", seconds=5)
+
+    with pytest.raises(ValueError, match="looping not allowed"):
+        render_basic_vertical_edit(
+            source_uri=first,
+            additional_source_uris=[second],
+            workdir=tmp_path / "job-strict",
+            expected_timeline_duration_seconds=15,
+        )
+
+    artifact = render_basic_vertical_edit(
+        source_uri=first,
+        additional_source_uris=[second],
+        workdir=tmp_path / "job-loop",
+        expected_timeline_duration_seconds=15,
+        allow_loop=True,
+    )
+    assert artifact.duration_seconds == pytest.approx(15.0, abs=0.1)
+    composition = artifact.source_composition
+    assert composition is not None and composition["mode"] == "loop"
+    assert [p["clip_index"] for p in composition["placements"]] == [0, 1, 0]
+    assert composition["placements"][-1]["looped"] is True
+
+
+def test_render_extends_one_clip_by_looping_when_allowed(tmp_path: Path) -> None:
+    clip = _moving_clip(tmp_path / "clip.mp4", seconds=4)
+
+    artifact = render_basic_vertical_edit(
+        source_uri=clip,
+        workdir=tmp_path / "job",
+        expected_timeline_duration_seconds=10,
+        allow_loop=True,
+    )
+
+    assert artifact.duration_seconds == pytest.approx(10.0, abs=0.1)
+    assert artifact.source_composition["looped_placements"] == 2  # type: ignore[index]

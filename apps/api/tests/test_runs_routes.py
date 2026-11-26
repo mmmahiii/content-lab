@@ -663,7 +663,7 @@ def test_generate_package_from_cinematic_plan_run_merges_plan_and_package_steps(
     assert package_run.input_params["generation_mode"] == "smoke_test"
     assert package_run.input_params["dry_run"] is False
     reel = db_session.get(Reel, uuid.UUID(package_run.input_params["reel_id"]))
-    # The 7 s cinematic plan keeps its length (clamped to 5-10 s), no longer padded to 10 s.
+    # The 7 s cinematic plan keeps its length (bounded to 5-60 s), no longer padded to 10 s.
     assert reel.metadata_["duration_seconds"] == 7
     assert reel.metadata_["idea_plan"]["hook"] == "Tomato texture starts the stack"
     assert reel.metadata_["idea_plan"]["beats"][1]["text"] == "Basil makes it ready"
@@ -906,3 +906,10 @@ def test_list_page_runs_tolerates_scalar_input_params_jsonb(
     assert response.status_code == 200
     payload = response.json()
     assert "scalar-json-poison" not in {item.get("external_ref") for item in payload}
+
+
+@pytest.mark.parametrize(("planned", "expected"), [(3, 5), (7, 7), (12, 12), (25, 25), (90, 60)])
+def test_cinematic_package_duration_is_no_longer_capped_at_one_runway_clip(
+    planned: int, expected: int
+) -> None:
+    assert runs_route._bounded_reel_duration_seconds(planned) == expected

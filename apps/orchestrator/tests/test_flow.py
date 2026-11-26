@@ -1915,7 +1915,7 @@ def test_phase_one_process_reel_executor_can_switch_script_generator_path() -> N
     assert production_plan["script"].keys() == stub_plan["script"].keys()
 
 
-def test_phase_one_process_reel_caps_scene_plan_to_primary_asset_duration() -> None:
+def test_phase_one_process_reel_keeps_plan_length_and_splits_it_into_provider_clips() -> None:
     class LongDurationPlanningContextLoader(FakePlanningContextLoader):
         def load(self, execution: ProcessReelExecution) -> PhaseOnePlanningContext:
             return replace(super().load(execution), duration_seconds=12)
@@ -1935,17 +1935,27 @@ def test_phase_one_process_reel_caps_scene_plan_to_primary_asset_duration() -> N
         package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="content-lab"),
     ).create_creative_plan(execution)
 
-    capped_duration = process_reel_flow_module.RUNWAY_GEN45_MAX_DURATION_SECONDS
+    # The reel is no longer capped at one Runway clip (10 s): it keeps the plan's 12 s and is
+    # covered by two 6 s provider clips that editing chains.
     scene_plan = cast(dict[str, Any], plan["scene_plan"])
     asset_request = cast(dict[str, Any], plan["primary_asset_request"])
-    prompt = cast(str, asset_request["prompt"])
+    extra = cast(list[dict[str, Any]], plan["supplementary_asset_requests"])
 
-    assert plan["brief"]["duration_seconds"] == capped_duration
-    assert plan["script"]["duration_seconds"] == capped_duration
-    assert scene_plan["duration_seconds"] == capped_duration
-    assert asset_request["duration_seconds"] == capped_duration
-    assert cast(list[dict[str, Any]], scene_plan["scenes"])[-1]["end_seconds"] == capped_duration
-    assert "10-12s" not in prompt
+    assert plan["brief"]["duration_seconds"] == 12
+    assert plan["script"]["duration_seconds"] == 12
+    assert scene_plan["duration_seconds"] == 12
+    assert cast(list[dict[str, Any]], scene_plan["scenes"])[-1]["end_seconds"] == 12
+    assert plan["canonical_timeline"]["duration_seconds"] == 12
+    assert asset_request["duration_seconds"] == 6
+    assert [(r["duration_seconds"], r["clip_index"], r["seed"]) for r in extra] == [
+        (6, 1, asset_request["seed"] + 1)
+    ]
+    assert plan["clip_plan"] == [
+        {"index": 0, "start_seconds": 0, "end_seconds": 6},
+        {"index": 1, "start_seconds": 6, "end_seconds": 12},
+    ]
+    assert extra[0]["prompt"] != asset_request["prompt"]
+    assert all(len(r["prompt"]) > 0 for r in [asset_request, *extra])
 
 
 def test_process_reel_flow_hard_fails_lint_before_asset_spend(
