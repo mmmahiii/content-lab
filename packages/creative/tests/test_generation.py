@@ -542,3 +542,35 @@ def test_default_generator_path_follows_credentials(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("CONTENT_LAB_LLM_PROVIDER", "none")
     monkeypatch.delenv("CONTENT_LAB_SCRIPT_GENERATOR")
     assert default_script_generator_path() is ScriptGeneratorPath.RULES_PLUS_PROVIDER
+
+
+def test_idea_plan_rejects_narration_that_cannot_fill_its_beat() -> None:
+    """Short narration on a long beat was voiced as ~2 s of speech and ~6 s of dead air."""
+
+    from content_lab_creative.generation.idea_plan import IdeaBeatDraft, narration_word_range
+
+    payload = _idea_payload()
+    payload["beats"][0]["seconds"] = 8  # 7 words cannot carry an 8 s beat
+    retry = _idea_payload()
+    result = generate_idea_plan(_page(), plan_number=2, client=FakeLLMClient([payload, retry]))
+
+    assert result.source == "llm"
+    assert result.plan["beats"][1]["seconds"] == 4  # the retried, well-sized plan was used
+    assert narration_word_range(6) == (9, 21)
+    with pytest.raises(ValueError, match="should be 12-28 words"):
+        IdeaBeatDraft.model_validate(
+            {"label": "Proof", "direction": "d", "narration": "Too short.",
+             "overlay_text": "Short", "seconds": 8}
+        )  # fmt: skip
+
+
+def test_template_idea_plan_narration_fits_each_beat() -> None:
+    from content_lab_creative.generation.idea_plan import narration_word_range
+
+    result = generate_idea_plan(
+        _page(), plan_number=3, client=FakeLLMClient([LLMUnavailableError("down")])
+    )
+
+    for beat in result.plan["beats"][1:]:
+        low, high = narration_word_range(int(beat["seconds"]))
+        assert low <= len(beat["narration"].split()) <= high, beat

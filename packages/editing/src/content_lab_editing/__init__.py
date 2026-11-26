@@ -111,6 +111,15 @@ from content_lab_editing.timeline_validator import (
     ReelTimelineValidationReport,
     validate_reel_timeline_artifact,
 )
+from content_lab_editing.music import (
+    GeneratedPadMusicBed,
+    LibraryMusicBed,
+    MusicBed,
+    MusicBedProvider,
+    build_music_bed,
+    build_music_provider,
+)
+from content_lab_editing.soundtrack import Soundtrack, mix_soundtrack
 from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayManifestEntry
 from content_lab_editing.voiceover import (
     MockToneTTSProvider,
@@ -124,6 +133,14 @@ from content_lab_editing.voiceover import (
 )
 
 __all__ = [
+    "GeneratedPadMusicBed",
+    "LibraryMusicBed",
+    "MusicBed",
+    "MusicBedProvider",
+    "Soundtrack",
+    "build_music_bed",
+    "build_music_provider",
+    "mix_soundtrack",
     "MockToneTTSProvider",
     "TTSProvider",
     "VoiceoverLine",

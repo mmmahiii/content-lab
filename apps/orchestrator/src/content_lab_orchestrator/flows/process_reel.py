@@ -58,8 +58,11 @@ from content_lab_editing import (
     CompositionLayer,
     CompositionManifest,
     MotionTransform,
+    MusicBedProvider,
     TTSProvider,
     build_canonical_timeline,
+    build_music_bed,
+    build_music_provider,
     build_overlay_render_manifest_for_qa,
     build_ready_to_post_package,
     build_timeline_render_trace,
@@ -1240,6 +1243,7 @@ class PhaseOneProcessReelExecutor:
         ffmpeg_bin: str = "ffmpeg",
         ffprobe_bin: str = "ffprobe",
         tts_provider: TTSProvider | None = None,
+        music_provider: MusicBedProvider | None = None,
     ) -> None:
         self._planning_context_loader = planning_context_loader
         self._asset_resolver = asset_resolver
@@ -1258,6 +1262,8 @@ class PhaseOneProcessReelExecutor:
         self._ffprobe_bin = ffprobe_bin
         # None = no voiceover; QA then fails reels whose script has narration.
         self._tts_provider = tts_provider
+        # None = no music bed; pauses between narration lines are then silent.
+        self._music_provider = music_provider
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
         context = self._planning_context_loader.load(execution)
@@ -1492,6 +1498,11 @@ class PhaseOneProcessReelExecutor:
             scene_plan_for_overlay_diagnostics=canonical_scene_plan,
             expected_timeline_duration_seconds=expected_timeline_duration_seconds,
             voiceover=voiceover,
+            music=self._build_music(
+                creative_output=creative_output,
+                duration_seconds=expected_timeline_duration_seconds,
+                workdir=workdir / "music",
+            ),
             additional_source_uris=additional_source_uris,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
@@ -1582,8 +1593,29 @@ class PhaseOneProcessReelExecutor:
             "overlay_render_trace_path": str(artifact.overlay_render_trace_path),
             "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
             "voiceover": artifact.voiceover,
+            "music": artifact.music,
             "source_composition": artifact.source_composition,
         }
+
+    def _build_music(
+        self,
+        *,
+        creative_output: Mapping[str, Any],
+        duration_seconds: float,
+        workdir: Path,
+    ) -> Any:
+        if self._music_provider is None:
+            return None
+        source_plan = _mapping(_mapping(creative_output.get("brief")).get("source_plan"))
+        mood = _optional_text(source_plan.get("music_mood")) or _optional_text(
+            _mapping(creative_output.get("brief")).get("music_mood")
+        )
+        return build_music_bed(
+            provider=self._music_provider,
+            mood=mood,
+            duration_seconds=duration_seconds,
+            workdir=workdir,
+        )
 
     def _build_voiceover(
         self,
@@ -1874,6 +1906,11 @@ def build_phase_one_process_reel_executor(
         elevenlabs_base_url=resolved_settings.elevenlabs_base_url,
         ffmpeg_bin=ffmpeg_bin,
     )
+    music_provider = build_music_provider(
+        music_bed_provider=resolved_settings.music_bed_provider,
+        music_library_dir=resolved_settings.music_library_dir or None,
+        ffmpeg_bin=ffmpeg_bin,
+    )
     return PhaseOneProcessReelExecutor(
         planning_context_loader=planning_context_loader or SQLProcessReelPlanningContextLoader(),
         asset_resolver=asset_resolver
@@ -1891,6 +1928,7 @@ def build_phase_one_process_reel_executor(
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin,
         tts_provider=tts_provider,
+        music_provider=music_provider,
     )
 
 
@@ -2800,6 +2838,7 @@ def _build_package_provenance(
         "prompt_trace": _mapping(_mapping(creative_output.get("compiled_prompt")).get("trace")),
         "source_run_id": execution.run_id,
         "voiceover": _voiceover_provenance(editing_output),
+        "music": _music_provenance(editing_output),
         "asset_ids": _asset_ids(asset_output),
         "upstream_refs": {
             "timeline_uri": _required_text(
@@ -2818,6 +2857,17 @@ def _voiceover_provenance(editing_output: Mapping[str, Any]) -> dict[str, Any]:
         "provider": voiceover.get("provider"),
         "mock": bool(voiceover.get("mock")),
         "line_count": len(voiceover.get("lines") or []),
+    }
+
+
+def _music_provenance(editing_output: Mapping[str, Any]) -> dict[str, Any]:
+    music = _mapping(editing_output.get("music"))
+    if not music:
+        return {"provider": "none"}
+    return {
+        "provider": music.get("provider"),
+        "mood": music.get("mood"),
+        "source": music.get("source"),
     }
 
 

@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from content_lab_editing.cover import DEFAULT_COVER_FILENAME, extract_cover_frame
 from content_lab_editing.edit_plan import SceneAwareEditPlan
+from content_lab_editing.music import MusicBed
 from content_lab_editing.overlays import (
     OverlayTimeline,
     TextOverlay,
@@ -22,6 +23,7 @@ from content_lab_editing.overlays import (
     build_rendered_overlay_manifest,
     normalize_overlay_timeline,
 )
+from content_lab_editing.soundtrack import soundtrack_filter
 from content_lab_editing.templates import (
     EditorialTemplate,
     apply_editorial_template,
@@ -117,6 +119,7 @@ class BasicEditorArtifact:
     overlay_manifest: tuple[TextOverlay, ...] = ()
     edit_mode: str = "single_clip"
     voiceover: dict[str, Any] | None = None
+    music: dict[str, Any] | None = None
     source_composition: dict[str, Any] | None = None
 
 
@@ -131,6 +134,7 @@ def render_basic_vertical_edit(
     editorial_template: EditorialTemplate | None = None,
     expected_timeline_duration_seconds: float | None = None,
     voiceover: VoiceoverTrack | None = None,
+    music: MusicBed | None = None,
     additional_source_uris: Sequence[str | Path] = (),
     allow_loop: bool = False,
     ffmpeg_bin: str = "ffmpeg",
@@ -171,6 +175,7 @@ def render_basic_vertical_edit(
             scene_plan_for_overlay_diagnostics=scene_plan_for_overlay_diagnostics,
             editorial_template=editorial_template,
             voiceover=voiceover,
+            music=music,
             ffmpeg_bin=ffmpeg_bin,
             ffprobe_bin=ffprobe_bin,
         )
@@ -258,6 +263,7 @@ def render_basic_vertical_edit(
         target_duration_seconds=source_probe.duration_seconds,
         video_filter=video_filter,
         voiceover=voiceover,
+        music=music,
         ffmpeg_bin=ffmpeg_bin,
     )
 
@@ -315,6 +321,7 @@ def render_basic_vertical_edit(
         overlay_manifest=normalized_overlays,
         edit_mode="single_clip" if source_composition is None else "multi_clip",
         voiceover=voiceover.as_dict() if voiceover is not None else None,
+        music=music.as_dict() if music is not None else None,
         source_composition=source_composition,
     )
 
@@ -332,6 +339,7 @@ def _render_scene_aware_edit(
     ffmpeg_bin: str,
     ffprobe_bin: str,
     voiceover: VoiceoverTrack | None = None,
+    music: MusicBed | None = None,
 ) -> BasicEditorArtifact:
     normalized_source_uri = _normalize_source_uri(source_uri)
     segment_paths: list[Path] = []
@@ -425,6 +433,7 @@ def _render_scene_aware_edit(
         target_duration_seconds=combined_probe.duration_seconds,
         video_filter=video_filter,
         voiceover=voiceover,
+        music=music,
         ffmpeg_bin=ffmpeg_bin,
     )
 
@@ -483,6 +492,7 @@ def _render_scene_aware_edit(
         overlay_manifest=normalized_overlays,
         edit_mode="scene_composed",
         voiceover=voiceover.as_dict() if voiceover is not None else None,
+        music=music.as_dict() if music is not None else None,
     )
 
 
@@ -896,6 +906,7 @@ def _render_final_video(
     video_filter: str,
     ffmpeg_bin: str,
     voiceover: VoiceoverTrack | None = None,
+    music: MusicBed | None = None,
 ) -> None:
     fade_in_s, fade_out_s = _resolved_audio_fades(target_duration_seconds)
     fade_out_start = max(float(target_duration_seconds) - fade_out_s, 0.0)
@@ -916,16 +927,27 @@ def _render_final_video(
         f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_s:.3f},"
         "asetpts=N/SR/TB[aout]"
     )
-    if voiceover is None:
+    next_index = 1 if source_has_audio else 2
+    voice_index = music_index = None
+    if voiceover is not None:
+        voice_index = next_index
+        command += ["-i", str(voiceover.path)]
+        next_index += 1
+    if music is not None:
+        music_index = next_index
+        command += ["-i", str(music.path)]
+    soundtrack = soundtrack_filter(
+        voice_index=voice_index,
+        music_index=music_index,
+        duration_seconds=float(target_duration_seconds),
+        output_label="soundtrack",
+    )
+    if soundtrack is None:
         audio_graph = f"{bed},{master}"
     else:
-        voice_index = 2 if not source_has_audio else 1
-        command += ["-i", str(voiceover.path)]
         audio_graph = (
-            f"{bed},volume={_CLIP_AUDIO_UNDER_VOICE_GAIN}[bed];"
-            f"[{voice_index}:a:0]aresample={_AUDIO_SAMPLE_RATE},"
-            f"aformat=channel_layouts={_AUDIO_CHANNEL_LAYOUT},apad,atrim=0:{duration}[voice];"
-            f"[bed][voice]amix=inputs=2:duration=first:normalize=0,{master}"
+            f"{bed},volume={_CLIP_AUDIO_UNDER_VOICE_GAIN}[bed];{soundtrack};"
+            f"[bed][soundtrack]amix=inputs=2:duration=first:normalize=0,{master}"
         )
     command += [
         "-filter_complex",

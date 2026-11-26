@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     elevenlabs_model_id: str = "eleven_multilingual_v2"
     elevenlabs_base_url: str = "https://api.elevenlabs.io"
 
+    # -- Music bed under the voice --
+    # "" = auto: library when MUSIC_LIBRARY_DIR has audio files, else a generated pad.
+    # Explicit values: generated | library | none.
+    music_bed_provider: str = ""
+    # Folder of tracks you are licensed to use; picked by a word of the mood in the file name.
+    music_library_dir: str = ""
+
     # -- Security --
     api_key_salt: SecretStr = SecretStr("changeme-salt")
     jwt_secret: SecretStr | None = None

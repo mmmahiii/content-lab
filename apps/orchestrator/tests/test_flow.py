@@ -26,7 +26,11 @@ from content_lab_creative import (
     PolicyStateDocument,
     ScriptGeneratorPath,
 )
-from content_lab_editing import MockToneTTSProvider, build_timeline_render_trace
+from content_lab_editing import (
+    GeneratedPadMusicBed,
+    MockToneTTSProvider,
+    build_timeline_render_trace,
+)
 from content_lab_storage.client import RetrievedObject, StoredObject
 from content_lab_storage.integrity import S3ObjectIntegrityVerifier
 from content_lab_storage.refs import StorageRef
@@ -1033,6 +1037,7 @@ def _install_phase_one_service(
         temp_root=tmp_path / "phase-one",
         script_generator_path=script_generator_path,
         tts_provider=MockToneTTSProvider(),
+        music_provider=GeneratedPadMusicBed(),
     )
     service = ProcessReelPersistenceService(repository=repository, executor=executor)
     event_sink = FakeProcessReelEventSink()
@@ -1820,6 +1825,8 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert voiceover["provider"] == "mock"
     assert len(voiceover["lines"]) == len(creative_output["script"]["spoken_script"])
     assert package_provenance["voiceover"]["provider"] == "mock"
+    assert editing_output["music"]["provider"] == "generated"
+    assert package_provenance["music"]["provider"] == "generated"
     qa_output = cast(dict[str, Any], result["step_outputs"]["qa"])
     audio_gate = cast(dict[str, Any], qa_output["audio_content"])
     assert audio_gate["verdict"] == "warn", audio_gate

@@ -14,7 +14,7 @@ from typing import Any, cast
 import pytest
 from content_lab_assets.providers.runway import render_mock_clip
 from content_lab_creative import PolicyStateDocument
-from content_lab_editing import MockToneTTSProvider
+from content_lab_editing import GeneratedPadMusicBed, MockToneTTSProvider
 from content_lab_storage import CanonicalStorageLayout
 
 from content_lab_api.services.process_reel import ProcessReelExecution
@@ -138,6 +138,7 @@ def test_twenty_second_idea_plan_renders_from_two_clips_and_passes_media_qa(
         package_layout=CanonicalStorageLayout(bucket="test"),
         temp_root=tmp_path / "runs",
         tts_provider=MockToneTTSProvider(),
+        music_provider=GeneratedPadMusicBed(),
     )
     execution = ProcessReelExecution(
         reel_id=str(uuid.uuid4()),
@@ -192,4 +193,7 @@ def test_twenty_second_idea_plan_renders_from_two_clips_and_passes_media_qa(
     assert details["media_content"]["verdict"] == "pass", details["media_content"]
     assert details["overlay_coverage"]["verdict"] == "pass", details["overlay_coverage"]
     assert details["audio_content"]["verdict"] == "warn", details["audio_content"]
+    # The music bed fills the pauses between lines: only the mock-voice warning is left.
+    audio_codes = [f["code"] for f in details["audio_content"]["details"]["findings"]]
+    assert audio_codes == ["mock_voiceover"], details["audio_content"]
     assert details["timeline_timing"]["verdict"] in {"pass", "warn"}, details["timeline_timing"]

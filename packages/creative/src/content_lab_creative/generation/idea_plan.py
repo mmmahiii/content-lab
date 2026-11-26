@@ -27,6 +27,15 @@ from content_lab_intelligence import LLMClient, LLMError, StructuredRequest
 logger = logging.getLogger(__name__)
 
 
+SPEAKING_WORDS_PER_SECOND = 2.5
+
+
+def narration_word_range(seconds: int) -> tuple[int, int]:
+    """Words a beat of ``seconds`` can carry without dead air or rushing (generous bounds)."""
+
+    return max(2, int(seconds * 1.5)), max(4, int(seconds * 3.5))
+
+
 class IdeaBeatDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +50,19 @@ class IdeaBeatDraft(BaseModel):
         description=f"On-screen text, at most {BEAT_OVERLAY_MAX_WORDS} words.",
     )
     seconds: int = Field(ge=2, le=8)
+
+    @model_validator(mode="after")
+    def _narration_fits_beat(self) -> IdeaBeatDraft:
+        # Narration is voiced and laid on the beat: too few words leaves dead air, too many
+        # gets sped up and cut. ~2.5 words/s is a natural reading pace.
+        words = len(self.narration.split())
+        low, high = narration_word_range(self.seconds)
+        if not low <= words <= high:
+            raise ValueError(
+                f"narration for a {self.seconds}s beat should be {low}-{high} words "
+                f"(about {SPEAKING_WORDS_PER_SECOND} words per second); it has {words}"
+            )
+        return self
 
     @field_validator("narration")
     @classmethod
@@ -122,7 +144,9 @@ hook plus 2-3 beats that pay it off, and three caption lines.
 {VIEWER_COPY_RULES}
 
 Hook overlay: at most {HOOK_OVERLAY_MAX_WORDS} words. Beat overlay: at most \
-{BEAT_OVERLAY_MAX_WORDS} words. Beat seconds: 2-8 each."""
+{BEAT_OVERLAY_MAX_WORDS} words. Beat seconds: 2-8 each. Each beat's narration is read \
+aloud over that beat, so size it to the beat: about {SPEAKING_WORDS_PER_SECOND} words per \
+second (a 6 second beat is about 15 words)."""
 
 
 def generate_idea_plan(
@@ -210,7 +234,8 @@ def template_idea_plan(page: CreativePageContext, *, plan_number: int) -> dict[s
             {
                 "label": "Proof",
                 "text": "Show the useful shift, example, or operating principle.",
-                "narration": "Here is the one shift that makes this easier.",
+                # ~15 words: fills its 6 s beat when read aloud (~2.5 words/s).
+                "narration": "Here is the one shift that makes this easier: try it once, then keep what works.",
                 "overlay_text": "Useful shift",
                 "seconds": 6,
             },
