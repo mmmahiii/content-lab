@@ -120,3 +120,100 @@ def test_canonical_timeline_contains_video_audio_scene_overlay_cover_fields() ->
     assert trace["cover"]["timestamp_seconds"] == pytest.approx(0.5)
     assert trace["checks"]["duration_alignment"]["passed"] is True
     assert trace["checks"]["audio_video_sync"]["passed"] is True
+
+
+def _five_equal_scenes(duration: float) -> dict[str, object]:
+    step = duration / 5
+    return {
+        "scenes": [
+            {
+                "scene_id": f"scene-{index + 1}",
+                "start_seconds": round(index * step, 6),
+                "end_seconds": round((index + 1) * step, 6),
+            }
+            for index in range(5)
+        ]
+    }
+
+
+def _covered_seconds(timeline: CanonicalTimeline) -> float:
+    return sum(item.end_seconds - item.start_seconds for item in timeline.overlays)
+
+
+def test_three_beat_overlays_cover_five_scene_reel_without_blank_tail() -> None:
+    """Regression: 3 beat cues over 5 scenes used to leave scenes 4-5 (last 4 s) blank."""
+
+    timeline = build_canonical_timeline(
+        timeline_id="timeline-blank-tail",
+        duration_seconds=10.0,
+        source_uri="s3://bucket/source.mp4",
+        scene_plan=_five_equal_scenes(10.0),
+        overlay_timeline=[
+            {"text": "Hook", "emphasis": "hook", "start_seconds": 0, "end_seconds": 3},
+            {"text": "Useful shift", "emphasis": "value", "start_seconds": 3, "end_seconds": 7},
+            {"text": "Next step", "emphasis": "cta", "start_seconds": 7, "end_seconds": 10},
+        ],
+        spoken_script=None,
+    )
+
+    spans = [(o.text, o.start_seconds, o.end_seconds) for o in timeline.overlays]
+    assert spans == [("Hook", 0.0, 3.0), ("Useful shift", 3.0, 7.0), ("Next step", 7.0, 10.0)]
+    assert _covered_seconds(timeline) == pytest.approx(10.0)
+
+
+def test_untimed_overlays_fewer_than_scenes_hold_last_cue_to_the_end() -> None:
+    timeline = build_canonical_timeline(
+        timeline_id="timeline-untimed",
+        duration_seconds=10.0,
+        source_uri="s3://bucket/source.mp4",
+        scene_plan=_five_equal_scenes(10.0),
+        overlay_timeline=[{"text": "A"}, {"text": "B"}, {"text": "C"}],
+        spoken_script=None,
+    )
+
+    assert [(o.start_seconds, o.end_seconds) for o in timeline.overlays] == [
+        (0.0, 2.0),
+        (2.0, 4.0),
+        (4.0, 10.0),
+    ]
+
+
+def test_overlay_gaps_are_closed_and_cues_past_the_cap_are_dropped() -> None:
+    timeline = build_canonical_timeline(
+        timeline_id="timeline-gaps",
+        duration_seconds=10.0,
+        source_uri="s3://bucket/source.mp4",
+        scene_plan=_five_equal_scenes(10.0),
+        overlay_timeline=[
+            {"text": "Hook", "start_seconds": 0.5, "end_seconds": 2.0},
+            {"text": "Value", "start_seconds": 4.0, "end_seconds": 6.0},
+            {"text": "Late", "start_seconds": 8.0, "end_seconds": 12.0},
+            {"text": "Beyond", "start_seconds": 12.0, "end_seconds": 14.0},
+        ],
+        spoken_script=None,
+    )
+
+    assert [(o.text, o.start_seconds, o.end_seconds) for o in timeline.overlays] == [
+        ("Hook", 0.0, 4.0),
+        ("Value", 4.0, 8.0),
+        ("Late", 8.0, 10.0),
+    ]
+
+
+def test_more_untimed_overlays_than_scenes_do_not_stack_on_the_last_scene() -> None:
+    timeline = build_canonical_timeline(
+        timeline_id="timeline-extra",
+        duration_seconds=4.0,
+        source_uri="s3://bucket/source.mp4",
+        scene_plan={
+            "scenes": [
+                {"scene_id": "scene-1", "start_seconds": 0.0, "end_seconds": 2.0},
+                {"scene_id": "scene-2", "start_seconds": 2.0, "end_seconds": 4.0},
+            ]
+        },
+        overlay_timeline=[{"text": "A"}, {"text": "B"}, {"text": "C"}],
+        spoken_script=None,
+    )
+
+    assert [o.text for o in timeline.overlays] == ["A", "B"]
+    assert timeline.overlays[-1].end_seconds == pytest.approx(4.0)

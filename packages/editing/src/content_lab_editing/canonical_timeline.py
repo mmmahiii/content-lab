@@ -240,32 +240,11 @@ def build_canonical_timeline(
             )
         )
 
-    overlays: list[TimelineOverlay] = []
-    scene_by_id: dict[str, TimelineScene] = {item.scene_id: item for item in scenes}
-    for index, raw in enumerate(overlay_timeline or (), start=1):
-        scene_ref = str(raw.get("scene_id") or "").strip()
-        scene: TimelineScene | None = None
-        if scene_ref:
-            scene = scene_by_id.get(scene_ref)
-            if scene is None:
-                raise ValueError(f"overlay {index} references unknown scene_id={scene_ref!r}")
-        elif index <= len(scenes):
-            scene = scenes[index - 1]
-        else:
-            scene = scenes[-1]
-        start = float(scene.start_seconds)
-        end = float(scene.end_seconds)
-        role = str(raw.get("emphasis") or raw.get("overlay_role") or "other")
-        overlays.append(
-            TimelineOverlay(
-                overlay_id=str(raw.get("overlay_id") or f"overlay-{index:03d}"),
-                start_seconds=start,
-                end_seconds=end,
-                text=str(raw.get("text") or raw.get("overlay_text") or "").strip(),
-                role=role if role else "other",
-                allow_overlap=bool(raw.get("allow_overlap", False)),
-            )
-        )
+    overlays = _place_overlays(
+        overlay_timeline or (),
+        scenes=scenes,
+        duration_seconds=float(duration_seconds),
+    )
 
     master_fade_in, master_fade_out = _deterministic_audio_fades(float(duration_seconds))
     audio_tracks: list[TimelineAudioTrack] = [
@@ -317,6 +296,89 @@ def build_canonical_timeline(
         audio_tracks=audio_tracks,
     )
     return timeline
+
+
+def _place_overlays(
+    overlay_timeline: Sequence[Mapping[str, Any]],
+    *,
+    scenes: Sequence[TimelineScene],
+    duration_seconds: float,
+) -> list[TimelineOverlay]:
+    """Place overlay cues on the timeline so on-screen text covers the whole reel.
+
+    Timing precedence per cue: an explicit ``scene_id`` takes that scene's span; otherwise
+    the cue's own ``start_seconds``/``end_seconds`` (the spoken beat it belongs to) are used;
+    untimed cues fall back to the scene at the same index.
+
+    Earlier versions always pinned cue *i* to scene *i*, ignoring beat timings. Scripts carry
+    one cue per beat (typically 3) while scene plans have 5 scenes, so the last scenes of every
+    reel had no text: the "blank tail". After placement, gaps are closed by holding the
+    previous cue until the next one starts, the first cue starts at 0 and the last one runs to
+    the end, so a reel never shows an empty stretch between or after cues.
+    """
+
+    scene_by_id: dict[str, TimelineScene] = {item.scene_id: item for item in scenes}
+    placed: list[tuple[float, float, int, Mapping[str, Any]]] = []
+    for index, raw in enumerate(overlay_timeline, start=1):
+        if not isinstance(raw, Mapping):
+            continue
+        scene_ref = str(raw.get("scene_id") or "").strip()
+        explicit_start = _read_float(raw, "start_seconds", "start")
+        explicit_end = _read_float(raw, "end_seconds", "end")
+        if scene_ref:
+            scene = scene_by_id.get(scene_ref)
+            if scene is None:
+                raise ValueError(f"overlay {index} references unknown scene_id={scene_ref!r}")
+            start, end = float(scene.start_seconds), float(scene.end_seconds)
+        elif explicit_start is not None and explicit_end is not None:
+            start, end = explicit_start, explicit_end
+        else:
+            scene = scenes[index - 1] if index <= len(scenes) else scenes[-1]
+            start, end = float(scene.start_seconds), float(scene.end_seconds)
+        start = min(max(start, 0.0), duration_seconds)
+        end = min(max(end, 0.0), duration_seconds)
+        if end <= start:
+            # Cue lies entirely outside the (possibly capped) reel; nothing to show.
+            continue
+        placed.append((start, end, index, raw))
+
+    placed.sort(key=lambda item: (item[0], item[1], item[2]))
+    # Several untimed cues beyond the scene count all land on the last scene; keep the first.
+    deduped: list[tuple[float, float, int, Mapping[str, Any]]] = []
+    for item in placed:
+        if deduped and abs(item[0] - deduped[-1][0]) <= 1e-6 and not _allows_overlap(item[3]):
+            continue
+        deduped.append(item)
+
+    overlays: list[TimelineOverlay] = []
+    for position, (start, end, index, raw) in enumerate(deduped):
+        if position == 0:
+            start = 0.0
+        if position + 1 < len(deduped):
+            next_start = deduped[position + 1][0]
+            if not (_allows_overlap(raw) or _allows_overlap(deduped[position + 1][3])):
+                # Hold until the next cue (fills gaps, trims overlaps).
+                end = next_start
+            elif end < next_start:
+                end = next_start
+        else:
+            end = duration_seconds
+        role = str(raw.get("emphasis") or raw.get("overlay_role") or "other")
+        overlays.append(
+            TimelineOverlay(
+                overlay_id=str(raw.get("overlay_id") or f"overlay-{index:03d}"),
+                start_seconds=round(start, 6),
+                end_seconds=round(end, 6),
+                text=str(raw.get("text") or raw.get("overlay_text") or "").strip(),
+                role=role if role else "other",
+                allow_overlap=_allows_overlap(raw),
+            )
+        )
+    return overlays
+
+
+def _allows_overlap(raw: Mapping[str, Any]) -> bool:
+    return bool(raw.get("allow_overlap", False))
 
 
 def resolve_stable_cover_timestamp(
