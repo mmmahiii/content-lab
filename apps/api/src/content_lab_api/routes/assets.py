@@ -29,6 +29,14 @@ from content_lab_api.schemas.assets import (
     AssetResolveRequest,
 )
 from content_lab_api.services import import_approved_external_asset, resolve_asset_request
+from content_lab_api.services.asset_representations import (
+    MAX_REPRESENTATION_PX,
+    MIN_REPRESENTATION_PX,
+    is_image_uri,
+    representation_uri,
+)
+from content_lab_shared.settings import Settings
+from content_lab_storage import S3StorageClient, S3StorageConfig
 
 router = APIRouter(prefix="/orgs/{org_id}/assets", tags=["assets"])
 
@@ -341,8 +349,31 @@ def get_asset(
 def get_asset_download(
     org_id: uuid.UUID,
     asset_id: uuid.UUID,
+    max_px: int | None = Query(
+        default=None,
+        ge=MIN_REPRESENTATION_PX,
+        le=MAX_REPRESENTATION_PX,
+        description="Images only: link to a cached copy no larger than this on its long side.",
+    ),
     db: Session = Depends(get_db),
 ) -> SignedDownloadOut:
     _get_org_or_404(db, org_id)
     asset = _get_asset_or_404(db, org_id=org_id, asset_id=asset_id)
-    return build_signed_download(storage_uri=asset.storage_uri)
+    storage_uri = asset.storage_uri
+    if max_px is not None and is_image_uri(storage_uri):
+        storage_uri = representation_uri(
+            storage_uri=storage_uri, max_px=max_px, storage=_representation_storage()
+        )
+    return build_signed_download(storage_uri=storage_uri)
+
+
+def _representation_storage() -> S3StorageClient:
+    settings = Settings()
+    return S3StorageClient(
+        S3StorageConfig(
+            endpoint=settings.minio_endpoint,
+            access_key_id=settings.minio_root_user,
+            secret_access_key=settings.minio_root_password.get_secret_value(),
+            default_bucket=settings.minio_bucket,
+        )
+    )
