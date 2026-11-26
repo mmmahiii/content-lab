@@ -404,10 +404,14 @@ function Get-BuildFingerprint {
             continue
         }
         $full = Join-Path $RepoRoot $normalized
-        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
-            continue  # tracked but deleted in the working tree
+        # Skip what cannot be read: files deleted in the working tree, and dangling links (the
+        # packages/*/py/pyproject.toml "symlinks" are text files on Windows, broken links here).
+        try {
+            $hashRecord = Get-FileHash -Algorithm SHA256 -LiteralPath $full -ErrorAction Stop
         }
-        $hashRecord = Get-FileHash -Algorithm SHA256 -LiteralPath $full
+        catch {
+            continue
+        }
         "{0}|{1}" -f $normalized, $hashRecord.Hash
     }
 
@@ -900,7 +904,12 @@ try {
     # A running API from older images says nothing about new migrations: only skip when no
     # image was rebuilt in this launch.
     if (-not $imagesRebuilt -and (Test-HttpReady -Url $apiHealthUrl)) {
-        Write-Host "API is already healthy and images are current; skipping migration check for faster relaunch." -ForegroundColor Cyan
+        if ($imagesStale) {
+            Write-Host "API is already healthy; skipping migration check because images were not rebuilt (-SkipBuild)." -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "API is already healthy and images are current; skipping migration check for faster relaunch." -ForegroundColor Cyan
+        }
     }
     else {
         Write-Host "Applying database migrations..." -ForegroundColor Cyan
