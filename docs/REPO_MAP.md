@@ -24,7 +24,7 @@ runs a large set of QA checks, and outputs a **ready-to-post package** (MP4 + co
 | "Learns from performance" (charter vision) | **Not built.** `packages/features` and `ingestion` are empty one-line stubs. |
 | Content variety | Niche-specific rules now live in `content_lab_creative/niche.py` (cooking, luxury, business, fitness, finance, beauty, travel; register more). Some QA motion checks (sizzle/steam) and planner prompt examples are still food-flavoured. |
 | Web UI | Old UI archived to `legacy/ui/2026-09-08/`. `apps/web` has the ~30 API proxy routes, a small design system, and **Quick Reel at `/make`** (Nov 2026, see [Quick Reel](#quick-reel-make-2026-11-25)). Studio is not built. |
-| End-to-end run | Not verified in this survey (needs Docker running). |
+| End-to-end run | Verified through the Docker API in `smoke_test` mode (2026-11-26): 12 s and 20 s reels with voice, no blank tail. See [Pipeline fixes](#pipeline-fixes-2026-11-26). |
 
 ### The 2 failing tests
 
@@ -245,11 +245,59 @@ Postgres), orchestrator 51, worker 24, all other packages green.
 
 Still open (not review items; need real feature work):
 
+(All four were fixed on 2026-11-26; see [Pipeline fixes](#pipeline-fixes-2026-11-26).)
+
 - **10 s maximum reel length**: one Runway clip per reel and editing cannot loop or hold a clip.
 - **Blank last ~4 s**: the editing overlay pipeline (`packages/editing/overlays.py`) leaves the last
   scenes without text even when every beat has copy.
 - **Silent audio**: no voiceover synthesis exists; QA should fail silent or blank segments.
 - Seed scripts download from Wikimedia every run; `open-console.ps1` image freshness and fingerprinting.
+
+## Pipeline fixes (2026-11-26)
+
+Branch `claude/jolly-hamilton-hte4rt`, six commits on top of `main` @ d59f8d7.
+
+### What was fixed
+
+| Problem | Root cause | Fix |
+|---|---|---|
+| Blank last ~4 s | Not `overlays.py`: `canonical_timeline.build_canonical_timeline` pinned overlay cue *i* to scene *i* and ignored cue timing. Idea plans have 3 beats and scene plans always have 5 scenes, so scenes 4–5 had no text. | Cues use `scene_id`, then their own beat timing, then the scene index. Gaps are closed (hold the previous cue), the first cue starts at 0 and the last runs to the end. |
+| QA passed silent, black, frozen reels | Format QA only reads stream metadata. Nearly every media gate is in `_NONBLOCKING_FAIL_GATES` anyway. | `content_lab_qa.media_content`: one downscaled decode with `blackdetect`, `freezedetect`, `volumedetect`, `silencedetect`. New **blocking** gates: `media_content` (black/frozen > 1 s), `audio_content` (no audio, mean < −60 dB, narrated script without a voiceover), `overlay_coverage` (text gap > 0.5 s). Mock voice and silent gaps > 2 s are warnings. |
+| No voiceover | Nothing synthesized `spoken_script`. | `content_lab_editing.voiceover`: `TTSProvider` protocol, `MockToneTTSProvider` (deterministic tone per line: length from word count, pitch from a text hash), `ElevenLabsTTSProvider`. Each beat is placed at its start; long lines are sped up (max 1.25×) then trimmed inside the beat. Voice is mixed over clip audio (clip at 0.25). Mock reels carry the MP4 tag `comment=content_lab_voiceover=mock`. Selection: `TTS_PROVIDER`; otherwise mock when `RUNWAY_API_MODE=mock`, ElevenLabs when `ELEVENLABS_API_KEY` is set, else none. `smoke_test` launches force mock. |
+| 10 s cap | Orchestrator clamped the reel to one Runway clip; `runs.py` clamped cinematic plans to 5–10 s. | Reels keep the plan length (5–60 s) and are split into the fewest 5–10 s clips (12 → 6+6, 30 → 10+10+10). Each clip has its own seed and a prompt built from its scenes. The resolver resolves each clip through the registry/Runway path, and the editor chains them. Looping or extending one clip is opt-in (`allow_loop`); short media still fails (MED-009). Cinematic plans are bounded to 5–60 s. |
+| Mock footage black, fixed 10 s | `MockRunwayClient` returned one 90×160 black fixture. | Deterministic moving test pattern (720×1280, seed-tinted) at the requested length (≤ 10 s). The fixture is the fallback when FFmpeg is missing. |
+| `open-console.ps1` stale images / slow `-Rebuild` | The stored fingerprint was **never compared**; only missing images were built. The fingerprint hashed every file (incl. `.venv`, caches), and its exclusions only matched `\`. | Rebuilds when the fingerprint changes. Hashes only git-listed source/config/lock files (~570; pruned walk without git). Migrations run whenever images were rebuilt. |
+| Seeds re-download, Windows SSL | New timestamped folder per run, no cache, default CA store. | `scripts/seed_downloads.py`: cache in `artifacts/seed-cache/` (atomic, validated), TLS via `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` or certifi, `Retry-After`. The faceless seed reuses its pack and specs (idempotent). |
+| Seed output in `git status` | | `.gitignore`: timestamped `artifacts/asset_packs/*/YYYYMMDD-HHMMSS/` folders, `last_seed_summary.json`, `artifacts/seed-cache/`, steak downloads. |
+
+Also: refreshed the stale `packages/editing/poetry.lock`, and fixed `test_process_reel_flow_runs_full_phase_one_package_generation` (it stripped the leading `/` from POSIX paths). It now passes on Linux.
+
+### Verified
+
+Stack: `docker compose -f infra/docker-compose.yml --profile app build` then `up -d`. In this sandbox that needed a compose override for the build network/proxy and `chainguard/minio` (see "Still open"). Migrations went to 0015 in the API container. Then `seed_quick_reel_demo.py`, `POST …/idea-plans`, and `POST …/generate-package {"generation_mode": "smoke_test"}` through the **Docker API**. The MP4s were downloaded via their signed URLs.
+
+| | 12 s plan (3+6+3, template) | 20 s plan (beats edited to 5+10+5) |
+|---|---|---|
+| Run | queued → succeeded in ~55 s, 2 × `asset.generate` | ~70 s, 2 × `asset.generate` |
+| Video (ffprobe) | h264 1080×1920 24 fps, **12.000 s** (was 10.0) | h264 1080×1920 24 fps, **20.000 s** |
+| Audio (ffprobe) | AAC 48 kHz stereo, 12.037 s, tag `content_lab_voiceover=mock` | AAC 48 kHz stereo, 20.026 s, same tag |
+| Loudness (volumedetect) | mean **−25.7 dB**, max −20.8 dB (was −91 dB) | mean −27.8 dB, max −21.0 dB |
+| blackdetect / freezedetect (≥ 0.5 s) | none | none |
+| Last seconds | CTA text on screen at 11.5 s over clip 2 | CTA text at 19.5 s over clip 2 |
+| QA | `warn`, nothing blocking; `media_content` / `overlay_coverage` / `timeline_timing` pass; `audio_content` warns: mock voice, 2.5 s gap (6.5–9.0 s) | `warn`, nothing blocking; `audio_content` warns: gaps 8.5–15.1 s and 17.4–20.0 s |
+
+Python suites (Linux, Postgres on 5433): api 229 (0 skipped), worker 24, orchestrator 66, editing 396 (+2 skipped), qa 171, assets 280, creative 153, intelligence 32, outbox 28, runs 54, storage 62, auth 18, core 26, shared 41. `features`/`ingestion` have no tests.
+
+### Still open
+
+- **Narration does not fill long beats.** Template narration is about 2 s per line, so a 10 s beat has ~6 s of dead air (QA warns). Scripts should write narration to the beat length. There is no music bed.
+- **Not exercised against live providers** (no keys here): ElevenLabs, and Runway with several clips per reel. Multi-clip multiplies Runway cost per reel, and it assumes gen4.5 accepts any whole-second duration in 5–10 (as the existing clamp already did). Clip boundaries are hard cuts; continuity between clips relies only on prompts.
+- **`infra/docker-compose.yml` still uses `minio/minio` and `minio/mc`, which can't be pulled.** `chainguard/minio` works as both (it ships `mc`, but no `curl`, so the healthcheck must be `mc ready local` with `MC_HOST_local`). Not changed here.
+- **Not run here:** `open-console.ps1` (no PowerShell in this sandbox), the seed scripts against Wikimedia (blocked here; covered by unit tests), and the images on a real `python:3.11-slim` base (Debian mirrors are blocked here, so a local Ubuntu 24.04 / Python 3.12 stand-in was used).
+- The cinematic/layered composition path was not part of the end-to-end run (idea plans only).
+- The earlier uncommitted blank-tail attempt (`content-lab-archive/uncommitted/z58o`, on the Windows machine) was not reachable from this session and was not reviewed; the fix was written from the code.
+- Editing renders are slow (`-preset medium -threads 1`); chaining adds one encode per clip.
+- `process_reel.py` and `content_lab_editing/__init__.py` were already not `ruff format`/isort clean; left as is.
 
 ## Quick Reel (`/make`, 2026-11-25)
 
