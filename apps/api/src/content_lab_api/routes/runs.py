@@ -302,6 +302,8 @@ def _launch_process_reel_flow(
     env.pop("VIRTUAL_ENV", None)
     if generation_mode == "smoke_test":
         env["RUNWAY_API_MODE"] = "mock"
+        # Deterministic tone voiceover; never a paid TTS call from a smoke test.
+        env["TTS_PROVIDER"] = "mock"
 
     command = [
         poetry,

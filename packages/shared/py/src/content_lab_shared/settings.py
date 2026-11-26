@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     runway_api_version: str = "2024-11-06"
     runway_api_mode: str = "live"
 
+    # -- Voiceover (text-to-speech) --
+    # "" = auto: mock when RUNWAY_API_MODE=mock, elevenlabs when a key is set, else none.
+    # Explicit values: mock | elevenlabs | none.
+    tts_provider: str = ""
+    elevenlabs_api_key: SecretStr = SecretStr("")
+    # Default: ElevenLabs' public "Rachel" premade voice.
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    elevenlabs_model_id: str = "eleven_multilingual_v2"
+    elevenlabs_base_url: str = "https://api.elevenlabs.io"
+
     # -- Security --
     api_key_salt: SecretStr = SecretStr("changeme-salt")
     jwt_secret: SecretStr | None = None

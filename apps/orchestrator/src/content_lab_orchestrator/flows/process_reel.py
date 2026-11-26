@@ -58,13 +58,18 @@ from content_lab_editing import (
     CompositionLayer,
     CompositionManifest,
     MotionTransform,
+    TTSProvider,
     build_canonical_timeline,
     build_overlay_render_manifest_for_qa,
     build_ready_to_post_package,
     build_timeline_render_trace,
+    build_tts_provider,
+    build_voiceover_track,
     compose_and_store_layered_reel,
     default_harmonisation_for_layer,
     render_basic_vertical_edit,
+    retime_voiceover_lines,
+    voiceover_lines_from_spoken_script,
 )
 from content_lab_outbox import (
     build_process_reel_event_payload,
@@ -1186,6 +1191,7 @@ class PhaseOneProcessReelExecutor:
         emit_creative_trace: bool = True,
         ffmpeg_bin: str = "ffmpeg",
         ffprobe_bin: str = "ffprobe",
+        tts_provider: TTSProvider | None = None,
     ) -> None:
         self._planning_context_loader = planning_context_loader
         self._asset_resolver = asset_resolver
@@ -1202,6 +1208,8 @@ class PhaseOneProcessReelExecutor:
         self._emit_creative_trace = emit_creative_trace
         self._ffmpeg_bin = ffmpeg_bin
         self._ffprobe_bin = ffprobe_bin
+        # None = no voiceover; QA then fails reels whose script has narration.
+        self._tts_provider = tts_provider
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
         context = self._planning_context_loader.load(execution)
@@ -1383,6 +1391,11 @@ class PhaseOneProcessReelExecutor:
             requested_provider_duration_seconds = cinematic_source_duration
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
+        voiceover = self._build_voiceover(
+            script_payload=script_payload,
+            duration_seconds=expected_timeline_duration_seconds,
+            workdir=workdir / "voiceover",
+        )
         artifact = render_basic_vertical_edit(
             source_uri=source_uri,
             workdir=workdir,
@@ -1390,6 +1403,7 @@ class PhaseOneProcessReelExecutor:
             overlay_timeline=cast(Any, canonical_overlay_timeline),
             scene_plan_for_overlay_diagnostics=canonical_scene_plan,
             expected_timeline_duration_seconds=expected_timeline_duration_seconds,
+            voiceover=voiceover,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
         )
@@ -1478,7 +1492,37 @@ class PhaseOneProcessReelExecutor:
             "overlay_render_trace": artifact.overlay_render_trace,
             "overlay_render_trace_path": str(artifact.overlay_render_trace_path),
             "overlay_render_trace_uri": artifact.overlay_render_trace_path.as_uri(),
+            "voiceover": artifact.voiceover,
         }
+
+    def _build_voiceover(
+        self,
+        *,
+        script_payload: Mapping[str, Any],
+        duration_seconds: float,
+        workdir: Path,
+    ) -> Any:
+        if self._tts_provider is None:
+            return None
+        lines = voiceover_lines_from_spoken_script(
+            cast(Any, script_payload.get("spoken_script")),
+        )
+        script_duration = _optional_float(script_payload.get("duration_seconds"))
+        if script_duration is not None:
+            # Cinematic plans retime the timeline to the composition length; follow it.
+            lines = retime_voiceover_lines(
+                lines,
+                source_duration_seconds=script_duration,
+                target_duration_seconds=duration_seconds,
+            )
+        return build_voiceover_track(
+            lines,
+            provider=self._tts_provider,
+            duration_seconds=duration_seconds,
+            workdir=workdir,
+            ffmpeg_bin=self._ffmpeg_bin,
+            ffprobe_bin=self._ffprobe_bin,
+        )
 
     def run_qa(self, execution: ProcessReelExecution) -> ProcessReelQAResult:
         creative_output = _step_output(execution, "creative_planning")
@@ -1546,7 +1590,7 @@ class PhaseOneProcessReelExecutor:
         audio_content_result = evaluate_audio_content_qa(
             analysis=media_analysis,
             voiceover=_mapping(editing_output.get("voiceover")) or None,
-            expect_voiceover=False,
+            expect_voiceover=_script_has_narration(_mapping(creative_output.get("script"))),
         )
         overlay_coverage_result = evaluate_overlay_coverage_qa(
             rendered_overlay_manifest=_mapping(editing_output.get("rendered_overlay_manifest")),
@@ -1731,6 +1775,15 @@ def build_phase_one_process_reel_executor(
 
     resolved_settings = settings or Settings()
     resolved_storage_client = storage_client or _build_storage_client(resolved_settings)
+    tts_provider = build_tts_provider(
+        tts_provider=resolved_settings.tts_provider,
+        runway_api_mode=resolved_settings.runway_api_mode,
+        elevenlabs_api_key=resolved_settings.elevenlabs_api_key.get_secret_value(),
+        elevenlabs_voice_id=resolved_settings.elevenlabs_voice_id,
+        elevenlabs_model_id=resolved_settings.elevenlabs_model_id,
+        elevenlabs_base_url=resolved_settings.elevenlabs_base_url,
+        ffmpeg_bin=ffmpeg_bin,
+    )
     return PhaseOneProcessReelExecutor(
         planning_context_loader=planning_context_loader or SQLProcessReelPlanningContextLoader(),
         asset_resolver=asset_resolver
@@ -1747,6 +1800,7 @@ def build_phase_one_process_reel_executor(
         emit_creative_trace=emit_creative_trace,
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin,
+        tts_provider=tts_provider,
     )
 
 
@@ -2571,6 +2625,7 @@ def _build_package_provenance(
         "scene_plan": _mapping(creative_output.get("scene_plan")),
         "prompt_trace": _mapping(_mapping(creative_output.get("compiled_prompt")).get("trace")),
         "source_run_id": execution.run_id,
+        "voiceover": _voiceover_provenance(editing_output),
         "asset_ids": _asset_ids(asset_output),
         "upstream_refs": {
             "timeline_uri": _required_text(
@@ -2579,6 +2634,27 @@ def _build_package_provenance(
             ),
         },
     }
+
+
+def _voiceover_provenance(editing_output: Mapping[str, Any]) -> dict[str, Any]:
+    voiceover = _mapping(editing_output.get("voiceover"))
+    if not voiceover:
+        return {"provider": "none", "mock": False}
+    return {
+        "provider": voiceover.get("provider"),
+        "mock": bool(voiceover.get("mock")),
+        "line_count": len(voiceover.get("lines") or []),
+    }
+
+
+def _script_has_narration(script_payload: Mapping[str, Any]) -> bool:
+    spoken = script_payload.get("spoken_script")
+    if not isinstance(spoken, list):
+        return False
+    return any(
+        isinstance(beat, Mapping) and _optional_text(beat.get("narration")) is not None
+        for beat in spoken
+    )
 
 
 def _script_generation_metadata(script_output: Mapping[str, Any]) -> dict[str, Any]:

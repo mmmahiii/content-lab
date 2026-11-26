@@ -83,6 +83,7 @@ def _execution_for_bundle(*, case_id: str) -> ProcessReelExecution:
     editing["cover_frame_timestamp_seconds"] = float(
         editing.get("cover_frame_timestamp_seconds") or 0.0
     )
+    editing.setdefault("voiceover", {"provider": "elevenlabs", "mock": False, "lines": []})
     timeline = {
         "version": "med-001.v1",
         "timeline_id": f"timeline-{case_id}",

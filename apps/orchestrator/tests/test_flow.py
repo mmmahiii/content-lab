@@ -26,7 +26,7 @@ from content_lab_creative import (
     PolicyStateDocument,
     ScriptGeneratorPath,
 )
-from content_lab_editing import build_timeline_render_trace
+from content_lab_editing import MockToneTTSProvider, build_timeline_render_trace
 from content_lab_storage.client import RetrievedObject, StoredObject
 from content_lab_storage.integrity import S3ObjectIntegrityVerifier
 from content_lab_storage.refs import StorageRef
@@ -1032,6 +1032,7 @@ def _install_phase_one_service(
         package_layout=process_reel_flow_module.CanonicalStorageLayout(bucket="content-lab"),
         temp_root=tmp_path / "phase-one",
         script_generator_path=script_generator_path,
+        tts_provider=MockToneTTSProvider(),
     )
     service = ProcessReelPersistenceService(repository=repository, executor=executor)
     event_sink = FakeProcessReelEventSink()
@@ -1814,6 +1815,18 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert audio_tracks
     assert "fade_in_seconds" in audio_tracks[0]
     assert "fade_out_seconds" in audio_tracks[0]
+    # Narration is voiced (mock tone here), mixed into the MP4 and reported as mock audio.
+    voiceover = cast(dict[str, Any], editing_output["voiceover"])
+    assert voiceover["provider"] == "mock"
+    assert len(voiceover["lines"]) == len(creative_output["script"]["spoken_script"])
+    assert package_provenance["voiceover"]["provider"] == "mock"
+    qa_output = cast(dict[str, Any], result["step_outputs"]["qa"])
+    audio_gate = cast(dict[str, Any], qa_output["audio_content"])
+    assert audio_gate["verdict"] == "warn", audio_gate
+    assert audio_gate["details"]["mock_voiceover"] is True
+    assert audio_gate["details"]["mean_volume_db"] > -40
+    assert qa_output["media_content"]["verdict"] == "pass", qa_output["media_content"]
+    assert qa_output["overlay_coverage"]["verdict"] == "pass", qa_output["overlay_coverage"]
 
     run_id = result["run_id"]
     assert repository.reels["reel-42"].status == "ready"
@@ -2042,6 +2055,7 @@ def _build_qa_execution(*, creative_output: Mapping[str, Any]) -> ProcessReelExe
             duration_seconds=duration,
         ),
         "overlay_render_trace": _passing_overlay_render_trace(duration_seconds=duration),
+        "voiceover": {"provider": "elevenlabs", "mock": False, "lines": []},
     }
     execution.outputs["asset_resolution"] = {
         "asset_key_hash": "asset-key-hash",

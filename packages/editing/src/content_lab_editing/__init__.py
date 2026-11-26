@@ -112,8 +112,26 @@ from content_lab_editing.timeline_validator import (
     validate_reel_timeline_artifact,
 )
 from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayManifestEntry
+from content_lab_editing.voiceover import (
+    MockToneTTSProvider,
+    TTSProvider,
+    VoiceoverLine,
+    VoiceoverTrack,
+    build_tts_provider,
+    build_voiceover_track,
+    retime_voiceover_lines,
+    voiceover_lines_from_spoken_script,
+)
 
 __all__ = [
+    "MockToneTTSProvider",
+    "TTSProvider",
+    "VoiceoverLine",
+    "VoiceoverTrack",
+    "build_tts_provider",
+    "build_voiceover_track",
+    "retime_voiceover_lines",
+    "voiceover_lines_from_spoken_script",
     "BasicEditorArtifact",
     "CanonicalTimeline",
     "CompositionAnimation",

@@ -29,6 +29,7 @@ from content_lab_editing.templates import (
 )
 from content_lab_editing.timeline_validation import validate_overlay_timeline_before_render
 from content_lab_editing.types import RenderedOverlayManifest
+from content_lab_editing.voiceover import MOCK_VOICEOVER_TAG, VoiceoverTrack
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
@@ -40,6 +41,8 @@ _AUDIO_CHANNEL_LAYOUT = "stereo"
 _AUDIO_SAMPLE_RATE = 48_000
 _AUDIO_FADE_IN_SECONDS = 0.12
 _AUDIO_FADE_OUT_SECONDS = 0.18
+# Clip audio (Runway ambience, if any) sits ~12 dB under the voiceover.
+_CLIP_AUDIO_UNDER_VOICE_GAIN = 0.25
 _VIDEO_FILTER = (
     f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
     f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,"
@@ -110,6 +113,7 @@ class BasicEditorArtifact:
     overlay_safe_area: dict[str, object] | None = None
     overlay_manifest: tuple[TextOverlay, ...] = ()
     edit_mode: str = "single_clip"
+    voiceover: dict[str, Any] | None = None
 
 
 def render_basic_vertical_edit(
@@ -122,10 +126,14 @@ def render_basic_vertical_edit(
     edit_plan: SceneAwareEditPlan | None = None,
     editorial_template: EditorialTemplate | None = None,
     expected_timeline_duration_seconds: float | None = None,
+    voiceover: VoiceoverTrack | None = None,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> BasicEditorArtifact:
-    """Stage one source clip and export a phase-1 vertical MP4 locally."""
+    """Stage one source clip and export a phase-1 vertical MP4 locally.
+
+    ``voiceover`` (see :mod:`content_lab_editing.voiceover`) is mixed over the clip audio.
+    """
 
     normalized_source_uri = _normalize_source_uri(source_uri)
     resolved_workdir = Path(workdir)
@@ -150,6 +158,7 @@ def render_basic_vertical_edit(
             overlay_timeline=overlay_timeline,
             scene_plan_for_overlay_diagnostics=scene_plan_for_overlay_diagnostics,
             editorial_template=editorial_template,
+            voiceover=voiceover,
             ffmpeg_bin=ffmpeg_bin,
             ffprobe_bin=ffprobe_bin,
         )
@@ -215,6 +224,7 @@ def render_basic_vertical_edit(
         source_has_audio=source_probe.has_audio_track,
         target_duration_seconds=source_probe.duration_seconds,
         video_filter=video_filter,
+        voiceover=voiceover,
         ffmpeg_bin=ffmpeg_bin,
     )
 
@@ -268,6 +278,7 @@ def render_basic_vertical_edit(
         overlay_safe_area=overlay_safe_area,
         overlay_manifest=normalized_overlays,
         edit_mode="single_clip",
+        voiceover=voiceover.as_dict() if voiceover is not None else None,
     )
 
 
@@ -283,6 +294,7 @@ def _render_scene_aware_edit(
     editorial_template: EditorialTemplate | None,
     ffmpeg_bin: str,
     ffprobe_bin: str,
+    voiceover: VoiceoverTrack | None = None,
 ) -> BasicEditorArtifact:
     normalized_source_uri = _normalize_source_uri(source_uri)
     segment_paths: list[Path] = []
@@ -375,6 +387,7 @@ def _render_scene_aware_edit(
         source_has_audio=combined_probe.has_audio_track,
         target_duration_seconds=combined_probe.duration_seconds,
         video_filter=video_filter,
+        voiceover=voiceover,
         ffmpeg_bin=ffmpeg_bin,
     )
 
@@ -432,6 +445,7 @@ def _render_scene_aware_edit(
         overlay_safe_area=overlay_safe_area,
         overlay_manifest=normalized_overlays,
         edit_mode="scene_composed",
+        voiceover=voiceover.as_dict() if voiceover is not None else None,
     )
 
 
@@ -741,82 +755,73 @@ def _render_final_video(
     target_duration_seconds: float,
     video_filter: str,
     ffmpeg_bin: str,
+    voiceover: VoiceoverTrack | None = None,
 ) -> None:
     fade_in_s, fade_out_s = _resolved_audio_fades(target_duration_seconds)
     fade_out_start = max(float(target_duration_seconds) - fade_out_s, 0.0)
-    command = [
-        ffmpeg_bin,
-        "-y",
-        "-i",
-        str(input_path),
-    ]
+    duration = f"{target_duration_seconds:.3f}"
+    command = [ffmpeg_bin, "-y", "-i", str(input_path)]
     if source_has_audio:
-        command.extend(
-            [
-                "-filter_complex",
-                (
-                    f"[0:v:0]{video_filter}[vout];"
-                    f"[0:a:0]apad,atrim=0:{target_duration_seconds:.3f},"
-                    f"afade=t=in:st=0:d={fade_in_s:.3f},"
-                    f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_s:.3f},"
-                    "asetpts=N/SR/TB[aout]"
-                ),
-                "-map",
-                "[vout]",
-                "-map",
-                "[aout]",
-            ]
-        )
+        bed = f"[0:a:0]apad,atrim=0:{duration}"
     else:
-        command.extend(
-            [
-                "-f",
-                "lavfi",
-                "-i",
-                (
-                    "anullsrc="
-                    f"channel_layout={_AUDIO_CHANNEL_LAYOUT}:sample_rate={_AUDIO_SAMPLE_RATE}"
-                ),
-                "-filter_complex",
-                (
-                    f"[0:v:0]{video_filter}[vout];"
-                    f"[1:a:0]atrim=0:{target_duration_seconds:.3f},"
-                    f"afade=t=in:st=0:d={fade_in_s:.3f},"
-                    f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_s:.3f},"
-                    "asetpts=N/SR/TB[aout]"
-                ),
-                "-map",
-                "[vout]",
-                "-map",
-                "[aout]",
-            ]
-        )
-    command.extend(["-map_metadata", "-1"])
-
-    command.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-ac",
-            "2",
-            "-ar",
-            str(_AUDIO_SAMPLE_RATE),
-            "-movflags",
-            "+faststart",
-            "-threads",
-            "1",
-            "-shortest",
-            str(output_path),
+        command += [
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=channel_layout={_AUDIO_CHANNEL_LAYOUT}:sample_rate={_AUDIO_SAMPLE_RATE}",
         ]
+        bed = f"[1:a:0]atrim=0:{duration}"
+    master = (
+        f"afade=t=in:st=0:d={fade_in_s:.3f},"
+        f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_s:.3f},"
+        "asetpts=N/SR/TB[aout]"
     )
+    if voiceover is None:
+        audio_graph = f"{bed},{master}"
+    else:
+        voice_index = 2 if not source_has_audio else 1
+        command += ["-i", str(voiceover.path)]
+        audio_graph = (
+            f"{bed},volume={_CLIP_AUDIO_UNDER_VOICE_GAIN}[bed];"
+            f"[{voice_index}:a:0]aresample={_AUDIO_SAMPLE_RATE},"
+            f"aformat=channel_layouts={_AUDIO_CHANNEL_LAYOUT},apad,atrim=0:{duration}[voice];"
+            f"[bed][voice]amix=inputs=2:duration=first:normalize=0,{master}"
+        )
+    command += [
+        "-filter_complex",
+        f"[0:v:0]{video_filter}[vout];{audio_graph}",
+        "-map",
+        "[vout]",
+        "-map",
+        "[aout]",
+        "-map_metadata",
+        "-1",
+    ]
+    if voiceover is not None and voiceover.is_mock:
+        # Lets QA tell a mock tone from real speech by looking at the file alone.
+        command += ["-metadata", f"comment={MOCK_VOICEOVER_TAG}"]
+    command += [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-ac",
+        "2",
+        "-ar",
+        str(_AUDIO_SAMPLE_RATE),
+        "-movflags",
+        "+faststart",
+        "-threads",
+        "1",
+        "-shortest",
+        str(output_path),
+    ]
 
     _run_command(command, failure_prefix=f"Failed to render basic editor output for {input_path}")
 
