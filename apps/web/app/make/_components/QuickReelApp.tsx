@@ -120,10 +120,16 @@ export default function QuickReelApp() {
   const defaults = branches?.default_selection;
   const fullSelection: Selection | undefined = defaults ? fillSelection(state.selection, defaults) : undefined;
   const composed = hookIndex !== null ? session?.activeReel(hookIndex, state.selection) : undefined;
-  const finalTimeline = useMemo(
-    () => (composed ? reelTimeline(composed, visuals) : null),
-    [composed, visuals],
-  );
+  // Voice + music per reel (keyed by hook + choices); undefined = not fetched yet, null = none.
+  const [soundtracks, setSoundtracks] = useState<Record<string, string | null>>({});
+  const soundtrackKey =
+    hookIndex !== null && fullSelection ? `${hookIndex}:${JSON.stringify(fullSelection)}` : null;
+  const soundtrackSrc = soundtrackKey ? soundtracks[soundtrackKey] : undefined;
+  const finalTimeline = useMemo(() => {
+    if (!composed) return null;
+    const timeline = reelTimeline(composed, visuals);
+    return soundtrackSrc ? { ...timeline, audio: { src: soundtrackSrc } } : timeline;
+  }, [composed, visuals, soundtrackSrc]);
 
   const fail = useCallback((e: unknown) => {
     dispatch({ type: 'FAILED', message: e instanceof Error ? e.message : String(e) });
@@ -172,11 +178,38 @@ export default function QuickReelApp() {
     if (session && hookIndex !== null) void session.prefetchAll(hookIndex, {}).catch(() => undefined);
   }, [session, hookIndex]);
 
-  // Render the MP4 as soon as the reel is final (the drop), so Download is ready by Ship.
+  // The reel is final at the drop: fetch its soundtrack (voice + music), then render the MP4
+  // with it, so Download is ready by Ship. A failed soundtrack renders silent, with a notice.
+  // Keyed by the string soundtrackKey only: branches/selection objects change identity on
+  // every render, and depending on them re-ran (and cancelled) the request in a loop.
+  const soundtrackInputs = useRef({ seed: state.seed, branches, fullSelection });
+  soundtrackInputs.current = { seed: state.seed, branches, fullSelection };
+  const soundtrackRequested = useRef(new Set<string>());
+  useEffect(() => {
+    if (state.phase.name !== 'drop' || !soundtrackKey || soundtrackSrc !== undefined) return;
+    if (soundtrackRequested.current.has(soundtrackKey)) return;
+    const { seed, branches: currentBranches, fullSelection: selection } = soundtrackInputs.current;
+    if (!seed || !currentBranches || !selection) return;
+    soundtrackRequested.current.add(soundtrackKey);
+    api
+      .soundtrack(seed.orgId, seed.pageId, {
+        hook: currentBranches.hook,
+        branches: currentBranches.branches,
+        selection,
+      })
+      .then((result) => setSoundtracks((prev) => ({ ...prev, [soundtrackKey]: result.src })))
+      .catch((e) => {
+        notify(`No soundtrack: ${e instanceof Error ? e.message : String(e)}`, 'danger');
+        setSoundtracks((prev) => ({ ...prev, [soundtrackKey]: null }));
+      });
+  }, [api, state.phase.name, soundtrackKey, soundtrackSrc, notify]);
+
   const { start: startRender } = render;
   useEffect(() => {
-    if (state.phase.name === 'drop' && finalTimeline) void startRender(finalTimeline);
-  }, [state.phase.name, state.dropCount, finalTimeline, startRender]);
+    if (state.phase.name === 'drop' && finalTimeline && soundtrackSrc !== undefined) {
+      void startRender(finalTimeline);
+    }
+  }, [state.phase.name, state.dropCount, finalTimeline, soundtrackSrc, startRender]);
 
   useEffect(() => {
     setFocusedCard(0);

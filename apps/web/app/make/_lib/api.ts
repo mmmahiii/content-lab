@@ -18,6 +18,15 @@ import type {
 /** Target reel length handed to branches / compose (the energy choice stretches it). */
 export const REEL_SECONDS = 15;
 
+/** Voice + music for a composed reel (`src` is null when neither TTS nor music is enabled). */
+export interface SoundtrackResult {
+  soundtrack_id: string;
+  src: string | null;
+  duration_seconds: number;
+  voiceover: { provider: string; mock: boolean } | null;
+  music: { provider: string; mood: string } | null;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -101,6 +110,15 @@ export function createApi(fetcher: Fetch = (...args) => fetch(...args)) {
       body: { hook: HookCandidate; branches: BranchSet; selection: Selection },
     ) =>
       post<ComposedReel>(fetcher, `${page(orgId, pageId)}/quick-reel/compose`, {
+        duration_seconds: REEL_SECONDS,
+        ...body,
+      }),
+    soundtrack: (
+      orgId: string,
+      pageId: string,
+      body: { hook: HookCandidate; branches: BranchSet; selection: Selection },
+    ) =>
+      post<SoundtrackResult>(fetcher, `${page(orgId, pageId)}/quick-reel/soundtrack`, {
         duration_seconds: REEL_SECONDS,
         ...body,
       }),

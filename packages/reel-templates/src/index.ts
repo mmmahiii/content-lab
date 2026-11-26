@@ -55,6 +55,7 @@ export {
   type PipelineOverlayCue,
   type ReelTimeline,
   type TimelineOverlay,
+  type TimelineAudio,
   type TimelineVisual,
   type VisualFit,
 } from './timeline';

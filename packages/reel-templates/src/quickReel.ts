@@ -4,6 +4,7 @@ import {
   type Energy,
   type PipelineOverlayCue,
   type ReelTimeline,
+  type TimelineAudio,
   type TimelineVisual,
   type VisualFit,
 } from './timeline';
@@ -40,6 +41,8 @@ export interface QuickReelOptions {
   visuals?: QuickReelVisual[];
   backdrop?: [string, string];
   showProgress?: boolean;
+  /** Soundtrack from the API's `quick-reel/soundtrack` (voice + music). */
+  audio?: TimelineAudio;
 }
 
 export interface FrameWindow {
@@ -96,6 +99,7 @@ export function fromComposedReel(
     backdrop: opts.backdrop ?? energyStyle(composed.pace).backdrop,
     visuals: assignVisuals(sceneWindows(composed, fps), opts.visuals ?? []),
     showProgress: opts.showProgress ?? true,
+    ...(opts.audio ? { audio: opts.audio } : {}),
   };
 }
 

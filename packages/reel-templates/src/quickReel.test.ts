@@ -96,3 +96,24 @@ describe('loop previews', () => {
     expect(t.showProgress).toBe(false);
   });
 });
+
+describe('fromComposedReel soundtrack', () => {
+  it('attaches the soundtrack only when given, so silent timelines keep their render id', async () => {
+    const { fromComposedReel } = await import('./quickReel');
+    const { parseReelTimeline } = await import('./schema');
+    const composed = {
+      duration_seconds: 4,
+      pace: 'punchy' as const,
+      overlay_timeline: [{ text: 'Hook', emphasis: 'hook', start_seconds: 0, end_seconds: 4 }],
+      scenes: [{ scene_id: 's1', purpose: 'hook', start_seconds: 0, end_seconds: 4 }],
+    };
+
+    const silent = fromComposedReel(composed);
+    const voiced = fromComposedReel(composed, { audio: { src: '/api/x/soundtrack.wav' } });
+
+    expect('audio' in silent).toBe(false);
+    expect(voiced.audio).toEqual({ src: '/api/x/soundtrack.wav' });
+    expect(parseReelTimeline(voiced).audio?.src).toBe('/api/x/soundtrack.wav');
+    expect(() => parseReelTimeline({ ...voiced, audio: { src: '' } })).toThrow();
+  });
+});

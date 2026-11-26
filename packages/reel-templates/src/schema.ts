@@ -41,6 +41,13 @@ export const reelTimelineSchema = z
     visuals: z.array(visualSchema).max(24),
     energy: z.enum(['chill', 'punchy', 'dramatic']).optional(),
     showProgress: z.boolean().optional(),
+    audio: z
+      .object({
+        src: z.string().min(1).max(2048),
+        volume: z.number().min(0).max(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((t) => t.durationInFrames <= t.fps * MAX_RENDER_SECONDS, {

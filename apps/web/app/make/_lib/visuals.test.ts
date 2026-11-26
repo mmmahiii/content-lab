@@ -32,8 +32,8 @@ describe('page visuals', () => {
       asset({ id: 'bad', ready_status: 'failed' }),
     ]);
     expect(out.visuals).toEqual([
-      { src: '/api/orgs/org-1/assets/cut/file', fit: 'cutout' },
-      { src: '/api/orgs/org-1/assets/photo/file', fit: 'cover' },
+      { src: '/api/orgs/org-1/assets/cut/file?max_px=1080', fit: 'cutout' },
+      { src: '/api/orgs/org-1/assets/photo/file?max_px=1080', fit: 'cover' },
     ]);
     expect(out.assets).toEqual([
       { asset_id: 'cut', fit: 'cutout' },

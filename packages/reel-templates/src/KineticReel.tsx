@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AbsoluteFill,
+  Audio,
   Img,
   Sequence,
   continueRender,
@@ -55,6 +56,9 @@ export const KineticReel: React.FC<ReelTimeline> = (timeline) => {
         background: `linear-gradient(180deg, ${timeline.backdrop[0]}, ${timeline.backdrop[1]})`,
       }}
     >
+      {timeline.audio && (
+        <Audio src={resolveVisualSrc(timeline.audio.src)} volume={timeline.audio.volume ?? 1} />
+      )}
       {timeline.energy && mode !== 'cover' && <Glow style={style} />}
       {timeline.visuals.map((visual) => (
         <Sequence

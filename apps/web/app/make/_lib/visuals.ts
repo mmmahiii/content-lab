@@ -53,6 +53,9 @@ function label(asset: AssetLibraryItem): string | null {
   return asset.tags[0]?.slice(0, 80) ?? null;
 }
 
+/** Long side of the image copies used in previews and renders (the frame is 1080x1920). */
+export const VISUAL_MAX_PX = 1080;
+
 export function pageVisuals(orgId: string, pack: AssetPack, assets: AssetLibraryItem[]): PageVisuals {
   const usable = assets
     .filter((a) => isImage(a) && !['failed', 'rejected', 'archived'].includes(norm(a.ready_status)))
@@ -61,7 +64,11 @@ export function pageVisuals(orgId: string, pack: AssetPack, assets: AssetLibrary
   const fit = (a: AssetLibraryItem): 'cutout' | 'cover' =>
     a.has_transparency === false ? 'cover' : 'cutout';
   return {
-    visuals: usable.map((a) => ({ src: `/api/orgs/${orgId}/assets/${a.id}/file`, fit: fit(a) })),
+    // The API's cached 1080 px copy: full-size pack PNGs (2.6-14 MB) made renders ~70 s.
+    visuals: usable.map((a) => ({
+      src: `/api/orgs/${orgId}/assets/${a.id}/file?max_px=${VISUAL_MAX_PX}`,
+      fit: fit(a),
+    })),
     assets: usable.map((a) => ({ asset_id: a.id, fit: fit(a) })),
     labels: [...new Set(usable.map(label).filter((l): l is string => l !== null))],
     packName: pack.name,

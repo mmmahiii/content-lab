@@ -6,7 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ReelTimeline } from '@content-lab/reel-templates';
 
-import { absolutizeVisuals, jobView, RenderQueue, type RenderFn } from './render-queue';
+import {
+  absolutizeVisuals,
+  jobView,
+  renderConcurrency,
+  renderTabConcurrency,
+  RenderQueue,
+  soundtrackIdOf,
+  type RenderFn,
+} from './render-queue';
 
 const timeline = (n: number): ReelTimeline => ({
   fps: 30,
@@ -130,4 +138,71 @@ describe('absolutizeVisuals', () => {
       expect(() => absolutizeVisuals(t, 'http://127.0.0.1:3000')).toThrow(/not allowed/);
     },
   );
+});
+
+describe('parallel renders', () => {
+  it('runs up to `concurrency` renders at once and starts the next when one finishes', async () => {
+    const { render, pending } = controllableRender();
+    const queue = new RenderQueue(render, outDir, idFor, 2);
+    const jobs = [1, 2, 3].map((n) => queue.enqueue(timeline(n)));
+    await flush();
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(queue.running).toBe(2);
+    expect(jobs.map((j) => j.status)).toEqual(['rendering', 'rendering', 'queued']);
+
+    pending[1].resolve();
+    await flush();
+    await flush();
+    expect(jobs[1].status).toBe('done');
+    expect(render).toHaveBeenCalledTimes(3);
+    expect(jobs[2].status).toBe('rendering');
+  });
+
+  it('reads QUICK_REEL_RENDER_CONCURRENCY (default 2) and rejects nonsense', () => {
+    expect(renderConcurrency({})).toBe(2);
+    expect(renderConcurrency({ QUICK_REEL_RENDER_CONCURRENCY: '3' })).toBe(3);
+    expect(() => renderConcurrency({ QUICK_REEL_RENDER_CONCURRENCY: '0' })).toThrow();
+    expect(() => renderConcurrency({ QUICK_REEL_RENDER_CONCURRENCY: 'lots' })).toThrow();
+    expect(() => new RenderQueue(vi.fn(), outDir, idFor, 0)).toThrow();
+  });
+});
+
+describe('soundtrack and downscaled visuals', () => {
+  const org = '11111111-1111-4111-8111-111111111111';
+  const asset = '22222222-2222-4222-8222-222222222222';
+  const sid = 'abcdef0123456789abcdef01';
+
+  it('absolutizes the soundtrack proxy path and exposes its id', () => {
+    const t = { ...timeline(1), audio: { src: `/api/orgs/${org}/quick-reel/soundtracks/${sid}/file` } };
+    const out = absolutizeVisuals(t, 'http://127.0.0.1:3000');
+    expect(out.audio?.src).toBe(`http://127.0.0.1:3000/api/orgs/${org}/quick-reel/soundtracks/${sid}/file`);
+    expect(soundtrackIdOf(t)).toBe(sid);
+    expect(soundtrackIdOf(timeline(1))).toBeNull();
+  });
+
+  it.each(['https://evil.example/a.wav', `/api/orgs/${org}/quick-reel/soundtracks/NOT-HEX/file`])(
+    'refuses audio %s',
+    (src) => {
+      expect(() => absolutizeVisuals({ ...timeline(1), audio: { src } }, 'http://x')).toThrow(/not allowed/);
+    },
+  );
+
+  it('allows the max_px asset copy but no other query', () => {
+    const ok = `/api/orgs/${org}/assets/${asset}/file?max_px=1080`;
+    const t = { ...timeline(1), visuals: [{ src: ok, startFrame: 0, endFrame: 90 }] };
+    expect(absolutizeVisuals(t, 'http://x').visuals[0].src).toBe(`http://x${ok}`);
+    const bad = { ...t, visuals: [{ src: `${ok}&redirect=1`, startFrame: 0, endFrame: 90 }] };
+    expect(() => absolutizeVisuals(bad, 'http://x')).toThrow(/not allowed/);
+  });
+});
+
+describe('renderTabConcurrency', () => {
+  it('splits the cores across parallel renders, with an override', () => {
+    expect(renderTabConcurrency(2, {}, 4)).toBe(2);
+    expect(renderTabConcurrency(1, {}, 4)).toBe(4);
+    expect(renderTabConcurrency(3, {}, 2)).toBe(1);
+    expect(renderTabConcurrency(2, { QUICK_REEL_RENDER_TAB_CONCURRENCY: '6' }, 4)).toBe(6);
+    expect(() => renderTabConcurrency(2, { QUICK_REEL_RENDER_TAB_CONCURRENCY: '0' }, 4)).toThrow();
+  });
 });

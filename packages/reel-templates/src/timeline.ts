@@ -52,7 +52,19 @@ export type ReelTimeline = {
   energy?: Energy;
   /** In-video story progress bar. Defaults to true; Quick Reel hides it while building. */
   showProgress?: boolean;
+  /**
+   * Soundtrack (voiceover + music bed, built by the API's `quick-reel/soundtrack`), played
+   * from frame 0 in the player and muxed into the MP4. Omitted = silent.
+   */
+  audio?: TimelineAudio;
 };
+
+export interface TimelineAudio {
+  /** Root-relative or absolute URL (the render service makes it absolute). */
+  src: string;
+  /** 0-1, default 1. */
+  volume?: number;
+}
 
 /** Shape of one entry in the pipeline's `script.overlay_timeline`. */
 export interface PipelineOverlayCue {
