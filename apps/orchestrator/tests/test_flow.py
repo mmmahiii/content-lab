@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 import pytest
 from botocore.exceptions import ClientError
@@ -1805,7 +1806,8 @@ def test_process_reel_flow_runs_full_phase_one_package_generation(
     assert creative_trace["prompt_trace"] == compiled_prompt["trace"]
     editing_output = cast(dict[str, Any], result["step_outputs"]["editing"])
     timeline_uri = cast(str, editing_output["timeline_uri"])
-    timeline_path = Path(unquote(urlparse(timeline_uri).path).lstrip("/"))
+    # url2pathname keeps POSIX paths absolute and maps file:///C:/... on Windows.
+    timeline_path = Path(url2pathname(unquote(urlparse(timeline_uri).path)))
     timeline_payload = process_reel_flow_module.json.loads(timeline_path.read_text())
     assert timeline_payload["timeline"]["scenes"] == editing_output["timeline"]["scenes"]
     audio_tracks = cast(list[dict[str, Any]], timeline_payload["timeline"]["audio_tracks"])
@@ -2183,6 +2185,21 @@ def _stub_passing_format_report(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(process_reel_flow_module, "evaluate_format_qa", _fake_format)
+    _stub_healthy_media_analysis(monkeypatch)
+
+
+def _stub_healthy_media_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These run_qa unit tests point at a fake MP4; decoded-media QA is covered in packages/qa."""
+
+    from content_lab_qa.media_content import MediaContentAnalysis
+
+    monkeypatch.setattr(
+        process_reel_flow_module,
+        "analyze_media_content",
+        lambda *_args, **_kwargs: MediaContentAnalysis(
+            duration_seconds=12.0, has_audio=True, mean_volume_db=-20.0
+        ),
+    )
 
 
 def _stub_passing_alignment_report(monkeypatch: pytest.MonkeyPatch) -> None:

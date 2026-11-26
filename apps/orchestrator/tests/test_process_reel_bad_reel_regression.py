@@ -12,6 +12,7 @@ from content_lab_api.services import ProcessReelExecution, ProcessReelQAResult
 from content_lab_core.types import QAVerdict
 from content_lab_orchestrator.flows.process_reel import PhaseOneProcessReelExecutor
 from content_lab_qa.format import FormatQAReport, ProbedMedia
+from content_lab_qa.media_content import MediaContentAnalysis
 from content_lab_qa.overlay import OverlayTextFidelityReport
 
 
@@ -172,12 +173,20 @@ def test_process_reel_qa_warns_on_semantic_drift_with_technical_format_patched(
     )
     monkeypatch.setattr(
         _process_reel_module,
+        "analyze_media_content",
+        lambda *_a, **_k: MediaContentAnalysis(
+            duration_seconds=12.0, has_audio=True, mean_volume_db=-20.0
+        ),
+    )
+    monkeypatch.setattr(
+        _process_reel_module,
         "evaluate_overlay_text_fidelity_qa",
         lambda *, script, editing=None: _dummy_passing_overlay(script=script, editing=editing),
     )
     ex = _execution_for_bundle(case_id="intent_drift_solar_mismatch")
     executor = object.__new__(PhaseOneProcessReelExecutor)
     executor._ffprobe_bin = "ffprobe"
+    executor._ffmpeg_bin = "ffmpeg"
     executor._repetition_history_store = None
     result = PhaseOneProcessReelExecutor.run_qa(executor, ex)
     assert isinstance(result, ProcessReelQAResult)
@@ -200,12 +209,20 @@ def test_process_reel_qa_passes_baseline_with_technical_format_patched(
     )
     monkeypatch.setattr(
         _process_reel_module,
+        "analyze_media_content",
+        lambda *_a, **_k: MediaContentAnalysis(
+            duration_seconds=12.0, has_audio=True, mean_volume_db=-20.0
+        ),
+    )
+    monkeypatch.setattr(
+        _process_reel_module,
         "evaluate_overlay_text_fidelity_qa",
         lambda *, script, editing=None: _dummy_passing_overlay(script=script, editing=editing),
     )
     ex = _execution_for_bundle(case_id="well_aligned_baseline")
     executor = object.__new__(PhaseOneProcessReelExecutor)
     executor._ffprobe_bin = "ffprobe"
+    executor._ffmpeg_bin = "ffmpeg"
     executor._repetition_history_store = None
     result = PhaseOneProcessReelExecutor.run_qa(executor, ex)
     assert result.passed is True

@@ -18,6 +18,14 @@ from content_lab_qa.format import (
     evaluate_reel_package_format,
 )
 from content_lab_qa.gate import QAGate, QAResult, qa_result_blocks_readiness
+from content_lab_qa.media_content import (
+    MediaContentAnalysis,
+    MediaContentConstraints,
+    analyze_media_content,
+    evaluate_audio_content_qa,
+    evaluate_media_content_qa,
+    evaluate_overlay_coverage_qa,
+)
 from content_lab_qa.overlay import (
     OverlayTextFidelityFinding,
     OverlayTextFidelityReport,
@@ -83,6 +91,12 @@ from content_lab_qa.timing import (
 )
 
 __all__ = [
+    "MediaContentAnalysis",
+    "MediaContentConstraints",
+    "analyze_media_content",
+    "evaluate_audio_content_qa",
+    "evaluate_media_content_qa",
+    "evaluate_overlay_coverage_qa",
     "AlignmentFinding",
     "AlignmentQAConstraints",
     "AlignmentQAReport",

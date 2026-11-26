@@ -95,10 +95,14 @@ from content_lab_qa import (
     RepetitionHistoryStore,
     RepetitionPolicy,
     SemanticScriptQARequest,
+    analyze_media_content,
     default_overlay_stack_policy_for_template,
     evaluate_alignment_qa,
+    evaluate_audio_content_qa,
     evaluate_format_qa,
+    evaluate_media_content_qa,
     evaluate_media_sync_qa,
+    evaluate_overlay_coverage_qa,
     evaluate_overlay_text_fidelity_qa,
     evaluate_repetition,
     evaluate_semantic_script,
@@ -1528,6 +1532,26 @@ class PhaseOneProcessReelExecutor:
         media_sync_report = evaluate_media_sync_qa(
             editing=editing_output,
         )
+        # Decode the final MP4: format QA only checks stream metadata, so black, frozen or
+        # silent reels used to pass.
+        media_analysis = analyze_media_content(
+            _required_text(
+                editing_output.get("final_video_path"),
+                field_name="editing.final_video_path",
+            ),
+            ffmpeg_bin=self._ffmpeg_bin,
+            ffprobe_bin=self._ffprobe_bin,
+        )
+        media_content_result = evaluate_media_content_qa(analysis=media_analysis)
+        audio_content_result = evaluate_audio_content_qa(
+            analysis=media_analysis,
+            voiceover=_mapping(editing_output.get("voiceover")) or None,
+            expect_voiceover=False,
+        )
+        overlay_coverage_result = evaluate_overlay_coverage_qa(
+            rendered_overlay_manifest=_mapping(editing_output.get("rendered_overlay_manifest")),
+            final_duration_seconds=float(editing_output.get("duration_seconds") or 0.0),
+        )
         script_payload = _mapping(creative_output.get("script"))
         caption_meta_result = validate_caption_meta_language(
             {"creative_trace": {"script": script_payload}},
@@ -1541,6 +1565,9 @@ class PhaseOneProcessReelExecutor:
             overlay_fidelity_report.as_qa_result(),
             timeline_timing_report,
             media_sync_report,
+            media_content_result,
+            audio_content_result,
+            overlay_coverage_result,
             caption_meta_result,
         ]
         blocking_failures = [
@@ -1603,6 +1630,9 @@ class PhaseOneProcessReelExecutor:
                 },
                 "timeline_timing": timeline_timing_report.as_payload(),
                 "media_sync": media_sync_report.as_payload(),
+                "media_content": media_content_result.as_payload(),
+                "audio_content": audio_content_result.as_payload(),
+                "overlay_coverage": overlay_coverage_result.as_payload(),
                 "caption_meta_language": caption_meta_result.as_payload(),
             },
         )
