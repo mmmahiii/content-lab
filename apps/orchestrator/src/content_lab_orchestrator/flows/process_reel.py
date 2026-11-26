@@ -148,13 +148,24 @@ def _reel_duration_seconds(requested_duration_seconds: int) -> int:
     return min(max(int(requested_duration_seconds), MIN_REEL_DURATION_SECONDS), MAX_REEL_DURATION_SECONDS)
 
 
-def _clip_plan(reel_duration_seconds: int) -> list[tuple[int, int]]:
+DEFAULT_MAX_CLIPS_PER_REEL = 3
+
+
+def _clip_plan(
+    reel_duration_seconds: int,
+    *,
+    max_clips: int | None = None,
+) -> list[tuple[int, int]]:
     """Split a reel into the fewest provider clips (each 5-10 s) that cover it exactly.
 
     12 s -> (0-6, 6-12); 15 s -> (0-8, 8-15); 30 s -> three 10 s clips; 7 s -> one 7 s clip.
+    With ``max_clips`` (a cost cap) only the first ``max_clips * 10`` seconds get their own
+    clips; editing loops them over the rest of the reel.
     """
 
     total = _reel_duration_seconds(reel_duration_seconds)
+    if max_clips is not None:
+        total = min(total, max(int(max_clips), 1) * RUNWAY_GEN45_MAX_DURATION_SECONDS)
     count = -(-total // RUNWAY_GEN45_MAX_DURATION_SECONDS)
     base, remainder = divmod(total, count)
     spans: list[tuple[int, int]] = []
@@ -1244,6 +1255,7 @@ class PhaseOneProcessReelExecutor:
         ffprobe_bin: str = "ffprobe",
         tts_provider: TTSProvider | None = None,
         music_provider: MusicBedProvider | None = None,
+        max_clips_per_reel: int = DEFAULT_MAX_CLIPS_PER_REEL,
     ) -> None:
         self._planning_context_loader = planning_context_loader
         self._asset_resolver = asset_resolver
@@ -1264,6 +1276,9 @@ class PhaseOneProcessReelExecutor:
         self._tts_provider = tts_provider
         # None = no music bed; pauses between narration lines are then silent.
         self._music_provider = music_provider
+        if max_clips_per_reel < 1:
+            raise ValueError("max_clips_per_reel must be at least 1")
+        self._max_clips_per_reel = max_clips_per_reel
 
     def create_creative_plan(self, execution: ProcessReelExecution) -> dict[str, Any]:
         context = self._planning_context_loader.load(execution)
@@ -1360,7 +1375,7 @@ class PhaseOneProcessReelExecutor:
         )
         compiled_prompt_payload = compiled_prompt.model_dump(mode="json")
         reel_duration_seconds = _reel_duration_seconds(int(brief_payload["duration_seconds"]))
-        clip_spans = _clip_plan(reel_duration_seconds)
+        clip_spans = _clip_plan(reel_duration_seconds, max_clips=self._max_clips_per_reel)
         duration_seconds = clip_spans[0][1] - clip_spans[0][0]
         supplementary_asset_requests = [
             _supplementary_asset_request(
@@ -1414,6 +1429,8 @@ class PhaseOneProcessReelExecutor:
                 {"index": index, "start_seconds": start, "end_seconds": end}
                 for index, (start, end) in enumerate(clip_spans)
             ],
+            # True when the cost cap leaves part of the reel to be covered by looping clips.
+            "clip_loop_planned": clip_spans[-1][1] < reel_duration_seconds,
         }
 
     def resolve_assets(self, execution: ProcessReelExecution) -> dict[str, Any]:
@@ -1480,9 +1497,15 @@ class PhaseOneProcessReelExecutor:
                 requested_provider_duration_seconds = sum(
                     float(value) for value in requested_clip_seconds if value is not None
                 )
+        loop_planned = bool(creative_output.get("clip_loop_planned"))
+        if loop_planned:
+            # Clips deliberately cover less than the reel; the requested-vs-source check would
+            # only restate that. The composition records which placements loop.
+            requested_provider_duration_seconds = None
         if cinematic_source_duration is not None:
             requested_provider_duration_seconds = cinematic_source_duration
             additional_source_uris = []
+            loop_planned = False
         workdir = self._run_workdir(execution, "editing")
         workdir.mkdir(parents=True, exist_ok=True)
         voiceover = self._build_voiceover(
@@ -1504,6 +1527,7 @@ class PhaseOneProcessReelExecutor:
                 workdir=workdir / "music",
             ),
             additional_source_uris=additional_source_uris,
+            allow_loop=loop_planned,
             ffmpeg_bin=self._ffmpeg_bin,
             ffprobe_bin=self._ffprobe_bin,
         )
@@ -1929,6 +1953,7 @@ def build_phase_one_process_reel_executor(
         ffprobe_bin=ffprobe_bin,
         tts_provider=tts_provider,
         music_provider=music_provider,
+        max_clips_per_reel=resolved_settings.runway_max_clips_per_reel,
     )
 
 

@@ -522,3 +522,42 @@ def test_render_extends_one_clip_by_looping_when_allowed(tmp_path: Path) -> None
 
     assert artifact.duration_seconds == pytest.approx(10.0, abs=0.1)
     assert artifact.source_composition["looped_placements"] == 2  # type: ignore[index]
+
+
+def test_chained_clips_dissolve_without_losing_length_or_freezing(tmp_path: Path) -> None:
+    first = _moving_clip(tmp_path / "clip-1.mp4", seconds=6)
+    second = _moving_clip(tmp_path / "clip-2.mp4", seconds=6, hue=120)
+
+    artifact = render_basic_vertical_edit(
+        source_uri=first,
+        additional_source_uris=[second],
+        workdir=tmp_path / "job",
+        expected_timeline_duration_seconds=12,
+    )
+
+    composition = artifact.source_composition
+    assert composition is not None
+    assert composition["crossfade_seconds"] == pytest.approx(0.3)
+    assert artifact.duration_seconds == pytest.approx(12.0, abs=0.05)
+    log = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(artifact.final_video_path), "-vf",
+         "scale=180:-2,freezedetect=n=-60dB:d=0.2", "-f", "null", "-"],
+        capture_output=True, text=True, check=True,
+    ).stderr  # fmt: skip
+    assert "freeze_start" not in log
+
+
+def test_clip_crossfade_can_be_disabled(tmp_path: Path) -> None:
+    first = _moving_clip(tmp_path / "clip-1.mp4", seconds=5)
+    second = _moving_clip(tmp_path / "clip-2.mp4", seconds=5)
+
+    artifact = render_basic_vertical_edit(
+        source_uri=first,
+        additional_source_uris=[second],
+        workdir=tmp_path / "job",
+        expected_timeline_duration_seconds=10,
+        clip_crossfade_seconds=0,
+    )
+
+    assert artifact.source_composition["crossfade_seconds"] == 0  # type: ignore[index]
+    assert artifact.duration_seconds == pytest.approx(10.0, abs=0.05)

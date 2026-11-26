@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     runway_api_base_url: str = "https://api.dev.runwayml.com"
     runway_api_version: str = "2024-11-06"
     runway_api_mode: str = "live"
+    # Cost cap: provider clips (5-10 s each) generated per reel. Longer reels loop these clips
+    # (with dissolves) instead of paying for more; 3 covers 30 s of unique footage.
+    runway_max_clips_per_reel: int = 3
 
     # -- Voiceover (text-to-speech) --
     # "" = auto: mock when RUNWAY_API_MODE=mock, elevenlabs when a key is set, else none.

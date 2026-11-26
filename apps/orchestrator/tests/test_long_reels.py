@@ -197,3 +197,78 @@ def test_twenty_second_idea_plan_renders_from_two_clips_and_passes_media_qa(
     audio_codes = [f["code"] for f in details["audio_content"]["details"]["findings"]]
     assert audio_codes == ["mock_voiceover"], details["audio_content"]
     assert details["timeline_timing"]["verdict"] in {"pass", "warn"}, details["timeline_timing"]
+
+
+@pytest.mark.parametrize(
+    ("duration", "max_clips", "expected"),
+    [
+        (40, 3, [(0, 10), (10, 20), (20, 30)]),
+        (40, 2, [(0, 10), (10, 20)]),
+        (15, 1, [(0, 10)]),
+        (20, 3, [(0, 10), (10, 20)]),  # under the cap: unchanged
+    ],
+)
+def test_clip_plan_respects_the_cost_cap(
+    duration: int, max_clips: int, expected: list[tuple[int, int]]
+) -> None:
+    assert _clip_plan(duration, max_clips=max_clips) == expected
+
+
+def test_capped_reel_requests_fewer_clips_and_loops_them(tmp_path: Path) -> None:
+    executor = PhaseOneProcessReelExecutor(
+        planning_context_loader=_Loader(
+            PhaseOnePlanningContext(
+                page_name="test",
+                page_metadata={},
+                family_name="capped",
+                family_mode="explore",
+                variant_label="Smoke test",
+                brief_index=0,
+                target_platforms=(Platform.INSTAGRAM,),
+                timezone="UTC",
+                locale="en",
+                policy=PolicyStateDocument(),
+                duration_seconds=25,
+            )
+        ),
+        asset_resolver=cast(Any, None),
+        storage_client=cast(Any, None),
+        package_layout=CanonicalStorageLayout(bucket="test"),
+        temp_root=tmp_path / "runs",
+        max_clips_per_reel=1,
+    )
+    execution = ProcessReelExecution(
+        reel_id=str(uuid.uuid4()),
+        org_id=str(uuid.uuid4()),
+        page_id=str(uuid.uuid4()),
+        reel_family_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        dry_run=False,
+    )
+    creative = executor.create_creative_plan(execution)
+    assert creative["canonical_timeline"]["duration_seconds"] == 25
+    assert creative["primary_asset_request"]["duration_seconds"] == 10
+    assert creative["supplementary_asset_requests"] == []
+    assert creative["clip_loop_planned"] is True
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(render_mock_clip(duration_seconds=10, seed=1))
+    execution.outputs["creative_planning"] = creative
+    execution.outputs["asset_resolution"] = {
+        "storage_uri": str(clip),
+        "asset_key_hash": "capped",
+        "policy": {},
+        "source_clips": [
+            {"clip_index": 0, "storage_uri": str(clip), "requested_duration_seconds": 10}
+        ],
+    }
+
+    editing = executor.edit_reel(execution)
+
+    assert float(_probe(Path(editing["final_video_path"]))["duration"]) == pytest.approx(
+        25, abs=0.1
+    )
+    composition = editing["source_composition"]
+    assert composition["mode"] == "loop"
+    assert [p["clip_index"] for p in composition["placements"]] == [0, 0, 0]
+    assert editing["duration_contract"]["status"] == "pass"

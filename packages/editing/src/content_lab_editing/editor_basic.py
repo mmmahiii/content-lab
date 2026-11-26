@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -51,6 +52,16 @@ _VIDEO_FILTER = (
     "setsar=1"
 )
 _DURATION_TOLERANCE_SECONDS = 0.25
+# Final encode: "fast" is ~2x quicker than the old "medium" at the same CRF 18 (slightly larger
+# files). Override with CONTENT_LAB_X264_PRESET (e.g. "medium" or "slow" for smaller files).
+_DEFAULT_FINAL_X264_PRESET = "fast"
+_X264_PRESETS = frozenset(
+    {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"}
+)
+# Chained clips dissolve into each other instead of hard-cutting (0 = hard cuts).
+DEFAULT_CLIP_CROSSFADE_SECONDS = 0.3
+_INTERMEDIATE_X264_PRESET = "ultrafast"
+_INTERMEDIATE_X264_CRF = "12"
 _DEFAULT_COMPOSED_FPS = 24.0
 _MAX_COMPOSED_PLACEMENTS = 64
 _CONTENT_TYPE_EXTENSIONS = {
@@ -137,6 +148,7 @@ def render_basic_vertical_edit(
     music: MusicBed | None = None,
     additional_source_uris: Sequence[str | Path] = (),
     allow_loop: bool = False,
+    clip_crossfade_seconds: float = DEFAULT_CLIP_CROSSFADE_SECONDS,
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
 ) -> BasicEditorArtifact:
@@ -201,6 +213,7 @@ def render_basic_vertical_edit(
             additional_source_uris=additional_source_uris,
             target_duration_seconds=expected_timeline_duration_seconds,
             allow_loop=allow_loop,
+            crossfade_seconds=clip_crossfade_seconds,
             staged_dir=staged_dir,
             output_dir=output_dir,
             storage_client=storage_client,
@@ -508,6 +521,7 @@ def _compose_source_clips(
     ffmpeg_bin: str,
     ffprobe_bin: str,
     allow_loop: bool = False,
+    crossfade_seconds: float = 0.0,
 ) -> tuple[Path, MediaProbe, dict[str, Any], tuple[Path, ...]]:
     """Chain clips (looping from the first) into one normalized source of the target length.
 
@@ -576,7 +590,19 @@ def _compose_source_clips(
         rendered.append(piece)
         cursor += length
     combined = output_dir / "composed_source.mp4"
-    _concat_segments(segment_paths=rendered, output_path=combined, ffmpeg_bin=ffmpeg_bin)
+    lengths = [p["timeline_end_seconds"] - p["timeline_start_seconds"] for p in placements]
+    fade = min(crossfade_seconds, *(length / 4 for length in lengths)) if len(rendered) > 1 else 0
+    if fade > 0.01:
+        _crossfade_segments(
+            segment_paths=rendered,
+            lengths=lengths,
+            crossfade_seconds=fade,
+            output_path=combined,
+            ffmpeg_bin=ffmpeg_bin,
+        )
+    else:
+        fade = 0.0
+        _concat_segments(segment_paths=rendered, output_path=combined, ffmpeg_bin=ffmpeg_bin)
     combined_probe = probe_media_file(combined, ffprobe_bin=ffprobe_bin)
     loops = max(len(placements) - len(clips), 0)
     composition = {
@@ -593,6 +619,7 @@ def _compose_source_clips(
         ],
         "placements": placements,
         "looped_placements": loops,
+        "crossfade_seconds": round(fade, 3),
     }
     return combined, combined_probe, composition, tuple(path for path, _, _ in clips)
 
@@ -846,10 +873,11 @@ def _render_timeline_segment(
         [
             "-c:v",
             "libx264",
+            # Intermediate: re-encoded again by the final render, so near-lossless and fast.
             "-preset",
-            "medium",
+            _INTERMEDIATE_X264_PRESET,
             "-crf",
-            "18",
+            _INTERMEDIATE_X264_CRF,
             "-pix_fmt",
             "yuv420p",
             "-c:a",
@@ -861,11 +889,84 @@ def _render_timeline_segment(
             "-movflags",
             "+faststart",
             "-threads",
-            "1",
+            "0",
             str(output_path),
         ]
     )
     _run_command(command, failure_prefix=f"Failed to render edit segment for {input_path}")
+
+
+def _crossfade_segments(
+    *,
+    segment_paths: list[Path],
+    lengths: list[float],
+    crossfade_seconds: float,
+    output_path: Path,
+    ffmpeg_bin: str,
+) -> None:
+    """Join pieces with video dissolves while keeping the exact total length.
+
+    Every piece but the last is extended by holding its final frame for ``crossfade_seconds``;
+    the next piece fades in over that hold. No footage is lost and the timeline length is the
+    sum of the pieces, so overlay and voice timing are unaffected. Audio is concatenated as is.
+    """
+
+    count = len(segment_paths)
+    inputs: list[str] = []
+    for path in segment_paths:
+        inputs += ["-i", str(path)]
+    parts: list[str] = []
+    for index in range(count):
+        if index < count - 1:
+            parts.append(
+                f"[{index}:v]tpad=stop_mode=clone:stop_duration={crossfade_seconds:.3f},"
+                f"settb=AVTB[v{index}]"
+            )
+        else:
+            parts.append(f"[{index}:v]settb=AVTB[v{index}]")
+    previous = "v0"
+    offset = 0.0
+    for index in range(1, count):
+        offset += lengths[index - 1]
+        label = f"x{index}"
+        parts.append(
+            f"[{previous}][v{index}]xfade=transition=fade:duration={crossfade_seconds:.3f}:"
+            f"offset={offset:.3f}[{label}]"
+        )
+        previous = label
+    audio_inputs = "".join(f"[{index}:a]" for index in range(count))
+    parts.append(f"{audio_inputs}concat=n={count}:v=0:a=1[aout]")
+    _run_command(
+        [
+            ffmpeg_bin,
+            "-y",
+            *inputs,
+            "-filter_complex",
+            ";".join(parts),
+            "-map",
+            f"[{previous}]",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            _INTERMEDIATE_X264_PRESET,
+            "-crf",
+            _INTERMEDIATE_X264_CRF,
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-ac",
+            "2",
+            "-ar",
+            str(_AUDIO_SAMPLE_RATE),
+            "-threads",
+            "0",
+            str(output_path),
+        ],
+        failure_prefix="Failed to crossfade source clips",
+    )
 
 
 def _concat_segments(
@@ -966,7 +1067,7 @@ def _render_final_video(
         "-c:v",
         "libx264",
         "-preset",
-        "medium",
+        _final_x264_preset(),
         "-crf",
         "18",
         "-pix_fmt",
@@ -979,13 +1080,23 @@ def _render_final_video(
         str(_AUDIO_SAMPLE_RATE),
         "-movflags",
         "+faststart",
+        # All cores: x264 output is still deterministic for a given machine/thread count.
         "-threads",
-        "1",
+        "0",
         "-shortest",
         str(output_path),
     ]
 
     _run_command(command, failure_prefix=f"Failed to render basic editor output for {input_path}")
+
+
+def _final_x264_preset() -> str:
+    value = os.environ.get("CONTENT_LAB_X264_PRESET", "").strip().lower()
+    if not value:
+        return _DEFAULT_FINAL_X264_PRESET
+    if value not in _X264_PRESETS:
+        raise ValueError(f"CONTENT_LAB_X264_PRESET={value!r} is not an x264 preset")
+    return value
 
 
 def _resolved_audio_fades(target_duration_seconds: float) -> tuple[float, float]:
