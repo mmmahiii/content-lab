@@ -37,6 +37,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 for path in (
     REPO_ROOT / "apps" / "api" / "src",
     REPO_ROOT / "packages" / "assets" / "src",
@@ -44,6 +45,8 @@ for path in (
     REPO_ROOT / "packages" / "storage" / "src",
 ):
     sys.path.insert(0, str(path))
+
+from seed_downloads import DEFAULT_CACHE_ROOT, cached_bytes  # noqa: E402
 
 from content_lab_api.models import (  # noqa: E402
     Asset,
@@ -248,28 +251,19 @@ def commons_wiki_url(commons_title: str) -> str:
     return f"https://commons.wikimedia.org/wiki/{urllib.parse.quote(name)}"
 
 
-def download_with_retry(url: str, *, expect_prefixes: tuple[bytes, ...]) -> bytes:
-    last_err: Exception | None = None
-    for attempt in range(1, 8):
-        try:
-            request_obj = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(request_obj, timeout=180) as response:
-                data = response.read()
-            if not any(data.startswith(p) for p in expect_prefixes):
-                starts = data[:16]
-                raise RuntimeError(f"Unexpected file signature from {url!r}: {starts!r}")
-            return data
-        except urllib.error.HTTPError as exc:
-            last_err = exc
-            if exc.code not in {429, 500, 502, 503, 504}:
-                raise
-            retry_after = exc.headers.get("Retry-After")
-            delay = int(retry_after) if retry_after and retry_after.isdigit() else 5 * attempt
-            time.sleep(delay)
-        except urllib.error.URLError as exc:
-            last_err = exc
-            time.sleep(5 * attempt)
-    raise RuntimeError(f"Unable to download after retries: {url}") from last_err
+def download_with_retry(url: str, *, expect_prefixes: tuple[bytes, ...], cache_path: Path) -> bytes:
+    """Cached download (artifacts/seed-cache/steakpagetest); verified TLS via certifi."""
+
+    def _validate(data: bytes) -> None:
+        if not any(data.startswith(p) for p in expect_prefixes):
+            raise RuntimeError(f"Unexpected file signature from {url!r}: {data[:16]!r}")
+
+    data, from_cache = cached_bytes(
+        url, cache_path=cache_path, user_agent=USER_AGENT, validate=_validate
+    )
+    if not from_cache:
+        time.sleep(0.6)  # be polite to upload.wikimedia.org between real downloads
+    return data
 
 
 def validate_seed_bytes(seed: SteakSeed, data: bytes) -> None:
@@ -611,14 +605,7 @@ def main() -> None:
         need_assets = len(slot_map) < len(STEAK_SEEDS)
 
         if need_assets:
-            run_dir = (
-                REPO_ROOT
-                / "artifacts"
-                / "seed_steakpagetest"
-                / "downloads"
-                / time.strftime("%Y%m%d-%H%M%S")
-            )
-            run_dir.mkdir(parents=True, exist_ok=True)
+            cache_dir = DEFAULT_CACHE_ROOT / "steakpagetest"
 
             for seed in STEAK_SEEDS:
                 if seed.slot in slot_map:
@@ -628,9 +615,12 @@ def main() -> None:
                     prefixes = (b"\x89PNG\r\n\x1a\n",)
                 else:
                     prefixes = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")
-                data = download_with_retry(seed.upload_url, expect_prefixes=prefixes)
+                data = download_with_retry(
+                    seed.upload_url,
+                    expect_prefixes=prefixes,
+                    cache_path=cache_dir / seed.local_filename,
+                )
                 validate_seed_bytes(seed, data)
-                (run_dir / seed.local_filename).write_bytes(data)
 
                 spec = create_planned_spec(db, asset_pack_id=pack.id, seed=seed)
                 body = source_register_request(
@@ -645,7 +635,6 @@ def main() -> None:
                     settings=settings,
                 )
                 slot_map[seed.slot] = asset.id
-                time.sleep(0.6)
 
         if len(slot_map) < len(STEAK_SEEDS):
             missing = sorted({s.slot for s in STEAK_SEEDS} - set(slot_map))

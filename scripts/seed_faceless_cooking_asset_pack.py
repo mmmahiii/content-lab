@@ -9,25 +9,26 @@ import re
 import sys
 import time
 import urllib.parse
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from urllib.error import HTTPError, URLError
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 for path in (
+    REPO_ROOT / "scripts",
     REPO_ROOT / "apps" / "api" / "src",
     REPO_ROOT / "packages" / "assets" / "src",
     REPO_ROOT / "packages" / "shared" / "py" / "src",
     REPO_ROOT / "packages" / "storage" / "src",
 ):
     sys.path.insert(0, str(path))
+
+from seed_downloads import DEFAULT_CACHE_ROOT, cached_bytes, cached_json  # noqa: E402
 
 from content_lab_api.models import (  # noqa: E402
     AssetPack,
@@ -340,26 +341,28 @@ def main() -> None:
     settings = Settings()
     database_url = args.database_url or settings.database_url
     artifact_dir = Path(args.artifact_dir or REPO_ROOT / "artifacts" / "asset_packs" / "faceless_cooking_real_png")
-    run_dir = artifact_dir / time.strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(args.cache_dir or DEFAULT_CACHE_ROOT / "faceless_cooking")
 
-    print(f"Downloading {len(ASSET_SEEDS)} Wikimedia Commons PNG assets into {run_dir}")
-    image_infos = fetch_commons_image_infos([seed.title for seed in ASSET_SEEDS])
-    downloads = download_assets(run_dir, image_infos)
+    print(f"Using {len(ASSET_SEEDS)} Wikimedia Commons PNG assets (cache: {cache_dir})")
+    image_infos = fetch_commons_image_infos(
+        [seed.title for seed in ASSET_SEEDS], cache_dir=cache_dir, refresh=args.refresh
+    )
+    downloads = download_assets(cache_dir, image_infos, refresh=args.refresh)
 
     engine = create_engine(database_url, pool_pre_ping=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     with SessionLocal() as db:
         org = get_org(db, slug=args.org_slug, org_id=args.org_id)
         demo_page = ensure_demo_page(db, org_id=org.id) if args.create_demo_page else None
-        pack = create_pack(db, org_id=org.id, pack_name=args.pack_name)
+        pack = get_or_create_pack(db, org_id=org.id, pack_name=args.pack_name)
         summary_assets: list[dict[str, Any]] = []
         request = SimpleNamespace(state=SimpleNamespace(actor="seed_faceless_cooking_asset_pack"))
         for seed in ASSET_SEEDS:
             info = image_infos[seed.title]
             path = downloads[seed.title]
             data = path.read_bytes()
-            spec = create_planned_spec(db, asset_pack_id=pack.id, seed=seed)
+            spec = get_or_create_planned_spec(db, asset_pack_id=pack.id, seed=seed)
             body = source_register_request(seed=seed, info=info, data=data, spec_id=spec.id)
             asset, item, reused = register_source_asset_for_pack(
                 db,
@@ -403,12 +406,13 @@ def main() -> None:
             "asset_pack_name": pack.name,
             "niche": pack.niche,
             "requested_asset_count": pack.requested_asset_count,
-            "artifact_dir": str(run_dir),
+            "artifact_dir": str(artifact_dir),
+            "cache_dir": str(cache_dir),
             "asset_count": len(summary_assets),
             "by_kind": by_kind(summary_assets),
             "assets": summary_assets,
         }
-        (run_dir / "summary.json").write_text(
+        (artifact_dir / "last_seed_summary.json").write_text(
             json.dumps(result, indent=2, sort_keys=True),
             encoding="utf-8",
         )
@@ -427,6 +431,16 @@ def parse_args() -> argparse.Namespace:
         default="faceless cooking png test pack online",
     )
     parser.add_argument("--artifact-dir", default=None)
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Download cache (default artifacts/seed-cache/faceless_cooking); reused across runs.",
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Re-download Commons metadata and images even when cached.",
+    )
     parser.add_argument(
         "--create-demo-page",
         action=argparse.BooleanOptionalAction,
@@ -507,6 +521,23 @@ def ensure_demo_page(db: Session, *, org_id: uuid.UUID) -> Page:
     return page
 
 
+def get_or_create_pack(db: Session, *, org_id: uuid.UUID, pack_name: str) -> AssetPack:
+    """Reuse the newest pack with this name so re-running the seed does not pile up packs."""
+
+    existing = db.scalars(
+        select(AssetPack)
+        .where(AssetPack.org_id == org_id, AssetPack.name == pack_name)
+        .order_by(AssetPack.created_at.desc())
+    ).first()
+    if existing is not None:
+        # Registration runs against an approved pack; the seed marks it ready again at the end.
+        existing.status = AssetPackStatus.APPROVED.value
+        db.commit()
+        db.refresh(existing)
+        return existing
+    return create_pack(db, org_id=org_id, pack_name=pack_name)
+
+
 def create_pack(db: Session, *, org_id: uuid.UUID, pack_name: str) -> AssetPack:
     asset_mix = {
         AssetKind.BACKGROUND_IMAGE.value: 3,
@@ -535,6 +566,25 @@ def create_pack(db: Session, *, org_id: uuid.UUID, pack_name: str) -> AssetPack:
     db.commit()
     db.refresh(pack)
     return pack
+
+
+def get_or_create_planned_spec(
+    db: Session,
+    *,
+    asset_pack_id: uuid.UUID,
+    seed: CommonsAssetSeed,
+) -> PlannedAssetSpec:
+    existing = db.scalars(
+        select(PlannedAssetSpec)
+        .where(
+            PlannedAssetSpec.asset_pack_id == asset_pack_id,
+            PlannedAssetSpec.working_title == seed.working_title,
+        )
+        .order_by(PlannedAssetSpec.created_at.asc())
+    ).first()
+    if existing is not None:
+        return existing
+    return create_planned_spec(db, asset_pack_id=asset_pack_id, seed=seed)
 
 
 def create_planned_spec(
@@ -709,7 +759,12 @@ def compatibility_for_seed(seed: CommonsAssetSeed) -> AssetCompatibilityMetadata
     return AssetCompatibilityMetadata.model_validate(base)
 
 
-def fetch_commons_image_infos(titles: list[str]) -> dict[str, dict[str, Any]]:
+def fetch_commons_image_infos(
+    titles: list[str],
+    *,
+    cache_dir: Path,
+    refresh: bool = False,
+) -> dict[str, dict[str, Any]]:
     params = {
         "action": "query",
         "format": "json",
@@ -718,8 +773,13 @@ def fetch_commons_image_infos(titles: list[str]) -> dict[str, dict[str, Any]]:
         "titles": "|".join(titles),
     }
     url = f"{COMMONS_API}?{urllib.parse.urlencode(params)}"
-    with urllib.request.urlopen(request(url), timeout=120) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    titles_key = hashlib.sha256("|".join(sorted(titles)).encode("utf-8")).hexdigest()[:12]
+    payload, _ = cached_json(
+        url,
+        cache_path=cache_dir / f"commons_imageinfo-{titles_key}.json",
+        user_agent=USER_AGENT,
+        refresh=refresh,
+    )
 
     pages = payload["query"]["pages"].values()
     infos: dict[str, dict[str, Any]] = {}
@@ -751,17 +811,35 @@ def fetch_commons_image_infos(titles: list[str]) -> dict[str, dict[str, Any]]:
     return infos
 
 
-def download_assets(run_dir: Path, infos: dict[str, dict[str, Any]]) -> dict[str, Path]:
+def download_assets(
+    cache_dir: Path,
+    infos: dict[str, dict[str, Any]],
+    *,
+    refresh: bool = False,
+) -> dict[str, Path]:
     downloads: dict[str, Path] = {}
+    fetched = 0
     for seed in ASSET_SEEDS:
         info = infos[seed.title]
-        path = run_dir / seed.local_name
-        data = path.read_bytes() if path.exists() else download_with_retry(info["url"])
-        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
-            raise RuntimeError(f"{seed.title} did not download as a PNG")
-        path.write_bytes(data)
+        path = cache_dir / seed.local_name
+        _, from_cache = cached_bytes(
+            info["url"],
+            cache_path=path,
+            user_agent=USER_AGENT,
+            validate=_require_png,
+            refresh=refresh,
+        )
+        if not from_cache:
+            fetched += 1
+            time.sleep(1.0)  # be polite to upload.wikimedia.org between real downloads
         downloads[seed.title] = path
+    print(f"{fetched} downloaded, {len(ASSET_SEEDS) - fetched} from cache")
     return downloads
+
+
+def _require_png(data: bytes) -> None:
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError("download is not a PNG")
 
 
 def validate_seed_png(
@@ -778,32 +856,6 @@ def validate_seed_png(
         raise RuntimeError(
             f"{seed.title} is not layerable: non-background pack assets must have PNG transparency"
         )
-
-
-def download_with_retry(url: str) -> bytes:
-    last_error: Exception | None = None
-    for attempt in range(1, 7):
-        try:
-            with urllib.request.urlopen(request(url), timeout=180) as response:
-                content_type = response.headers.get("content-type", "").split(";", 1)[0]
-                if content_type != "image/png":
-                    raise RuntimeError(f"Download is not image/png: {content_type}")
-                return response.read()
-        except HTTPError as exc:
-            last_error = exc
-            if exc.code not in {429, 500, 502, 503, 504}:
-                raise
-            retry_after = exc.headers.get("retry-after")
-            delay = int(retry_after) if retry_after and retry_after.isdigit() else 5 * attempt
-            time.sleep(delay)
-        except URLError as exc:
-            last_error = exc
-            time.sleep(5 * attempt)
-    raise RuntimeError(f"Unable to download after retries: {url}") from last_error
-
-
-def request(url: str) -> urllib.request.Request:
-    return urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
 
 
 def ext_value(extmetadata: dict[str, Any], key: str) -> str | None:

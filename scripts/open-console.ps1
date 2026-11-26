@@ -303,12 +303,80 @@ function Test-DockerImageExists {
     return $LASTEXITCODE -eq 0
 }
 
+# Only files that change what goes into an image: source, config and lock files.
+# Hashing whole trees (.venv, .mypy_cache, node_modules, ...) took minutes (~18k files).
+$script:FingerprintExtensions = @(
+    ".py", ".pyi", ".toml", ".lock", ".cfg", ".ini", ".mako", ".sql",
+    ".json", ".yml", ".yaml", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".css", ".typed"
+)
+$script:FingerprintPrunedDirs = @(
+    ".git", ".venv", "node_modules", ".next", "dist", "coverage", "__pycache__",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "graphify-out", ".dev-stack",
+    ".quick-reel-renders", "artifacts"
+)
+
+function Test-FingerprintFile {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+
+    $name = [System.IO.Path]::GetFileName($RelativePath)
+    if ($name -like "Dockerfile*" -or $name -eq ".dockerignore" -or $name -eq "pnpm-lock.yaml") {
+        return $true
+    }
+    if ($name -eq "tsconfig.tsbuildinfo") {
+        return $false
+    }
+    return $script:FingerprintExtensions -contains [System.IO.Path]::GetExtension($name).ToLowerInvariant()
+}
+
+function Get-FingerprintCandidatePaths {
+    param([Parameter(Mandatory = $true)][string[]]$Paths)
+
+    # git knows which files are source (tracked, or new and not ignored) without walking caches.
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        $listed = & git -C $RepoRoot ls-files --cached --others --exclude-standard -- @Paths 2>$null
+        if ($LASTEXITCODE -eq 0 -and $listed) {
+            return @($listed | Where-Object { $_ } | Sort-Object -Unique)
+        }
+    }
+
+    # No git (e.g. a source export): walk, but never descend into caches or virtualenvs.
+    $root = (Resolve-Path -LiteralPath $RepoRoot).Path
+    $results = [System.Collections.Generic.List[string]]::new()
+    $stack = [System.Collections.Generic.Stack[string]]::new()
+    foreach ($path in $Paths) {
+        $full = Join-Path $RepoRoot $path
+        if (Test-Path -LiteralPath $full -PathType Leaf) {
+            $results.Add($path)
+        }
+        elseif (Test-Path -LiteralPath $full -PathType Container) {
+            $stack.Push($full)
+        }
+    }
+    while ($stack.Count -gt 0) {
+        $dir = $stack.Pop()
+        foreach ($entry in Get-ChildItem -LiteralPath $dir -Force) {
+            if ($entry.PSIsContainer) {
+                if ($script:FingerprintPrunedDirs -notcontains $entry.Name) {
+                    $stack.Push($entry.FullName)
+                }
+            }
+            else {
+                # Substring, not Path.GetRelativePath: Windows PowerShell 5.1 runs on .NET Framework.
+                $results.Add($entry.FullName.Substring($root.Length).TrimStart('\', '/'))
+            }
+        }
+    }
+    return @($results | Sort-Object -Unique)
+}
+
 function Get-BuildFingerprint {
     param(
         [bool]$IncludeWeb = $false
     )
 
     $paths = @(
+        ".dockerignore",
         "infra/docker-compose.yml",
         "infra/Dockerfile.api",
         "infra/Dockerfile.worker",
@@ -330,38 +398,20 @@ function Get-BuildFingerprint {
         )
     }
 
-    $files = foreach ($path in $paths) {
-        if (-not (Test-Path $path)) {
+    $hashInput = foreach ($relative in (Get-FingerprintCandidatePaths -Paths $paths)) {
+        $normalized = $relative.Replace('\', '/')
+        if (-not (Test-FingerprintFile -RelativePath $normalized)) {
             continue
         }
-
-        $item = Get-Item $path
-        if ($item.PSIsContainer) {
-            Get-ChildItem -Path $path -Recurse -File | Where-Object {
-                $_.FullName -notmatch "\\node_modules\\" -and
-                $_.FullName -notmatch "\\.next\\" -and
-                $_.FullName -notmatch "\\dist\\" -and
-                $_.FullName -notmatch "\\coverage\\" -and
-                $_.FullName -notmatch "\\.git\\" -and
-                $_.FullName -notmatch "\\__pycache__\\" -and
-                $_.Name -ne "tsconfig.tsbuildinfo" -and
-                $_.Extension -notin @(".pyc", ".pyo")
-            }
+        $full = Join-Path $RepoRoot $normalized
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            continue  # tracked but deleted in the working tree
         }
-        else {
-            $item
-        }
+        $hashRecord = Get-FileHash -Algorithm SHA256 -LiteralPath $full
+        "{0}|{1}" -f $normalized, $hashRecord.Hash
     }
 
-    $hashInput = $files |
-        Sort-Object FullName |
-        ForEach-Object {
-            $relativePath = $_.FullName.Substring($RepoRoot.Length).TrimStart('\', '/')
-            $hashRecord = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
-            "{0}|{1}|{2}" -f $relativePath, $_.Length, $hashRecord.Hash
-        }
-
-    $joined = [string]::Join("`n", $hashInput)
+    $joined = [string]::Join("`n", @($hashInput))
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($joined)
     $stream = [System.IO.MemoryStream]::new($bytes)
     try {
@@ -801,9 +851,18 @@ try {
         throw "Missing required Docker images: $($missingImages -join ', '). Run .\open-console.ps1 without -SkipBuild, or run with -Rebuild."
     }
 
-    if ($Rebuild -or ($missingImages.Count -gt 0 -and -not $SkipBuild)) {
-        $currentFingerprint = Get-BuildFingerprint -IncludeWeb ([bool]$DockerWeb)
+    # Images are stale when source or lock files changed since the last build this script
+    # recorded (new migrations, dependency bumps, code). Reusing them used to fail with
+    # "Can't locate revision" because only *missing* images were rebuilt.
+    $currentFingerprint = Get-BuildFingerprint -IncludeWeb ([bool]$DockerWeb)
+    $storedFingerprint = Get-StoredBuildFingerprint
+    $imagesStale = $missingImages.Count -eq 0 -and $storedFingerprint -ne $currentFingerprint
+    if ($SkipBuild -and $imagesStale) {
+        Write-Host "Source or lock files changed since the last image build, but -SkipBuild was supplied; the containers may run old code." -ForegroundColor Yellow
+    }
 
+    $imagesRebuilt = $false
+    if ($Rebuild -or (-not $SkipBuild -and ($missingImages.Count -gt 0 -or $imagesStale))) {
         if ($Rebuild) {
             if ($DockerWeb) {
                 Write-Host "Rebuilding API, worker, orchestrator, and web images..." -ForegroundColor Cyan
@@ -815,6 +874,9 @@ try {
         elseif ($missingImages.Count -gt 0) {
             Write-Host "Building missing app images..." -ForegroundColor Cyan
         }
+        else {
+            Write-Host "Source or lock files changed since the last image build; rebuilding app images..." -ForegroundColor Cyan
+        }
 
         $buildArgs = @("--profile", "app", "build", "api", "worker", "orchestrator")
         if ($DockerWeb) {
@@ -823,6 +885,7 @@ try {
 
         Invoke-Compose -ComposeArgs $buildArgs
         Set-StoredBuildFingerprint -Fingerprint $currentFingerprint
+        $imagesRebuilt = $true
     }
     else {
         if ($DockerWeb) {
@@ -834,8 +897,10 @@ try {
     }
 
     $apiHealthUrl = "http://127.0.0.1:8000/health"
-    if (-not $Rebuild -and (Test-HttpReady -Url $apiHealthUrl)) {
-        Write-Host "API is already healthy; skipping migration check for faster relaunch. Use -Rebuild after backend/schema changes." -ForegroundColor Cyan
+    # A running API from older images says nothing about new migrations: only skip when no
+    # image was rebuilt in this launch.
+    if (-not $imagesRebuilt -and (Test-HttpReady -Url $apiHealthUrl)) {
+        Write-Host "API is already healthy and images are current; skipping migration check for faster relaunch." -ForegroundColor Cyan
     }
     else {
         Write-Host "Applying database migrations..." -ForegroundColor Cyan
