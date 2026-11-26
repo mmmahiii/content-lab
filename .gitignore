@@ -41,3 +41,11 @@ outputs/
 
 # Quick Reel local renders (MP4 + overlay render trace)
 .quick-reel-renders/
+
+# Seed script output. Old runs wrote a new timestamped folder (~50 MB) per run, e.g.
+# artifacts/asset_packs/faceless_cooking_real_png/20261125-*/; seeds now reuse a download
+# cache. (Three 202605* runs are still tracked; ignore rules do not affect tracked files.)
+artifacts/asset_packs/*/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]/
+artifacts/asset_packs/*/last_seed_summary.json
+artifacts/seed_steakpagetest/downloads/
+artifacts/seed-cache/
