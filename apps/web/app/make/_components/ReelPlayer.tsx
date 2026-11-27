@@ -64,7 +64,7 @@ export const ReelPlayer = forwardRef<PlayerRef | null, ReelPlayerProps>(function
         spaceKeyToPlayOrPause={false}
         moveToBeginningWhenEnded={false}
         initiallyMuted
-        acknowledgeRemotionLicense={false}
+        acknowledgeRemotionLicense
         style={{ width: '100%', height: '100%' }}
       />
     </div>

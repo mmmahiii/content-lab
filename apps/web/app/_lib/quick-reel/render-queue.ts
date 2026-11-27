@@ -249,10 +249,14 @@ export function renderOutDir(cwd = process.cwd()): string {
   return process.env.QUICK_REEL_RENDER_DIR ?? path.join(cwd, '.quick-reel-renders');
 }
 
-/** Parallel renders: `QUICK_REEL_RENDER_CONCURRENCY` (default 2). */
+/**
+ * Parallel renders: `QUICK_REEL_RENDER_CONCURRENCY` (default 1). Renders are CPU-bound, so on a
+ * small machine two at once just halve each one's Chrome tabs (measured: a 16 s reel took 62 s
+ * at 2 x 2 tabs vs ~20 s at 1 x 4 tabs on 4 cores). Raise it on machines with many cores.
+ */
 export function renderConcurrency(env: Record<string, string | undefined> = process.env): number {
   const raw = env.QUICK_REEL_RENDER_CONCURRENCY;
-  if (!raw) return 2;
+  if (!raw) return 1;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1 || value > 8) {
     throw new Error(`QUICK_REEL_RENDER_CONCURRENCY must be 1-8 (got ${raw})`);

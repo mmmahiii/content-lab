@@ -44,6 +44,8 @@ export interface RemotionApi {
     browserExecutable?: string | null;
     concurrency?: number | null;
     crf?: number;
+    x264Preset?: 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium';
+    jpegQuality?: number;
     imageFormat?: 'jpeg' | 'png';
     pixelFormat?: 'yuv420p';
     colorSpace?: 'bt709';
@@ -181,7 +183,9 @@ export async function renderQuickReel(
   const tracePath = path.join(options.outDir, `${basename}.overlay_render_trace.json`);
   await mkdir(options.outDir, { recursive: true });
 
+  const t0 = Date.now();
   const trace = await traceQuickReel({ ...options, entryPoint, remotion });
+  const tTrace = Date.now();
   if (trace.status !== 'pass') {
     await writeFile(tracePath, `${JSON.stringify(trace, null, 2)}\n`);
     throw new TraceCheckError(trace);
@@ -196,6 +200,7 @@ export async function renderQuickReel(
     browserExecutable: options.browserExecutable ?? null,
     timeoutInMilliseconds: 60_000,
   });
+  const tSelect = Date.now();
   // Render to a temp name and move into place, so a half-written file is never served.
   const partial = `${videoPath}.part.mp4`;
   await remotion.renderMedia({
@@ -207,6 +212,10 @@ export async function renderQuickReel(
     browserExecutable: options.browserExecutable ?? null,
     concurrency: options.concurrency ?? null,
     crf: 18,
+    // Measured on a 16 s reel (4 cores): the default x264 preset + JPEG 80 frames took ~31 s
+    // after bundling; veryfast + JPEG 80 ~19 s. Frame painting is the rest.
+    x264Preset: 'veryfast',
+    jpegQuality: 80,
     imageFormat: 'jpeg',
     // Limited-range 4:2:0, what Instagram / TikTok / Shorts expect (not full-range yuvj420p).
     pixelFormat: 'yuv420p',
@@ -214,6 +223,7 @@ export async function renderQuickReel(
     timeoutInMilliseconds: 60_000,
     onProgress: ({ progress }) => options.onProgress?.(progress),
   });
+  console.info(`[quick-reel-timing] trace=${tTrace - t0}ms select=${tSelect - tTrace}ms render=${Date.now() - tSelect}ms concurrency=${options.concurrency}`);
   await writeFile(tracePath, `${JSON.stringify(trace, null, 2)}\n`);
   await rename(partial, videoPath);
 

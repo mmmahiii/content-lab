@@ -159,8 +159,8 @@ describe('parallel renders', () => {
     expect(jobs[2].status).toBe('rendering');
   });
 
-  it('reads QUICK_REEL_RENDER_CONCURRENCY (default 2) and rejects nonsense', () => {
-    expect(renderConcurrency({})).toBe(2);
+  it('reads QUICK_REEL_RENDER_CONCURRENCY (default 1) and rejects nonsense', () => {
+    expect(renderConcurrency({})).toBe(1);
     expect(renderConcurrency({ QUICK_REEL_RENDER_CONCURRENCY: '3' })).toBe(3);
     expect(() => renderConcurrency({ QUICK_REEL_RENDER_CONCURRENCY: '0' })).toThrow();
     expect(() => renderConcurrency({ QUICK_REEL_RENDER_CONCURRENCY: 'lots' })).toThrow();
