@@ -31,10 +31,6 @@ from pathlib import Path
 from typing import Any
 
 from content_lab_editing import (
-    CompositionExportPreset,
-    CompositionLayer,
-    CompositionManifest,
-    MotionTransform,
     build_music_bed,
     build_music_provider,
     build_tts_provider,
@@ -42,8 +38,7 @@ from content_lab_editing import (
     render_basic_vertical_edit,
     voiceover_lines_from_spoken_script,
 )
-from content_lab_editing.layered_ffmpeg import compose_layered_reel
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 from content_lab_api.services.quick_reel_media import (
     QuickReelStorage,
@@ -66,6 +61,13 @@ ENERGY_BACKDROPS: dict[str, tuple[str, str]] = {
 }
 _CUTOUT_PX = 760
 _COVER_SCALE = 1.1
+_COVER_BIG = (round(WIDTH * _COVER_SCALE / 2) * 2, round(HEIGHT * _COVER_SCALE / 2) * 2)
+_BACKDROP_BIG = (round(WIDTH * 1.06 / 2) * 2, round(HEIGHT * 1.06 / 2) * 2)
+_SHADOW_BLUR = 14
+_SHADOW_OFFSET = 23
+_SHADOW_OPACITY = 0.4
+_BOB_PX = 18.0
+_BOB_HZ = 0.5
 _COVER_PAN_PX = 40.0
 
 
@@ -177,136 +179,129 @@ def _compose_visuals(
     output_path: Path,
     ffmpeg_bin: str,
 ) -> None:
-    """Compose each scene on its own (backdrop + that scene's image), in parallel, then join.
+    """Render each scene with a minimal FFmpeg graph, in parallel, then stream-join them.
 
-    One FFmpeg graph for the whole reel processed every image layer on every frame (~26 s for
-    16 s). Per scene, each frame has two layers, and scenes use all cores at once.
+    Everything that does not change per frame is done once with Pillow: stills are pre-sized
+    (aspect kept), the cut-out's soft shadow is baked into its image, the backdrop is
+    pre-sized for its pan. Per frame FFmpeg only crops (pan) and overlays (bob). The general
+    layered compositor ran colour grading, alpha blurs and splits on every frame.
     """
 
+    duration_total = float(composed.duration_seconds)
     scenes = [
-        (
-            index,
-            float(scene.start_seconds),
-            min(float(scene.end_seconds), float(composed.duration_seconds)),
-        )
+        (index, float(scene.start_seconds), min(float(scene.end_seconds), duration_total))
         for index, scene in enumerate(composed.scenes)
     ]
     scenes = [item for item in scenes if item[2] > item[1]]
-    # Pre-size every still once (aspect kept): FFmpeg then scales same-size frames (a no-op)
-    # instead of resampling each image for every frame, and nothing is stretched.
+    big_backdrop = workdir / "backdrop-big.png"
+    with Image.open(backdrop) as image:
+        image.resize(_BACKDROP_BIG, Image.Resampling.BICUBIC).save(big_backdrop)
     staged: dict[str, tuple[Path, tuple[int, int]]] = {}
     for visual in visuals:
-        asset_id = str(visual["asset_id"])
-        key = f"{asset_id}:{visual.get('fit')}"
-        if key in staged:
-            continue
-        body = storage.get_object(storage_uri=str(visual["storage_uri"])).body
-        with Image.open(io.BytesIO(body)) as source:
-            if visual.get("fit") == "cover":
-                box = (round(WIDTH * _COVER_SCALE / 2) * 2, round(HEIGHT * _COVER_SCALE / 2) * 2)
-                image = ImageOps.fit(source.convert("RGB"), box, Image.Resampling.LANCZOS)
-            else:
-                image = source.convert("RGBA")
-                image.thumbnail((_CUTOUT_PX, _CUTOUT_PX), Image.Resampling.LANCZOS)
-            target = workdir / f"asset-{asset_id}-{visual.get('fit')}.png"
-            image.save(target, format="PNG")
-            staged[key] = (target, image.size)
+        key = f"{visual['asset_id']}:{visual.get('fit')}"
+        if key not in staged:
+            body = storage.get_object(storage_uri=str(visual["storage_uri"])).body
+            staged[key] = _prepare_still(
+                body, cover=visual.get("fit") == "cover", workdir=workdir, key=key
+            )
 
     def render(item: tuple[int, float, float]) -> Path:
         index, start, end = item
         visual = visuals[index % len(visuals)] if visuals else None
-        manifest, sources = _scene_composition(
-            visual, staged=staged, backdrop=backdrop, duration=end - start, index=index
-        )
         out = workdir / f"scene-{index + 1:02d}.mp4"
-        # Own staging folder per scene: the compositor stages inputs under fixed names, and
-        # parallel scenes sharing one folder read each other's half-written copies.
-        compose_layered_reel(
-            manifest,
-            asset_sources=sources,
-            output_path=out,
-            staging_dir=workdir / f"staging-{index + 1:02d}",
-        )
+        prepared = staged[f"{visual['asset_id']}:{visual.get('fit')}"] if visual else None
+        cover = bool(visual and visual.get("fit") == "cover")
+        _render_scene(
+            prepared, cover=cover, backdrop=big_backdrop, duration=end - start, output_path=out,
+            ffmpeg_bin=ffmpeg_bin,
+        )  # fmt: skip
         return out
 
     with ThreadPoolExecutor(max_workers=max(1, min(len(scenes), os.cpu_count() or 2))) as pool:
         parts = list(pool.map(render, scenes))
     concat_list = workdir / "scenes.txt"
     concat_list.write_text("".join(f"file '{part.as_posix()}'\n" for part in parts))
-    completed = subprocess.run(
+    _run(
         [ffmpeg_bin, "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
          "-c", "copy", str(output_path)],
-        capture_output=True, text=True, check=False,
+        "Failed to join Quick Reel scenes",
     )  # fmt: skip
-    if completed.returncode != 0:
-        raise RuntimeError(f"Failed to join Quick Reel scenes: {completed.stderr.strip()}")
 
 
-def _scene_composition(
-    visual: Mapping[str, Any] | None,
+def _prepare_still(
+    body: bytes, *, cover: bool, workdir: Path, key: str
+) -> tuple[Path, tuple[int, int]]:
+    with Image.open(io.BytesIO(body)) as source:
+        if cover:
+            image = ImageOps.fit(source.convert("RGB"), _COVER_BIG, Image.Resampling.LANCZOS)
+        else:
+            cut = source.convert("RGBA")
+            cut.thumbnail((_CUTOUT_PX, _CUTOUT_PX), Image.Resampling.LANCZOS)
+            # Bake the soft contact shadow once (black, faded, blurred alpha, offset down).
+            pad = _SHADOW_BLUR * 3
+            image = Image.new(
+                "RGBA", (cut.width + 2 * pad, cut.height + 2 * pad + _SHADOW_OFFSET), (0, 0, 0, 0)
+            )
+            alpha = cut.getchannel("A").point(lambda v: round(v * _SHADOW_OPACITY))
+            shadow = Image.new("RGBA", cut.size, (0, 0, 0, 0))
+            shadow.putalpha(alpha)
+            image.alpha_composite(shadow, (pad, pad + _SHADOW_OFFSET))
+            image = image.filter(ImageFilter.GaussianBlur(_SHADOW_BLUR))
+            image.alpha_composite(cut, (pad, pad))
+        target = workdir / f"still-{hashlib.sha1(key.encode()).hexdigest()[:10]}.png"
+        image.save(target, format="PNG", compress_level=1)
+        return target, image.size
+
+
+def _render_scene(
+    prepared: tuple[Path, tuple[int, int]] | None,
     *,
-    staged: Mapping[str, tuple[Path, tuple[int, int]]],
+    cover: bool,
     backdrop: Path,
     duration: float,
-    index: int,
-) -> tuple[CompositionManifest, dict[str, dict[str, str]]]:
-    sources: dict[str, dict[str, str]] = {
-        "backdrop": {"source": str(backdrop), "media_type": "image"}
-    }
-    layers: list[CompositionLayer] = []
-    if visual is not None:
-        asset_id = str(visual["asset_id"])
-        path, size = staged[f"{asset_id}:{visual.get('fit')}"]
-        sources[asset_id] = {"source": str(path), "media_type": "image"}
-        cover = visual.get("fit") == "cover"
-        if cover:
-            # Pre-sized 10% larger than the frame; the pan stays inside the spare width.
-            layout = {"x": -((size[0] - WIDTH) // 2), "y": -((size[1] - HEIGHT) // 2), "scale": 1.0}
-            motion = MotionTransform(preset="pan_left", amplitude=_COVER_PAN_PX)
-        else:
-            layout = {"x": (WIDTH - size[0]) // 2, "y": (HEIGHT - size[1]) // 2, "scale": 1.0}
-            # float's frequency is cycles per layer lifetime, not per second: ~0.5 Hz bobbing
-            # (the default 0.55 cycles over a 4 s scene stalled near its peak and read frozen).
-            motion = MotionTransform(preset="float", amplitude=18.0, frequency=0.5 * duration)
-        layers.append(
-            CompositionLayer(
-                layer_id=f"scene-{index + 1}",
-                asset_id=asset_id,
-                asset_kind="background" if cover else "transparent_cutout_png",
-                media_type="image",
-                z_index=10,
-                start_time=0,
-                end_time=duration,
-                width=size[0],
-                height=size[1],
-                mask_mode="none" if cover else "alpha",
-                motion_transform=motion,
-                **layout,
-            )
+    output_path: Path,
+    ffmpeg_bin: str,
+) -> None:
+    d = f"{duration:.3f}"
+    # Each still is decoded once and repeated by the loop filter (-loop 1 re-decoded the PNG
+    # for every frame).
+    loop = ["-i"]
+    frames = max(1, round(duration * FPS))
+    still = f"loop=loop={frames}:size=1:start=0,setpts=N/{FPS}/TB"
+    pan = f"min(t/{d},1)"
+    if prepared is not None and cover:
+        path, (w, h) = prepared
+        mx, my = (w - WIDTH) // 2, (h - HEIGHT) // 2
+        inputs = [*loop, str(path)]
+        graph = (
+            f"[0:v]{still},crop={WIDTH}:{HEIGHT}:x='{mx}+{_COVER_PAN_PX:g}*(1-2*{pan})':y={my},"
+            "format=yuv420p[v]"
         )
-    manifest = CompositionManifest(
-        canvas_width=WIDTH,
-        canvas_height=HEIGHT,
-        duration=duration,
-        fps=FPS,
-        background_layer=CompositionLayer(
-            layer_id="background",
-            asset_id="backdrop",
-            asset_kind="background",
-            media_type="image",
-            z_index=0,
-            start_time=0,
-            end_time=duration,
-            width=WIDTH,
-            height=HEIGHT,
-            motion_transform=MotionTransform(preset="slow_zoom"),
-        ),
-        layers=layers,
-        audio_layers=[],
-        # Intermediate: the caption pass re-encodes it, so near-lossless and fast.
-        export_preset=CompositionExportPreset(preset="ultrafast", crf=12),
-    )
-    return manifest, sources
+    else:
+        inputs = [*loop, str(backdrop)]
+        graph = f"[0:v]{still},crop={WIDTH}:{HEIGHT}:x='(iw-ow)*{pan}':y='(ih-oh)/2'"
+        if prepared is not None:
+            path, (w, h) = prepared
+            inputs += [*loop, str(path)]
+            x, y = (WIDTH - w) // 2, (HEIGHT - h) // 2
+            graph += (
+                f"[bg];[1:v]{still}[fg];[bg][fg]overlay=x={x}:y='{y}+{_BOB_PX:g}*sin(2*PI*{_BOB_HZ:g}*t)',"
+                "format=yuv420p[v]"
+            )
+        else:
+            graph += ",format=yuv420p[v]"
+    _run(
+        [ffmpeg_bin, "-y", "-v", "error", *inputs, "-filter_complex", graph, "-map", "[v]",
+         "-t", d, "-r", str(FPS), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12",
+         "-pix_fmt", "yuv420p", "-an", str(output_path)],
+        f"Failed to render Quick Reel scene {output_path.name}",
+    )  # fmt: skip
+
+
+def _run(command: list[str], failure: str) -> None:
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"{failure}: {completed.stderr.strip()[-1500:]}")
 
 
 def _soundtrack(composed: ComposedReel, *, settings: Settings, workdir: Path) -> tuple[Any, Any]:
