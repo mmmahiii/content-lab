@@ -299,6 +299,27 @@ Python suites (Linux, Postgres on 5433): api 229 (0 skipped), worker 24, orchest
 - Editing renders are slow (`-preset medium -threads 1`); chaining adds one encode per clip.
 - `process_reel.py` and `content_lab_editing/__init__.py` were already not `ruff format`/isort clean; left as is.
 
+## Round 2 (2026-11-27)
+
+Fixed (commits after `e791577`):
+- **MinIO in compose**: `chainguard/minio` for server and bucket init (`mc ready` healthcheck). Verified on a fresh volume.
+- **Page list 500**: pages whose stored metadata is invalid are listed with `metadata_valid=false` and `metadata_errors`; PATCH repairs them.
+- **Dead air**: music bed (generated pad, or `MUSIC_LIBRARY_DIR` tracks) ducked under the voice. Idea-plan narration must fit its beat (1.5-3.5 words/s; the template line now fills its 6 s). A 20 s reel had 6.5 s of silence; it now has none (gaps about -31 dB).
+- **Multi-clip**: 0.3 s dissolves between clips, `RUNWAY_MAX_CLIPS_PER_REEL` (default 3, longer reels loop), faster encodes. A 20 s edit went from 44.1 s to 8.8 s (SSIM 0.9965 vs the old output); the editing test suite went from 327 s to 151 s.
+- **Quick Reel**: voice + music in the player and the MP4 (mean -25.7 dB, was silent). Send to Review uploads the MP4 to MinIO, runs pipeline QA and stores the report (`qa_failed` when a gate blocks). Up to 2 parallel renders, and cores are split across their Chrome tabs. `?max_px=1080` serves cached asset copies.
+- **Builds**: images built on the real `python:3.11-slim` (Debian 13, Python 3.11.18, FFmpeg 7.1.5) in a sandbox wrapper that only sends apt through the proxy.
+- **open-console.ps1**: run under PowerShell 7.4. Fixed a crash on dangling `py/pyproject.toml` links and a misleading "current" message. 575 files hashed in 0.16 s; stale images are detected.
+
+Verified: Quick Reel in headless Chromium: Surprise me, then the drop, then the soundtrack (mock voice + pad), then a 16 s MP4 rendered in 40-50 s, then Send to Review (`ready`, QA `warn` for the mock voice only). Suites: api 238, orchestrator 71, editing 420, qa, creative, assets, web 73 all pass.
+
+Still open:
+- **Cinematic package run hangs in `editing`** (>40 min, no log output) with three demo-pack PNGs as roles. Not investigated; the layered FFmpeg path needs a timeout and profiling.
+- **Quick Reel render speed is not image-bound**: 2.6-5.9 MB vs 1080 px images render in the same time. It is CPU-bound painting (~10 fps on 4 cores); 4 tabs is ~20% faster than 2.
+- **Seed scripts vs Wikimedia not verified**: this sandbox's IP gets `429 Retry-After: 600`. Run them twice on your machine to confirm the cache.
+- `open-console.ps1`'s local-web step is Windows-only (`powershell.exe`, `Get-NetTCPConnection`).
+- The Remotion licence (`acknowledgeRemotionLicense`) is still unset: an open decision in UI_PLAN, yours to make.
+- ElevenLabs and real Runway multi-clip are untested (no keys).
+
 ## Quick Reel (`/make`, 2026-11-25)
 
 The hook-first creator from `docs/UI_PLAN.md` section 3, for internal use (no auth, billing or
