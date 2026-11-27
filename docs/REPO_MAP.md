@@ -313,7 +313,7 @@ Fixed (commits after `e791577`):
 Verified: Quick Reel in headless Chromium: Surprise me, then the drop, then the soundtrack (mock voice + pad), then a 16 s MP4 rendered in 40-50 s, then Send to Review (`ready`, QA `warn` for the mock voice only). Suites: api 238, orchestrator 71, editing 420, qa, creative, assets, web 73 all pass.
 
 Still open:
-- **Cinematic package run hangs in `editing`** (>40 min, no log output) with three demo-pack PNGs as roles. Not investigated; the layered FFmpeg path needs a timeout and profiling.
+- ~~Cinematic package hangs~~ - fixed after round 2. It never hung: the sandbox's Docker restarts killed the orchestrator and the run stayed `running` forever. Runs whose process is gone now read `failed`. The real defect behind it was that layered backgrounds ignored their motion, so still-image reels froze (QA failed them). Backgrounds now pan; the cinematic smoke package succeeds through the Docker API with `media_content` passing.
 - **Quick Reel render speed is not image-bound**: 2.6-5.9 MB vs 1080 px images render in the same time. It is CPU-bound painting (~10 fps on 4 cores); 4 tabs is ~20% faster than 2.
 - **Seed scripts vs Wikimedia not verified**: this sandbox's IP gets `429 Retry-After: 600`. Run them twice on your machine to confirm the cache.
 - `open-console.ps1`'s local-web step is Windows-only (`powershell.exe`, `Get-NetTCPConnection`).
