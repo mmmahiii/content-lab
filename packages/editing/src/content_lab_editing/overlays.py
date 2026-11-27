@@ -1652,7 +1652,10 @@ def _escape_filter_value(value: str) -> str:
 
 
 def _escape_drawtext_text(value: str) -> str:
-    escaped = _escape_filter_value(value)
+    # A straight apostrophe cannot be escaped inside FFmpeg's single-quoted option values:
+    # "\'" ends the quote and splits the filter graph ("No such filter"), so every caption with
+    # "Here's" failed the whole render. Typographic apostrophes render the same (better).
+    escaped = _escape_filter_value(value.replace("'", "\u2019"))
     return escaped.replace("%", r"\%")
 
 

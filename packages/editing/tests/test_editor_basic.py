@@ -561,3 +561,20 @@ def test_clip_crossfade_can_be_disabled(tmp_path: Path) -> None:
 
     assert artifact.source_composition["crossfade_seconds"] == 0  # type: ignore[index]
     assert artifact.duration_seconds == pytest.approx(10.0, abs=0.05)
+
+
+@pytest.mark.parametrize("text", ["Here's the fix", "Part 2? [you'll see]", "It's 50% off: don't, really"])
+def test_captions_with_apostrophes_render(tmp_path: Path, text: str) -> None:
+    """Regression: a straight apostrophe ended FFmpeg's quoted drawtext value and the whole
+    render failed with "No such filter" (AI captions like "Here's" hit this constantly)."""
+
+    clip = _moving_clip(tmp_path / "clip.mp4", seconds=2)
+
+    artifact = render_basic_vertical_edit(
+        source_uri=clip,
+        workdir=tmp_path / "job",
+        overlay_timeline=[{"text": text, "start_seconds": 0, "end_seconds": 2}],
+    )
+
+    assert artifact.duration_seconds == pytest.approx(2.0, abs=0.1)
+    assert artifact.rendered_overlay_manifest.overlays[0].rendered_text == text
