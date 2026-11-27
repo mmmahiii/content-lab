@@ -18,6 +18,16 @@ import type {
 /** Target reel length handed to branches / compose (the energy choice stretches it). */
 export const REEL_SECONDS = 15;
 
+/** A stored FFmpeg export: its QA report plus where to fetch the MP4. */
+export interface ExportResult {
+  export_id: string;
+  status: 'pass' | 'warn' | 'fail';
+  video_url: string;
+  duration_seconds: number;
+  checks: Array<{ gate_name: string; verdict: string }>;
+  timings?: Record<string, number>;
+}
+
 /** Voice + music for a composed reel (`src` is null when neither TTS nor music is enabled). */
 export interface SoundtrackResult {
   soundtrack_id: string;
@@ -119,6 +129,20 @@ export function createApi(fetcher: Fetch = (...args) => fetch(...args)) {
       body: { hook: HookCandidate; branches: BranchSet; selection: Selection },
     ) =>
       post<SoundtrackResult>(fetcher, `${page(orgId, pageId)}/quick-reel/soundtrack`, {
+        duration_seconds: REEL_SECONDS,
+        ...body,
+      }),
+    exportReel: (
+      orgId: string,
+      pageId: string,
+      body: {
+        hook: HookCandidate;
+        branches: BranchSet;
+        selection: Selection;
+        visuals: Array<{ asset_id: string; fit: 'cutout' | 'cover' }>;
+      },
+    ) =>
+      post<ExportResult>(fetcher, `${page(orgId, pageId)}/quick-reel/exports`, {
         duration_seconds: REEL_SECONDS,
         ...body,
       }),

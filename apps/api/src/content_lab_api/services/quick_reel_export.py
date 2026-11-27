@@ -219,7 +219,14 @@ def _compose_visuals(
             visual, staged=staged, backdrop=backdrop, duration=end - start, index=index
         )
         out = workdir / f"scene-{index + 1:02d}.mp4"
-        compose_layered_reel(manifest, asset_sources=sources, output_path=out)
+        # Own staging folder per scene: the compositor stages inputs under fixed names, and
+        # parallel scenes sharing one folder read each other's half-written copies.
+        compose_layered_reel(
+            manifest,
+            asset_sources=sources,
+            output_path=out,
+            staging_dir=workdir / f"staging-{index + 1:02d}",
+        )
         return out
 
     with ThreadPoolExecutor(max_workers=max(1, min(len(scenes), os.cpu_count() or 2))) as pool:

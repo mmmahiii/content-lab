@@ -23,13 +23,16 @@ export async function POST(
     return NextResponse.json({ detail: 'Body must be JSON' }, { status: 400 });
   }
   const renderId = body?.render?.render_id;
-  if (typeof renderId === 'string' && renderId) {
+  const queue = await getRenderQueue();
+  // Only Remotion renders live on this server; FFmpeg exports are already stored and
+  // QA-checked by the API under the same id.
+  if (typeof renderId === 'string' && renderId && queue.get(renderId)?.status === 'done') {
     try {
       await uploadRenderForReview({
         orgId,
         pageId,
         renderId,
-        queue: await getRenderQueue(),
+        queue,
         actor: request.headers.get('x-actor-id') ?? 'operator:ui-rebuild',
       });
     } catch (error) {

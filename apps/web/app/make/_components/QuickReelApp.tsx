@@ -23,7 +23,7 @@ import { HookReel } from './HookReel';
 import { KeyboardHelp } from './KeyboardHelp';
 import { SeedScreen } from './SeedScreen';
 import { ShipScreen, type ReviewState } from './ShipScreen';
-import { useRender } from './useRender';
+import { useExport } from './useExport';
 
 const noopSubscribe = () => () => {};
 const zero = () => 0;
@@ -103,7 +103,8 @@ export default function QuickReelApp() {
   const [session, setSession] = useState<QuickReelSession | null>(null);
   const [focusedCard, setFocusedCard] = useState(0);
   const [review, setReview] = useState<ReviewState>({ status: 'idle' });
-  const render = useRender(api);
+  // The MP4 comes from the API's FFmpeg export (seconds) rather than a Remotion render.
+  const render = useExport(api);
   const reviewRequestId = useRef<string | null>(null);
   useSyncExternalStore(session?.subscribe ?? noopSubscribe, session?.getVersion ?? zero, zero);
 
@@ -204,12 +205,24 @@ export default function QuickReelApp() {
       });
   }, [api, state.phase.name, soundtrackKey, soundtrackSrc, notify]);
 
-  const { start: startRender } = render;
+  // Start the MP4 the moment the reel is final (the drop): the export builds its own
+  // soundtrack, so it does not wait for the player's, and is usually done by Ship.
+  const { start: startExport } = render;
+  const exportInputs = useRef({ seed: state.seed, branches, fullSelection, assets: pageVisualsState.assets });
+  exportInputs.current = { seed: state.seed, branches, fullSelection, assets: pageVisualsState.assets };
+  const startCurrentExport = useCallback(() => {
+    const { seed, branches: current, fullSelection: selection, assets } = exportInputs.current;
+    if (!seed || !current || !selection) return;
+    void startExport(seed.orgId, seed.pageId, {
+      hook: current.hook,
+      branches: current.branches,
+      selection,
+      visuals: assets,
+    });
+  }, [startExport]);
   useEffect(() => {
-    if (state.phase.name === 'drop' && finalTimeline && soundtrackSrc !== undefined) {
-      void startRender(finalTimeline);
-    }
-  }, [state.phase.name, state.dropCount, finalTimeline, soundtrackSrc, startRender]);
+    if (state.phase.name === 'drop' && soundtrackKey) startCurrentExport();
+  }, [state.phase.name, state.dropCount, soundtrackKey, startCurrentExport]);
 
   useEffect(() => {
     setFocusedCard(0);
@@ -431,7 +444,12 @@ export default function QuickReelApp() {
     );
   } else if (phase.name === 'drop' && finalTimeline) {
     screen = (
-      <DropScreen timeline={finalTimeline} dropCount={state.dropCount} onEnded={() => dispatch({ type: 'DROP_ENDED' })} />
+      <DropScreen
+        timeline={finalTimeline}
+        dropCount={state.dropCount}
+        render={render.job}
+        onEnded={() => dispatch({ type: 'DROP_ENDED' })}
+      />
     );
   } else if (phase.name === 'ship' && finalTimeline) {
     screen = (
@@ -444,7 +462,10 @@ export default function QuickReelApp() {
         review={review}
         choiceLabels={choiceLabels}
         onDownload={() => notify('Downloading MP4', 'neutral')}
-        onRetryRender={() => void render.start(finalTimeline)}
+        onRetryRender={() => {
+          render.reset();
+          startCurrentExport();
+        }}
         onCopyCaption={() => void copyCaption()}
         onSendToReview={() => void sendToReview()}
         onRemix={() => void remix()}
