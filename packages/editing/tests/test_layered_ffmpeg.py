@@ -390,3 +390,52 @@ def test_compose_layered_reel_renders_vertical_mp4_with_alpha_text_and_audio(
     assert metadata["width"] == 1080
     assert metadata["height"] == 1920
     assert metadata["has_audio_track"] is True
+
+
+def test_still_background_with_motion_is_never_frozen(tmp_path: Path) -> None:
+    """Regression: background motion_transform was ignored, so a cinematic reel built from
+    still images froze whenever no foreground layer moved (QA: 'Video is frozen for 1.79s')."""
+
+    import re
+    import subprocess
+
+    from content_lab_editing import CompositionLayer, CompositionManifest, MotionTransform
+    from content_lab_editing.layered_ffmpeg import compose_layered_reel
+
+    still = tmp_path / "bg.png"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "gradients=s=1200x1200:d=1",
+         "-frames:v", "1", str(still)],
+        check=True,
+    )  # fmt: skip
+
+    def frozen(preset: str) -> bool:
+        manifest = CompositionManifest(
+            canvas_width=540,
+            canvas_height=960,
+            duration=6,
+            fps=12,
+            background_layer=CompositionLayer(
+                layer_id="background", asset_id="bg", asset_kind="background", media_type="image",
+                z_index=0, start_time=0, end_time=6, x=0, y=0, width=540, height=960,
+                opacity=1.0, motion_transform=MotionTransform(preset=preset),
+            ),  # fmt: skip
+            layers=[],
+            audio_layers=[],
+        )
+        out = tmp_path / f"{preset}.mp4"
+        compose_layered_reel(
+            manifest,
+            asset_sources={"bg": {"source": str(still), "media_type": "image"}},
+            output_path=out,
+        )
+        log = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-i", str(out), "-vf",
+             "freezedetect=n=-60dB:d=1", "-f", "null", "-"],
+            capture_output=True, text=True, check=True,
+        ).stderr  # fmt: skip
+        return re.search(r"freeze_start", log) is not None
+
+    assert frozen("none")  # a static background really is static
+    assert not frozen("slow_zoom")
+    assert not frozen("pan_right")

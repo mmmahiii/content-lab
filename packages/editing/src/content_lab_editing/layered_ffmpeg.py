@@ -297,8 +297,7 @@ def build_layered_filter_graph(
     filters.append(
         f"[{background_input}:v]"
         f"{_crop_filter(background)}"
-        f"scale={manifest.canvas_width}:{manifest.canvas_height}:force_original_aspect_ratio=increase,"
-        f"crop={manifest.canvas_width}:{manifest.canvas_height},"
+        f"{_background_motion_filter(background, manifest)}"
         f"fps={manifest.fps},trim=duration={_seconds(manifest.duration)},"
         "setpts=PTS-STARTPTS,setsar=1[base0]"
     )
@@ -476,6 +475,38 @@ def _scale_dimensions(layer: CompositionLayer) -> tuple[str, str]:
     width = "iw" if layer.width is None else str(round(layer.width * safe_scale))
     height = "ih" if layer.height is None else str(round(layer.height * safe_scale))
     return width, height
+
+
+# The background's motion_transform used to be ignored (static scale + crop), so a still
+# background froze the whole reel whenever no foreground layer was moving.
+BACKGROUND_PAN_PX_PER_SECOND = 8.0
+_MIN_BACKGROUND_MARGIN = 0.06
+
+
+def _background_motion_filter(background: CompositionLayer, manifest: CompositionManifest) -> str:
+    """Scale the background to cover the canvas; with motion, pan a crop window across it.
+
+    The image is scaled ``1 + margin`` larger than the canvas and the crop moves linearly
+    across the spare width over the reel, at least ``BACKGROUND_PAN_PX_PER_SECOND``.
+    """
+
+    width, height = manifest.canvas_width, manifest.canvas_height
+    preset = "none" if background.motion_transform is None else background.motion_transform.preset
+    if preset == "none":
+        return (
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},"
+        )
+    duration = max(float(manifest.duration), 0.1)
+    margin = max(_MIN_BACKGROUND_MARGIN, BACKGROUND_PAN_PX_PER_SECOND * duration / width)
+    big_w = int(round(width * (1 + margin) / 2) * 2)
+    big_h = int(round(height * (1 + margin) / 2) * 2)
+    progress = f"min(t/{_expr_number(duration)},1)"
+    x = f"(iw-ow)*{progress}" if preset != "pan_right" else f"(iw-ow)*(1-{progress})"
+    return (
+        f"scale={big_w}:{big_h}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height}:x='{x}':y='(ih-oh)/2',"
+    )
 
 
 def _scale_eval_option(layer: CompositionLayer) -> str:
