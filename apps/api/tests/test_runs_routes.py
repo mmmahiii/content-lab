@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import Generator
 
@@ -913,3 +914,34 @@ def test_cinematic_package_duration_is_no_longer_capped_at_one_runway_clip(
     planned: int, expected: int
 ) -> None:
     assert runs_route._bounded_reel_duration_seconds(planned) == expected
+
+
+def test_run_whose_orchestrator_process_died_is_reported_failed(
+    runs_client: TestClient,
+    db_session: Session,
+    seeded_run_scope: dict[str, uuid.UUID],
+) -> None:
+    """Regression: a run killed mid-flow (container restart) read "running" forever."""
+
+    import subprocess
+    import sys
+
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])  # exits at once; left unreaped
+    dead_pid = dead.pid
+    import time
+
+    time.sleep(0.5)
+    org_id = seeded_run_scope["org_id"]
+    orphan = Run(org_id=org_id, workflow_key="process_reel", flow_trigger="manual",
+                 status="running", external_ref=f"local-process:{dead_pid}")  # fmt: skip
+    alive = Run(org_id=org_id, workflow_key="process_reel", flow_trigger="manual",
+                status="running", external_ref=f"local-process:{os.getpid()}")  # fmt: skip
+    db_session.add_all([orphan, alive])
+    db_session.flush()
+
+    orphan_out = runs_client.get(f"/orgs/{org_id}/runs/{orphan.id}").json()
+    alive_out = runs_client.get(f"/orgs/{org_id}/runs/{alive.id}").json()
+
+    assert orphan_out["status"] == "failed"
+    assert "ended without recording a result" in orphan_out["output_payload"]["error"]
+    assert alive_out["status"] == "running"

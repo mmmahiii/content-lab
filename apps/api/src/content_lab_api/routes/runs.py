@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -277,6 +278,63 @@ def _orchestrator_log_paths(*, run_id: uuid.UUID) -> tuple[Path, Path]:
     log_dir = _repo_root() / ".dev-stack" / "orchestrator-runs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / f"{run_id}.out.log", log_dir / f"{run_id}.err.log"
+
+
+_LOCAL_PROCESS_PREFIX = "local-process:"
+
+
+def _local_process_alive(pid: int) -> bool:
+    """Whether the orchestrator child is still running. Exited children of this API linger as
+    zombies (nothing waits on them), so a zombie counts as dead and is reaped here."""
+
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except (OSError, IndexError):
+        state = None
+    if state == "Z":
+        with contextlib.suppress(ChildProcessError, OSError):
+            os.waitpid(pid, os.WNOHANG)
+        return False
+    if state is not None:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _fail_orphaned_local_run(run: Run) -> bool:
+    """Mark a run failed when the orchestrator process this API launched for it is gone.
+
+    The CLI records success or failure itself before exiting, so a dead process with the run
+    still queued/running means it was killed (container restart, OOM, manual kill) and the run
+    would otherwise read "running" forever. A reused pid only delays this; it never fails a
+    live run.
+    """
+
+    ref = run.external_ref or ""
+    if run.status not in {RunStatus.QUEUED.value, RunStatus.RUNNING.value}:
+        return False
+    if not ref.startswith(_LOCAL_PROCESS_PREFIX):
+        return False
+    try:
+        pid = int(ref[len(_LOCAL_PROCESS_PREFIX) :])
+    except ValueError:
+        return False
+    if _local_process_alive(pid):
+        return False
+    run.status = RunStatus.FAILED.value
+    payload = dict(run.output_payload or {})
+    payload["error"] = (
+        f"Orchestrator process {pid} ended without recording a result "
+        "(killed or the API/container restarted)."
+    )
+    run.output_payload = payload
+    run.finished_at = datetime.now(UTC)
+    return True
 
 
 def _launch_process_reel_flow(
@@ -794,6 +852,9 @@ def get_run(
     db: Session = Depends(get_db),
 ) -> RunDetailOut:
     run = _get_run_or_404(db, org_id=org_id, run_id=run_id)
+    if _fail_orphaned_local_run(run):
+        db.commit()
+        db.refresh(run)
     outbox_rows = (
         db.query(OutboxEvent)
         .filter(
