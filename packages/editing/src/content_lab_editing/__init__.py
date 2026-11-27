@@ -20,11 +20,6 @@ from content_lab_editing.composition_manifest import (
     MotionTransform,
     SafeAreaConstraints,
 )
-from content_lab_editing.harmonisation import (
-    HarmonisationParams,
-    default_harmonisation_for_layer,
-    effective_harmonisation,
-)
 from content_lab_editing.composition_preflight import (
     CompositionPreflightError,
     CompositionPreflightIssue,
@@ -49,6 +44,11 @@ from content_lab_editing.editor_basic import (
     BasicEditorArtifact,
     render_basic_vertical_edit,
 )
+from content_lab_editing.harmonisation import (
+    HarmonisationParams,
+    default_harmonisation_for_layer,
+    effective_harmonisation,
+)
 from content_lab_editing.instructions import EditInstruction, EditOperation, EditPlan
 from content_lab_editing.layered_ffmpeg import (
     LayeredCompositionResult,
@@ -69,6 +69,14 @@ from content_lab_editing.motion_transforms import (
     layer_has_motion,
     motion_preset_for_layer,
     motion_spec_for_layer,
+)
+from content_lab_editing.music import (
+    GeneratedPadMusicBed,
+    LibraryMusicBed,
+    MusicBed,
+    MusicBedProvider,
+    build_music_bed,
+    build_music_provider,
 )
 from content_lab_editing.overlay_layout import (
     build_overlay_render_manifest_for_qa,
@@ -92,6 +100,7 @@ from content_lab_editing.render_strategy import (
     REALISTIC_RENDER_STRATEGIES,
     downgrade_render_strategy_for_environment_quality,
 )
+from content_lab_editing.soundtrack import Soundtrack, mix_soundtrack
 from content_lab_editing.templates import (
     CALM_EXPLAINER_V1,
     DEFAULT_EDITORIAL_TEMPLATE,
@@ -111,15 +120,6 @@ from content_lab_editing.timeline_validator import (
     ReelTimelineValidationReport,
     validate_reel_timeline_artifact,
 )
-from content_lab_editing.music import (
-    GeneratedPadMusicBed,
-    LibraryMusicBed,
-    MusicBed,
-    MusicBedProvider,
-    build_music_bed,
-    build_music_provider,
-)
-from content_lab_editing.soundtrack import Soundtrack, mix_soundtrack
 from content_lab_editing.types import RenderedOverlayManifest, RenderedOverlayManifestEntry
 from content_lab_editing.voiceover import (
     MockToneTTSProvider,

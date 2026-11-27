@@ -145,7 +145,9 @@ _MIN_CLIP_DURATION_SECONDS = 5
 
 
 def _reel_duration_seconds(requested_duration_seconds: int) -> int:
-    return min(max(int(requested_duration_seconds), MIN_REEL_DURATION_SECONDS), MAX_REEL_DURATION_SECONDS)
+    return min(
+        max(int(requested_duration_seconds), MIN_REEL_DURATION_SECONDS), MAX_REEL_DURATION_SECONDS
+    )
 
 
 DEFAULT_MAX_CLIPS_PER_REEL = 3
@@ -532,9 +534,7 @@ class SQLProcessReelAssetResolver:
             return None
         roles = _mapping(manifest_payload.get("roles"))
         visual_roles = [
-            (str(role), _mapping(value))
-            for role, value in roles.items()
-            if _mapping(value)
+            (str(role), _mapping(value)) for role, value in roles.items() if _mapping(value)
         ]
         visual_roles = [
             (role, value)
@@ -630,11 +630,15 @@ class SQLProcessReelAssetResolver:
             and not _role_has_baked_reference_marks(value)
         ][:12]
         # The layered composition is rendered locally at the reel's length, not a provider clip's.
-        duration = _optional_float(
-            _mapping(creative_output.get("scene_plan")).get("duration_seconds")
-        ) or _optional_float(request_payload.get("duration_seconds")) or _DEFAULT_REEL_DURATION_SECONDS
+        duration = (
+            _optional_float(_mapping(creative_output.get("scene_plan")).get("duration_seconds"))
+            or _optional_float(request_payload.get("duration_seconds"))
+            or _DEFAULT_REEL_DURATION_SECONDS
+        )
         duration = max(1.0, float(duration))
-        background_asset_id = _role_asset_id(background_role[1], fallback=f"{background_role[0]}-asset")
+        background_asset_id = _role_asset_id(
+            background_role[1], fallback=f"{background_role[0]}-asset"
+        )
         asset_sources: dict[str, dict[str, object]] = {
             background_asset_id: {
                 "source": _required_text(
@@ -1046,7 +1050,10 @@ def _source_plan_value_overlay(source_plan: Mapping[str, Any]) -> str:
         text = _beat_overlay_text(beats[0])
         if text is not None:
             return _fit_text(_viewer_facing_copy(text), max_chars=80)
-    return _fit_text(_viewer_facing_copy(_optional_text(source_plan.get("angle")) or "Watch the build"), max_chars=80)
+    return _fit_text(
+        _viewer_facing_copy(_optional_text(source_plan.get("angle")) or "Watch the build"),
+        max_chars=80,
+    )
 
 
 def _source_plan_cta_overlay(source_plan: Mapping[str, Any]) -> str:
@@ -2244,7 +2251,9 @@ def _composition_manifest_from_cinematic_plan(
     canvas = _mapping(plan.get("canvas"))
     canvas_width = _optional_int(canvas.get("width")) or 1080
     canvas_height = _optional_int(canvas.get("height")) or 1920
-    duration = _optional_float(plan.get("total_duration_seconds")) or _cinematic_objects_end_time(objects)
+    duration = _optional_float(plan.get("total_duration_seconds")) or _cinematic_objects_end_time(
+        objects
+    )
     duration = max(1.0, duration)
 
     background_object = _first_environment_object(objects, roles_by_asset_id)
@@ -2360,7 +2369,9 @@ def _composition_manifest_from_cinematic_plan(
                 height=canvas_height,
                 crop=_role_source_crop(background_role, layer_role="background"),
                 opacity=1.0,
-                motion_transform=MotionTransform(preset="slow_zoom", scale_from=1.0, scale_to=1.035),
+                motion_transform=MotionTransform(
+                    preset="slow_zoom", scale_from=1.0, scale_to=1.035
+                ),
             ),
             layers=layers,
             audio_layers=[],
@@ -2433,7 +2444,9 @@ def _merge_cinematic_object_restatements(
     *,
     total_duration_seconds: float,
 ) -> dict[str, Any]:
-    representative = right if _cinematic_object_priority(right) >= _cinematic_object_priority(left) else left
+    representative = (
+        right if _cinematic_object_priority(right) >= _cinematic_object_priority(left) else left
+    )
     merged = dict(representative)
     merged["start_time"] = min(
         _optional_float(left.get("start_time")) or 0.0,
@@ -2448,9 +2461,11 @@ def _merge_cinematic_object_restatements(
         _bounded_float(left.get("opacity"), default=1.0, lower=0.0, upper=1.0),
         _bounded_float(right.get("opacity"), default=1.0, lower=0.0, upper=1.0),
     )
-    merged["object_id"] = _optional_text(representative.get("object_id")) or _optional_text(
-        left.get("object_id")
-    ) or _optional_text(right.get("object_id"))
+    merged["object_id"] = (
+        _optional_text(representative.get("object_id"))
+        or _optional_text(left.get("object_id"))
+        or _optional_text(right.get("object_id"))
+    )
     return merged
 
 
@@ -2770,7 +2785,9 @@ def _slice_scene_plan(scene_plan: Any, *, start: int, end: int) -> Any | None:
         lo = max(int(scene.start_seconds), start)
         hi = min(int(scene.end_seconds), end)
         if hi > lo:
-            scenes.append(scene.model_copy(update={"start_seconds": lo - start, "end_seconds": hi - start}))
+            scenes.append(
+                scene.model_copy(update={"start_seconds": lo - start, "end_seconds": hi - start})
+            )
     try:
         return scene_plan.model_validate(
             {
@@ -3144,7 +3161,9 @@ def _role_metadata(role_payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def _role_storage_uri(role_payload: Mapping[str, Any]) -> str | None:
     metadata = _role_metadata(role_payload)
-    return _optional_text(role_payload.get("storage_uri")) or _optional_text(metadata.get("storage_uri"))
+    return _optional_text(role_payload.get("storage_uri")) or _optional_text(
+        metadata.get("storage_uri")
+    )
 
 
 def _role_media_label(role_payload: Mapping[str, Any]) -> str | None:
@@ -3161,7 +3180,11 @@ def _role_visual_media_type(role_payload: Mapping[str, Any]) -> str | None:
     media_label = (_role_media_label(role_payload) or "").lower()
     if media_label.startswith("video") or media_label.endswith("/mp4"):
         return "video"
-    if media_label.startswith("image") or media_label.endswith("/png") or media_label.endswith("/jpeg"):
+    if (
+        media_label.startswith("image")
+        or media_label.endswith("/png")
+        or media_label.endswith("/jpeg")
+    ):
         return "image"
     storage_uri = (_role_storage_uri(role_payload) or "").lower()
     if storage_uri.endswith((".mp4", ".mov", ".webm")):
@@ -3175,17 +3198,25 @@ def _role_visual_size(role_payload: Mapping[str, Any]) -> tuple[int, int] | None
     metadata = _role_metadata(role_payload)
     visual = _mapping(metadata.get("visual"))
     width = _optional_int(role_payload.get("width") or metadata.get("width") or visual.get("width"))
-    height = _optional_int(role_payload.get("height") or metadata.get("height") or visual.get("height"))
+    height = _optional_int(
+        role_payload.get("height") or metadata.get("height") or visual.get("height")
+    )
     if width is None or height is None or width <= 0 or height <= 0:
         return None
     return width, height
 
 
-def _role_source_crop(role_payload: Mapping[str, Any], *, layer_role: str) -> CompositionCrop | None:
+def _role_source_crop(
+    role_payload: Mapping[str, Any], *, layer_role: str
+) -> CompositionCrop | None:
     storage_uri = (_role_storage_uri(role_payload) or "").lower()
     if "ratatouille_ingredients" in storage_uri:
         return CompositionCrop(x=620, y=150, width=460, height=820)
-    if "tomato_cut" in storage_uri and layer_role not in {"background", "background_image", "environment"}:
+    if "tomato_cut" in storage_uri and layer_role not in {
+        "background",
+        "background_image",
+        "environment",
+    }:
         return CompositionCrop(x=0, y=0, width=800, height=800)
     size = _role_visual_size(role_payload)
     if size is None:
@@ -3210,7 +3241,11 @@ def _role_asset_id(role_payload: Mapping[str, Any], *, fallback: str) -> str:
 
 
 def _role_asset_kind(role_payload: Mapping[str, Any], *, fallback: str) -> str:
-    return _optional_text(role_payload.get("asset_kind")) or _optional_text(role_payload.get("pack_role")) or fallback
+    return (
+        _optional_text(role_payload.get("asset_kind"))
+        or _optional_text(role_payload.get("pack_role"))
+        or fallback
+    )
 
 
 def _role_mask_mode(role_payload: Mapping[str, Any], *, asset_kind: str) -> str:
