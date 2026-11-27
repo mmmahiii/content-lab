@@ -43,6 +43,8 @@ from content_lab_api.routes._storage import build_signed_download
 from content_lab_api.schemas.asset import SignedDownloadOut
 from content_lab_api.schemas.reel_families import ReelFamilyMode, dump_reel_family_metadata
 from content_lab_api.schemas.reels import ReelOut, reel_to_out
+from content_lab_api.services.asset_representations import is_image_uri, representation_uri
+from content_lab_api.services.quick_reel_export import export_quick_reel
 from content_lab_api.services.quick_reel_media import (
     MAX_RENDER_BYTES,
     build_quick_reel_soundtrack,
@@ -113,6 +115,10 @@ class QuickReelSoundtrackOut(BaseModel):
     voiceover: dict[str, Any] | None
     music: dict[str, Any] | None
     expect_voiceover: bool
+
+
+class QuickReelExportIn(QuickReelComposeIn):
+    visuals: list[QuickReelVisualIn] = Field(default_factory=list, max_length=12)
 
 
 class QuickReelQaIn(BaseModel):
@@ -376,6 +382,73 @@ async def run_render_qa(
         raise HTTPException(
             status_code=409, detail="Upload the render video before running QA"
         ) from exc
+
+
+@router.post("/orgs/{org_id}/pages/{page_id}/quick-reel/exports")
+async def export_reel(
+    org_id: uuid.UUID,
+    page_id: uuid.UUID,
+    body: QuickReelExportIn,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Build the MP4 with FFmpeg (seconds, not Chrome screenshots), store it and QA it.
+
+    The result's ``export_id`` is a render id: Send to Review with ``render.render_id`` set to
+    it attaches this export's QA report.
+    """
+
+    page = _page_or_404(db, org_id, page_id)
+    composed = _compose(page, body)
+    by_id = {visual.asset_id: visual for visual in body.visuals}
+    rows = (
+        db.query(Asset.id, Asset.storage_uri)
+        .filter(Asset.org_id == org_id, Asset.id.in_(list(by_id)))
+        .all()
+        if by_id
+        else []
+    )
+    if len(rows) != len(by_id):
+        raise HTTPException(status_code=422, detail="Unknown asset(s) for this org")
+    storage = _quick_reel_storage()
+    uris = {row[0]: row[1] for row in rows}
+    visuals = []
+    for visual in body.visuals:
+        uri = uris[visual.asset_id]
+        if is_image_uri(uri):
+            uri = await run_in_threadpool(
+                representation_uri, storage_uri=uri, max_px=1080, storage=storage
+            )
+        visuals.append({"asset_id": str(visual.asset_id), "storage_uri": uri, "fit": visual.fit})
+    report = await run_in_threadpool(
+        export_quick_reel,
+        composed,
+        org_id=str(org_id),
+        visuals=visuals,
+        settings=Settings(),
+        storage=storage,
+    )
+    report["download_path"] = f"/orgs/{org_id}/quick-reel/renders/{report['export_id']}/download"
+    report["duration_seconds"] = composed.duration_seconds
+    return report
+
+
+@router.get(
+    "/orgs/{org_id}/quick-reel/renders/{render_id}/download",
+    response_model=SignedDownloadOut,
+)
+def download_render(
+    org_id: uuid.UUID, render_id: str, db: Session = Depends(get_db)
+) -> SignedDownloadOut:
+    if db.get(Org, org_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Org not found")
+    _require_render_id(render_id)
+    settings = Settings()
+    report = read_quick_reel_qa(
+        org_id=str(org_id), render_id=render_id, settings=settings, storage=_quick_reel_storage()
+    )
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Render not found")
+    return build_signed_download(storage_uri=str(report["video_storage_uri"]))
 
 
 def _require_render_id(render_id: str) -> None:

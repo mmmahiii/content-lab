@@ -250,3 +250,87 @@ def test_upload_and_qa_reject_bad_input(
     assert bad_id.status_code == 422
     assert qa_first.status_code == 409
     assert unknown_soundtrack.status_code == 422
+
+
+def test_ffmpeg_export_builds_a_voiced_mp4_quickly_and_feeds_send_to_review(
+    client: TestClient,  # noqa: F811
+    scope: dict[str, Any],  # noqa: F811
+    storage: _MemoryStorage,
+    db_session: Session,
+    tmp_path: Path,
+) -> None:
+    import io
+    import time
+    import uuid as uuid_mod
+
+    from PIL import Image
+
+    from content_lab_api.models import Asset
+
+    def png(alpha: bool) -> bytes:
+        # Textured, like a real photo: a panned flat colour would honestly look frozen.
+        image = Image.effect_noise((900, 900), 60).convert("RGBA" if alpha else "RGB")
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    cutout = Asset(
+        org_id=scope["org"],
+        asset_class="image",
+        storage_uri=f"s3://content-lab/a/{uuid_mod.uuid4()}.png",
+    )
+    photo = Asset(
+        org_id=scope["org"],
+        asset_class="image",
+        storage_uri=f"s3://content-lab/a/{uuid_mod.uuid4()}.png",
+    )
+    db_session.add_all([cutout, photo])
+    db_session.flush()
+    storage.objects[cutout.storage_uri] = _Obj(png(True))
+    storage.objects[photo.storage_uri] = _Obj(png(False))
+    body = {
+        **_compose_body(),
+        "visuals": [
+            {"asset_id": str(cutout.id), "fit": "cutout"},
+            {"asset_id": str(photo.id), "fit": "cover"},
+        ],
+    }
+
+    started = time.monotonic()
+    first = client.post(_page_url(scope, "exports"), json=body)
+    elapsed = time.monotonic() - started
+    assert first.status_code == 200, first.text
+    report = first.json()
+    gates = {check["gate_name"]: check["verdict"] for check in report["checks"]}
+    assert report["cached"] is False
+    assert report["status"] in {"pass", "warn"}, report["blocking_failures"]
+    assert gates["media_content"] == "pass"
+    assert gates["overlay_coverage"] == "pass"
+    assert gates["audio_content"] == "warn"  # mock voice
+    assert report["duration_seconds"] == pytest.approx(report["duration_seconds"])
+    assert elapsed < 120
+
+    again = client.post(_page_url(scope, "exports"), json=body).json()
+    assert again["cached"] is True and again["export_id"] == report["export_id"]
+    download = client.get(report["download_path"])
+    assert download.status_code == 200 and report["export_id"] in download.json()["url"]
+
+    sent = client.post(
+        _page_url(scope, "reels"),
+        json=_payload(
+            visuals=body["visuals"],
+            render={
+                "render_id": report["export_id"],
+                "duration_seconds": report["duration_seconds"],
+                "width": 1080,
+                "height": 1920,
+                "fps": 30,
+                "overlay_trace_status": "pass",
+            },
+        ),
+    )
+    assert sent.status_code == 201, sent.text
+    assert (
+        sent.json()["metadata"]["quick_reel"]["qa"]["video_storage_uri"]
+        == report["video_storage_uri"]
+    )
