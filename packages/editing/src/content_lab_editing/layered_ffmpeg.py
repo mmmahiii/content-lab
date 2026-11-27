@@ -330,9 +330,13 @@ def build_layered_filter_graph(
             shadow_y = f"{_motion_y_expression(layer)}+{harmonisation.shadow_offset_y}"
             filters.append(
                 f"[{prepared_label}]split=2[{prepared_label}_fg][{shadow_label}_a];"
-                f"[{shadow_label}_a]alphaextract,boxblur={harmonisation.shadow_blur_radius}:"
-                f"{harmonisation.shadow_blur_radius},"
-                f"colorchannelmixer=aa={_fmt(harmonisation.shadow_opacity)}[{shadow_label}];"
+                # A real shadow: black, with the cut-out's alpha faded and blurred. (It used to be
+                # alphaextract, an *opaque* grey mask, so cut-outs sat on a black square with
+                # a white rim.)
+                f"[{shadow_label}_a]format=rgba,"
+                f"colorchannelmixer=rr=0:gg=0:bb=0:aa={_fmt(harmonisation.shadow_opacity)},"
+                f"boxblur=luma_radius={harmonisation.shadow_blur_radius}:luma_power=1:"
+                f"alpha_radius={harmonisation.shadow_blur_radius}:alpha_power=1[{shadow_label}];"
                 f"[{current}][{shadow_label}]overlay=x='{_motion_x_expression(layer)}':"
                 f"y='{shadow_y}':eof_action=pass:enable='{_between(layer)}'[{next_label}_shadow];"
                 f"[{next_label}_shadow][{prepared_label}_fg]overlay=x='{_motion_x_expression(layer)}':"

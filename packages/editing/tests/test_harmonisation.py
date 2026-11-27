@@ -211,4 +211,4 @@ def test_filter_graph_with_shadow_blend_branch() -> None:
     )
 
     assert "_shadow" in graph
-    assert "alphaextract,boxblur=10:10" in graph
+    assert "colorchannelmixer=rr=0:gg=0:bb=0:aa=" in graph

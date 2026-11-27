@@ -439,3 +439,64 @@ def test_still_background_with_motion_is_never_frozen(tmp_path: Path) -> None:
     assert frozen("none")  # a static background really is static
     assert not frozen("slow_zoom")
     assert not frozen("pan_right")
+
+
+def test_cutout_shadow_keeps_transparency(tmp_path: Path) -> None:
+    """Regression: the contact shadow was an opaque alphaextract mask, so every cut-out sat
+    on a black square with a white rim (also in cinematic reels)."""
+
+    import subprocess
+
+    from PIL import Image
+
+    from content_lab_editing import CompositionLayer, CompositionManifest, MotionTransform
+    from content_lab_editing.layered_ffmpeg import compose_layered_reel
+
+    backdrop = tmp_path / "bg.png"
+    Image.new("RGB", (540, 960), (230, 230, 230)).save(backdrop)
+    cutout = tmp_path / "cut.png"
+    disc = Image.new("RGBA", (300, 300), (0, 0, 0, 0))
+    for x in range(300):
+        for y in range(300):
+            if (x - 150) ** 2 + (y - 150) ** 2 < 100**2:
+                disc.putpixel((x, y), (200, 40, 40, 255))
+    disc.save(cutout)
+    manifest = CompositionManifest(
+        canvas_width=540,
+        canvas_height=960,
+        duration=1,
+        fps=12,
+        background_layer=CompositionLayer(
+            layer_id="background", asset_id="bg", asset_kind="background", media_type="image",
+            z_index=0, start_time=0, end_time=1, width=540, height=960,
+            motion_transform=MotionTransform(preset="none"),
+        ),  # fmt: skip
+        layers=[
+            CompositionLayer(
+                layer_id="cut", asset_id="cut", asset_kind="transparent_cutout_png",
+                media_type="image", z_index=10, start_time=0, end_time=1, x=120, y=330,
+                width=300, height=300, mask_mode="alpha",
+                motion_transform=MotionTransform(preset="none"),
+            )  # fmt: skip
+        ],
+        audio_layers=[],
+    )
+    out = tmp_path / "out.mp4"
+    compose_layered_reel(
+        manifest,
+        asset_sources={
+            "bg": {"source": str(backdrop), "media_type": "image"},
+            "cut": {"source": str(cutout), "media_type": "image"},
+        },
+        output_path=out,
+    )
+    frame = tmp_path / "frame.png"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(out), "-frames:v", "1", str(frame)], check=True
+    )
+    with Image.open(frame) as image:
+        rgb = image.convert("RGB")
+        # Inside the layer box but outside the disc: must still be (near) the light backdrop.
+        for point in [(125, 335), (415, 335), (125, 620)]:
+            assert min(rgb.getpixel(point)) > 150, (point, rgb.getpixel(point))
+        assert rgb.getpixel((270, 480))[0] > 150  # the disc itself is drawn (red)
